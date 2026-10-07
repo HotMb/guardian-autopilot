@@ -1,0 +1,16 @@
+{
+  "name": "guardian-autopilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {"guardian": "./dist/cli.js"},
+  "scripts": {
+    "build": "tsc",
+    "scan": "node dist/cli.js scan",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "prepack": "npm run build"
+  },
+  "files": ["dist"],
+  "engines": {"node": ">=20"},
+  "devDependencies": {"typescript": "^5.8.0", "@types/node": "^22.0.0"}
+}
