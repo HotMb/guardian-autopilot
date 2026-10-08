@@ -33,7 +33,8 @@
   - [x] Local HTTP webhook boundary with bounded raw-body handling
   - [x] Test-only Checkout Session builder with plan metadata and live-key guard
   - [x] Test sandbox Pro and Team products with recurring price fixtures
-  - [ ] Live test-mode webhook endpoint and subscription persistence (requires Stripe account/configuration)
+  - [x] Durable local subscription store with restart-safe webhook de-duplication
+  - [ ] Hosted test-mode webhook endpoint and database-backed subscription persistence (requires deployment configuration)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract
   - [x] Raw-body webhook signature verification fixture

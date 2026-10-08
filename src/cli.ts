@@ -6,7 +6,7 @@ import { planCandidates } from './candidates.js';
 import { runCleanupTransaction } from './transaction.js';
 import { serveMcp } from './mcp.js';
 import { createBillingWebhookServer } from './server.js';
-import { MemorySubscriptionStore } from './subscriptions.js';
+import { FileSubscriptionStore, MemorySubscriptionStore } from './subscriptions.js';
 import { checkoutConfigurationFromEnv, createStripeClient } from './checkout.js';
 
 function cleanupArguments(values: string[]): {apply: boolean; files: string[]; checks: Array<{command: string; args?: string[]}>} {
@@ -63,9 +63,11 @@ try {
     const checkoutEnabled = process.env.STRIPE_SECRET_KEY !== undefined;
     const checkoutConfiguration = checkoutEnabled ? checkoutConfigurationFromEnv() : undefined;
     const stripeClient = checkoutConfiguration === undefined ? undefined : createStripeClient(checkoutConfiguration);
+    const storePath = process.env.STRIPE_SUBSCRIPTION_STORE_PATH?.trim();
+    const store = storePath === undefined || storePath === '' ? new MemorySubscriptionStore() : new FileSubscriptionStore(storePath);
     const server = createBillingWebhookServer({
       endpointSecret: secret,
-      store: new MemorySubscriptionStore(),
+      store,
       ...(stripeClient === undefined || checkoutConfiguration === undefined ? {} : {stripeClient, checkoutConfiguration}),
     });
     await new Promise<void>((resolve, reject) => {

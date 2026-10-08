@@ -57,7 +57,7 @@ The local webhook server and Checkout route are opt-in. Copy `.env.example` to `
 npm run start:webhook
 ```
 
-It exposes `GET /healthz`, `POST /webhooks/stripe`, and — only when the Checkout variables are configured — `POST /billing/checkout`. Live keys are rejected by the local Checkout configuration. The development server uses in-memory subscription state; production requires a durable `SubscriptionStore` implementation.
+It exposes `GET /healthz`, `POST /webhooks/stripe`, and — only when the Checkout variables are configured — `POST /billing/checkout`. Live keys are rejected by the local Checkout configuration. By default the development server uses in-memory subscription state; set `STRIPE_SUBSCRIPTION_STORE_PATH` to an absolute path to persist subscriptions and webhook de-duplication across restarts.
 
 To enable it in a target JavaScript/TypeScript project, install Knip there with `npm install --save-dev knip`. Guardian consumes Knip's machine-readable JSON reporter and uses `--no-exit-code`; it does not install packages or modify the target project.
 
