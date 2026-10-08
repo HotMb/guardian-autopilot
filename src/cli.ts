@@ -65,6 +65,7 @@ try {
     const checkoutEnabled = process.env.STRIPE_SECRET_KEY !== undefined;
     const checkoutConfiguration = checkoutEnabled ? checkoutConfigurationFromEnv() : undefined;
     const stripeClient = checkoutConfiguration === undefined ? undefined : createStripeClient(checkoutConfiguration);
+    const checkoutAccessToken = process.env.STRIPE_CHECKOUT_ACCESS_TOKEN?.trim();
     const storePath = process.env.STRIPE_SUBSCRIPTION_STORE_PATH?.trim();
     const databaseUrl = process.env.DATABASE_URL?.trim();
     if (databaseUrl && storePath) throw new Error('Set either DATABASE_URL or STRIPE_SUBSCRIPTION_STORE_PATH, not both');
@@ -75,7 +76,7 @@ try {
       endpointSecret: secret,
       ...(process.env.GITHUB_WEBHOOK_SECRET === undefined ? {} : {githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET}),
       store,
-      ...(stripeClient === undefined || checkoutConfiguration === undefined ? {} : {stripeClient, checkoutConfiguration}),
+      ...(stripeClient === undefined || checkoutConfiguration === undefined || checkoutAccessToken === undefined || checkoutAccessToken === '' ? {} : {stripeClient, checkoutConfiguration, checkoutAccessToken}),
     });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);

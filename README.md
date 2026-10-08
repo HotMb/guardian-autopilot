@@ -57,9 +57,11 @@ The local webhook server and Checkout route are opt-in. Copy `.env.example` to `
 npm run start:webhook
 ```
 
-It exposes `GET /healthz`, `POST /webhooks/stripe`, optional `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured, and — only when the Checkout variables are configured — `POST /billing/checkout`. Live keys are rejected by the local Checkout configuration. By default the development server uses in-memory subscription state; set `STRIPE_SUBSCRIPTION_STORE_PATH` to an absolute path to persist subscriptions and webhook de-duplication across restarts.
+It exposes `GET /healthz`, `POST /webhooks/stripe`, optional `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured, and — only when the Checkout variables plus `STRIPE_CHECKOUT_ACCESS_TOKEN` are configured — `POST /billing/checkout`. Checkout requests require `Authorization: Bearer <token>`; live keys are rejected by the local Checkout configuration. By default the development server uses in-memory subscription state; set `STRIPE_SUBSCRIPTION_STORE_PATH` to an absolute path to persist subscriptions and webhook de-duplication across restarts.
 
-For a provider-neutral container deployment, build the included `Dockerfile`. It binds to `0.0.0.0`, runs as the unprivileged `node` user, exposes `/healthz`, and stores local subscription state in the mounted `/var/lib/guardian` volume. See [the deployment checklist](docs/DEPLOYMENT.md); public hosting and Stripe endpoint registration remain owner-controlled steps.
+For a provider-neutral container deployment, build the included `Dockerfile`. It binds to `0.0.0.0`, runs as the unprivileged `node` user, exposes `/healthz`, and can store single-instance local state in the mounted `/var/lib/guardian` volume. For horizontal scaling, set `DATABASE_URL` and use PostgreSQL instead. See [the deployment checklist](docs/DEPLOYMENT.md); public hosting and Stripe endpoint registration remain owner-controlled steps.
+
+Before any public deployment, read the [security and launch gate](docs/SECURITY.md). The recommended zero-cost test path is local execution plus Stripe CLI; a Cloudflare Quick Tunnel is acceptable only as a temporary development callback and is not production hosting.
 
 To enable it in a target JavaScript/TypeScript project, install Knip there with `npm install --save-dev knip`. Guardian consumes Knip's machine-readable JSON reporter and uses `--no-exit-code`; it does not install packages or modify the target project.
 

@@ -78,10 +78,13 @@ test('billing server exposes Checkout only when configured', async () => {
       successUrl: 'http://localhost:3000/success',
       cancelUrl: 'http://localhost:3000/cancel',
     },
+    checkoutAccessToken: 'checkout_test_token',
   });
   await new Promise((resolve) => configured.listen(0, '127.0.0.1', resolve));
   try {
-    const result = await call(configured, '/billing/checkout', 'POST', JSON.stringify({plan: 'team'}), {'content-type': 'application/json'});
+    const unauthorized = await call(configured, '/billing/checkout', 'POST', JSON.stringify({plan: 'team'}), {'content-type': 'application/json'});
+    assert.equal(unauthorized.statusCode, 401);
+    const result = await call(configured, '/billing/checkout', 'POST', JSON.stringify({plan: 'team'}), {'content-type': 'application/json', authorization: 'Bearer checkout_test_token'});
     assert.deepEqual(result, {statusCode: 201, json: {id: 'cs_test_http', url: 'https://checkout.stripe.com/test'}});
     assert.equal(received.metadata.guardian_plan, 'team');
   } finally {

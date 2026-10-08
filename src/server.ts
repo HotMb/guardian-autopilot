@@ -1,4 +1,5 @@
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'node:http';
+import {createHash, timingSafeEqual} from 'node:crypto';
 import type Stripe from 'stripe';
 import {createCheckoutSession, type CheckoutConfiguration} from './checkout.js';
 import {verifyGitHubWebhookSignature} from './github.js';
@@ -13,6 +14,7 @@ export type BillingWebhookServerOptions = {
   githubWebhookSecret?: string;
   stripeClient?: Stripe;
   checkoutConfiguration?: CheckoutConfiguration;
+  checkoutAccessToken?: string;
   maxBodyBytes?: number;
   nowSeconds?: number;
 };
@@ -69,6 +71,15 @@ function headerValue(request: IncomingMessage, name: string): string {
   return value ?? '';
 }
 
+function hasValidBearerToken(request: IncomingMessage, expectedToken: string): boolean {
+  const authorization = headerValue(request, 'authorization');
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
+  if (match === null) return false;
+  const presentedDigest = createHash('sha256').update(match[1]).digest();
+  const expectedDigest = createHash('sha256').update(expectedToken).digest();
+  return timingSafeEqual(presentedDigest, expectedDigest);
+}
+
 function parseGitHubPayload(rawBody: Buffer): Record<string, unknown> {
   let parsed: unknown;
   try {
@@ -94,8 +105,13 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
       return;
     }
     if (request.method === 'POST' && request.url === '/billing/checkout') {
-      if (options.stripeClient === undefined || options.checkoutConfiguration === undefined) {
+      if (options.stripeClient === undefined || options.checkoutConfiguration === undefined || options.checkoutAccessToken === undefined) {
         sendJson(response, 503, {error: 'checkout unavailable'});
+        return;
+      }
+      if (!hasValidBearerToken(request, options.checkoutAccessToken)) {
+        response.setHeader('www-authenticate', 'Bearer');
+        sendJson(response, 401, {error: 'Checkout authorization required'});
         return;
       }
       try {

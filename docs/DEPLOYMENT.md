@@ -13,6 +13,7 @@ docker run --rm -p 8787:8787 \
   -e STRIPE_PRICE_TEAM=price_test_team \
   -e STRIPE_CHECKOUT_SUCCESS_URL=https://example.invalid/billing/success \
   -e STRIPE_CHECKOUT_CANCEL_URL=https://example.invalid/billing/cancel \
+  -e STRIPE_CHECKOUT_ACCESS_TOKEN=replace_with_a_long_random_value \
   -e STRIPE_SUBSCRIPTION_STORE_PATH=/var/lib/guardian/subscriptions.json \
   -v guardian-autopilot-data:/var/lib/guardian \
   guardian-autopilot-webhook
@@ -35,7 +36,7 @@ This repository does not create the Google Cloud project, billing account, datab
 ## Before exposing it publicly
 
 1. Choose a hosting provider with a stable HTTPS URL and a durable volume or database.
-2. Supply `STRIPE_WEBHOOK_SECRET`, and provide the Checkout variables only when Checkout is enabled.
+2. Supply `STRIPE_WEBHOOK_SECRET`, and provide the Checkout variables plus a long random `STRIPE_CHECKOUT_ACCESS_TOKEN` only when Checkout is enabled. Requests to Checkout must send `Authorization: Bearer <token>`.
 3. If a GitHub App is registered, supply `GITHUB_WEBHOOK_SECRET`; the same server then accepts signed deliveries at `/webhooks/github` without performing actions.
 4. Register `https://<host>/webhooks/stripe` as a Stripe test-mode endpoint subscribed to the three subscription lifecycle events.
 5. Configure the provider's health probe to `GET /healthz`.
