@@ -26,6 +26,9 @@
 
 ## P2
 - [ ] Entitlements API and Stripe test mode
+  - [x] Local plan and entitlement policy foundation
+  - [x] Synthetic Stripe signature verification fixtures
+  - [ ] Live test-mode webhook endpoint and subscription persistence (requires Stripe account/configuration)
 - [ ] GitHub App installation and audit permissions
 - [ ] Team reporting, telemetry consent and data retention
 - [x] Read-only MCP stdio adapter
