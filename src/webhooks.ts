@@ -47,13 +47,13 @@ function eventCreatedAt(value: unknown, fallback: number): number {
  * Verify and apply a Stripe subscription webhook without depending on a web
  * framework or the Stripe SDK. The raw body must be passed unchanged.
  */
-export function processStripeSubscriptionWebhook(
+export async function processStripeSubscriptionWebhook(
   rawBody: string | Uint8Array,
   signatureHeader: string,
   endpointSecret: string,
   store: SubscriptionStore,
   options: {nowSeconds?: number; toleranceSeconds?: number} = {},
-): StripeWebhookResult {
+): Promise<StripeWebhookResult> {
   const verification = verifyStripeWebhookSignature(rawBody, signatureHeader, endpointSecret, options);
   const event = parseJsonBody(rawBody);
   const eventId = asRequiredIdentifier(event.id, 'Stripe event id');
@@ -72,6 +72,6 @@ export function processStripeSubscriptionWebhook(
     updatedAt: eventCreatedAt(event.created, verification.timestamp),
     snapshot,
   };
-  const status = store.apply(eventId, record);
+  const status = await store.apply(eventId, record);
   return {status: status === 'duplicate' ? 'duplicate' : 'updated', eventId, timestamp: verification.timestamp, subscriptionId, snapshot};
 }

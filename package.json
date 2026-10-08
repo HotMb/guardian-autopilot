@@ -34,9 +34,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "pg": "^8.23.1",
     "stripe": "^23.0.0"
   }
 }

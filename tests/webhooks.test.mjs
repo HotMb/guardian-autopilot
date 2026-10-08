@@ -22,10 +22,10 @@ function event(overrides = {}) {
   });
 }
 
-test('Stripe webhook processor verifies, persists, and deduplicates subscriptions', () => {
+test('Stripe webhook processor verifies, persists, and deduplicates subscriptions', async () => {
   const store = new MemorySubscriptionStore();
   const body = event();
-  const first = processStripeSubscriptionWebhook(body, signed(body), secret, store, {nowSeconds: timestamp});
+  const first = await processStripeSubscriptionWebhook(body, signed(body), secret, store, {nowSeconds: timestamp});
   assert.equal(first.status, 'updated');
   assert.deepEqual(store.get('sub_001'), {
     subscriptionId: 'sub_001',
@@ -35,26 +35,26 @@ test('Stripe webhook processor verifies, persists, and deduplicates subscription
     snapshot: {plan: 'pro', status: 'active', currentPeriodEnd: timestamp + 86400},
   });
 
-  const duplicate = processStripeSubscriptionWebhook(body, signed(body), secret, store, {nowSeconds: timestamp});
+  const duplicate = await processStripeSubscriptionWebhook(body, signed(body), secret, store, {nowSeconds: timestamp});
   assert.equal(duplicate.status, 'duplicate');
 });
 
-test('Stripe webhook processor handles cancellation and ignores unrelated events', () => {
+test('Stripe webhook processor handles cancellation and ignores unrelated events', async () => {
   const store = new MemorySubscriptionStore();
   const deleted = event({id: 'evt_sub_deleted', type: 'customer.subscription.deleted', data: {object: {id: 'sub_001', customer: 'cus_001', metadata: {guardian_plan: 'team'}, status: 'active'}}});
-  const result = processStripeSubscriptionWebhook(deleted, signed(deleted), secret, store, {nowSeconds: timestamp});
+  const result = await processStripeSubscriptionWebhook(deleted, signed(deleted), secret, store, {nowSeconds: timestamp});
   assert.equal(result.status, 'updated');
   assert.deepEqual(store.get('sub_001')?.snapshot, {plan: 'team', status: 'canceled'});
 
   const invoice = event({id: 'evt_invoice', type: 'invoice.paid', data: {object: {id: 'in_001'}}});
-  assert.equal(processStripeSubscriptionWebhook(invoice, signed(invoice), secret, store, {nowSeconds: timestamp}).status, 'ignored');
+  assert.equal((await processStripeSubscriptionWebhook(invoice, signed(invoice), secret, store, {nowSeconds: timestamp})).status, 'ignored');
 });
 
-test('Stripe webhook processor rejects malformed signed events', () => {
+test('Stripe webhook processor rejects malformed signed events', async () => {
   const store = new MemorySubscriptionStore();
   const body = event({id: ''});
-  assert.throws(() => processStripeSubscriptionWebhook(body, signed(body), secret, store, {nowSeconds: timestamp}), /event id is required/);
+  await assert.rejects(() => processStripeSubscriptionWebhook(body, signed(body), secret, store, {nowSeconds: timestamp}), /event id is required/);
   const invalidJson = '{';
-  assert.throws(() => processStripeSubscriptionWebhook(invalidJson, signed(invalidJson), secret, store, {nowSeconds: timestamp}), /invalid JSON/);
-  assert.throws(() => processStripeSubscriptionWebhook(event(), 't=1800000000,v1=bad', secret, store, {nowSeconds: timestamp}), /verification failed/);
+  await assert.rejects(() => processStripeSubscriptionWebhook(invalidJson, signed(invalidJson), secret, store, {nowSeconds: timestamp}), /invalid JSON/);
+  await assert.rejects(() => processStripeSubscriptionWebhook(event(), 't=1800000000,v1=bad', secret, store, {nowSeconds: timestamp}), /verification failed/);
 });

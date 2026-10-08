@@ -11,7 +11,6 @@ FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=8787
-ENV STRIPE_SUBSCRIPTION_STORE_PATH=/var/lib/guardian/subscriptions.json
 
 WORKDIR /app
 COPY package.json package-lock.json ./

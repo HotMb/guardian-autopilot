@@ -138,7 +138,7 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
     }
     try {
       const body = await readRawBody(request, maxBodyBytes);
-      const result = processStripeSubscriptionWebhook(body, signatureHeader(request), options.endpointSecret, options.store, {
+      const result = await processStripeSubscriptionWebhook(body, signatureHeader(request), options.endpointSecret, options.store, {
         ...(options.nowSeconds === undefined ? {} : {nowSeconds: options.nowSeconds}),
       });
       sendJson(response, 200, result);

@@ -7,6 +7,7 @@ import { runCleanupTransaction } from './transaction.js';
 import { serveMcp } from './mcp.js';
 import { createBillingWebhookServer } from './server.js';
 import { FileSubscriptionStore, MemorySubscriptionStore } from './subscriptions.js';
+import { PostgresSubscriptionStore } from './postgres-subscriptions.js';
 import { checkoutConfigurationFromEnv, createStripeClient } from './checkout.js';
 
 function cleanupArguments(values: string[]): {apply: boolean; files: string[]; checks: Array<{command: string; args?: string[]}>} {
@@ -65,7 +66,11 @@ try {
     const checkoutConfiguration = checkoutEnabled ? checkoutConfigurationFromEnv() : undefined;
     const stripeClient = checkoutConfiguration === undefined ? undefined : createStripeClient(checkoutConfiguration);
     const storePath = process.env.STRIPE_SUBSCRIPTION_STORE_PATH?.trim();
-    const store = storePath === undefined || storePath === '' ? new MemorySubscriptionStore() : new FileSubscriptionStore(storePath);
+    const databaseUrl = process.env.DATABASE_URL?.trim();
+    if (databaseUrl && storePath) throw new Error('Set either DATABASE_URL or STRIPE_SUBSCRIPTION_STORE_PATH, not both');
+    const postgresStore = databaseUrl === undefined || databaseUrl === '' ? undefined : new PostgresSubscriptionStore({connectionString: databaseUrl});
+    if (postgresStore !== undefined) await postgresStore.initialize();
+    const store = postgresStore ?? (storePath === undefined || storePath === '' ? new MemorySubscriptionStore() : new FileSubscriptionStore(storePath));
     const server = createBillingWebhookServer({
       endpointSecret: secret,
       ...(process.env.GITHUB_WEBHOOK_SECRET === undefined ? {} : {githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET}),
@@ -79,6 +84,15 @@ try {
         resolve();
       });
     });
+    let shuttingDown = false;
+    const shutdown = async (): Promise<void> => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await postgresStore?.close();
+    };
+    process.once('SIGTERM', () => { void shutdown(); });
+    process.once('SIGINT', () => { void shutdown(); });
   } else if (command === 'inventory') {
     const result = await buildInventory(target);
     await writeInventory(target, result.index);

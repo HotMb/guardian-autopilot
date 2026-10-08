@@ -19,8 +19,8 @@ export type SubscriptionApplyResult = 'applied' | 'duplicate';
  * two state transitions for the same event id.
  */
 export interface SubscriptionStore {
-  apply(eventId: string, record: SubscriptionRecord): SubscriptionApplyResult;
-  get(subscriptionId: string): SubscriptionRecord | undefined;
+  apply(eventId: string, record: SubscriptionRecord): SubscriptionApplyResult | Promise<SubscriptionApplyResult>;
+  get(subscriptionId: string): SubscriptionRecord | undefined | Promise<SubscriptionRecord | undefined>;
 }
 
 export class MemorySubscriptionStore implements SubscriptionStore {
