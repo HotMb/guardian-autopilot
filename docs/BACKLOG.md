@@ -37,6 +37,7 @@
   - [x] Transactional PostgreSQL store for horizontally scaled webhook workers
   - [x] Provider-neutral container and healthcheck for hosted deployment
   - [x] Security preflight, fail-closed Checkout access, and zero-cost test deployment guidance
+  - [x] Read-only local/production configuration preflight with fail-closed checks
   - [ ] Hosted test-mode webhook endpoint and database-backed subscription persistence (requires deployment configuration)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract

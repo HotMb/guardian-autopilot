@@ -4,6 +4,10 @@ Guardian Autopilot is not ready for an unattended public deployment yet. The saf
 default is to keep the service local and use Stripe CLI test-mode forwarding while
 the architecture, data policy, and operational limits are being validated.
 
+Run `npm exec guardian -- preflight` for a local check, or
+`npm exec guardian -- preflight --production` before a hosted test deployment. It
+only reads configuration and never creates cloud resources.
+
 ## What is protected today
 
 - Stripe webhooks verify the raw request body with `STRIPE_WEBHOOK_SECRET` before
