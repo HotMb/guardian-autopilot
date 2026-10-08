@@ -29,6 +29,7 @@
   - [x] Local plan and entitlement policy foundation
   - [x] Synthetic Stripe signature verification fixtures
   - [x] Fail-closed subscription event mapping
+  - [x] Dependency-free signed webhook processor, retry deduplication, and persistence contract
   - [ ] Live test-mode webhook endpoint and subscription persistence (requires Stripe account/configuration)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract
