@@ -34,8 +34,10 @@ test('cleanup CLI previews by default and applies only with --apply', async () =
     assert.equal(JSON.parse(preview.stdout).status, 'dry-run');
     assert.equal(await readFile(file, 'utf8'), 'duplicate');
 
-    const applied = await exec(process.execPath, [cli, 'cleanup', root, '--apply', 'duplicate.png']);
+    const check = JSON.stringify({command: process.execPath, args: ['-e', 'process.exit(0)']});
+    const applied = await exec(process.execPath, [cli, 'cleanup', root, '--apply', '--check-json', check, 'duplicate.png']);
     assert.equal(JSON.parse(applied.stdout).status, 'verified');
+    assert.equal(JSON.parse(applied.stdout).checks[0].passed, true);
     await assert.rejects(() => readFile(file, 'utf8'));
   } finally { await rm(root, {recursive: true, force: true}); }
 });
