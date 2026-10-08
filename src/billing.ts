@@ -22,6 +22,11 @@ export type StripeSignatureVerification = {
   timestamp: number;
 };
 
+export type StripeSubscriptionEvent = {
+  type: string;
+  data: {object: {metadata?: Record<string, unknown>; status?: unknown; current_period_end?: unknown}};
+};
+
 const planEntitlements: Record<BillingPlan, readonly Entitlement[]> = {
   free: ['local_reports', 'reversible_cleanup', 'mcp_audit'],
   pro: ['local_reports', 'reversible_cleanup', 'mcp_audit', 'hosted_audits', 'scheduled_reports', 'multi_repo_history'],
@@ -62,6 +67,25 @@ export function normalizeEntitlementSnapshot(value: unknown): EntitlementSnapsho
     status: raw.status as SubscriptionStatus,
     ...(raw.currentPeriodEnd === undefined ? {} : {currentPeriodEnd: raw.currentPeriodEnd as number}),
   };
+}
+
+export function entitlementSnapshotFromStripeEvent(value: unknown): EntitlementSnapshot | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Stripe event must be an object');
+  const raw = value as Partial<StripeSubscriptionEvent>;
+  if (typeof raw.type !== 'string') throw new Error('Stripe event type is required');
+  if (!['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'].includes(raw.type)) return null;
+  if (raw.data === null || typeof raw.data !== 'object' || raw.data.object === null || typeof raw.data.object !== 'object') {
+    throw new Error('Stripe subscription event object is required');
+  }
+  const subscription = raw.data.object;
+  const metadata = subscription.metadata;
+  const plan = metadata?.guardian_plan === 'pro' || metadata?.guardian_plan === 'team' ? metadata.guardian_plan : 'free';
+  const status = raw.type === 'customer.subscription.deleted' ? 'canceled' : subscription.status;
+  return normalizeEntitlementSnapshot({
+    plan,
+    status,
+    ...(subscription.current_period_end === undefined ? {} : {currentPeriodEnd: subscription.current_period_end}),
+  });
 }
 
 function parseSignatureHeader(header: string): {timestamp: number; signatures: string[]} {

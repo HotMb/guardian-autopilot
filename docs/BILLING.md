@@ -6,6 +6,7 @@ The repository now contains a local, dependency-free billing foundation in `src/
 - validation of untrusted entitlement snapshots;
 - active/trialing and period-expiry checks;
 - Stripe `Stripe-Signature` verification using the raw request body, HMAC-SHA256, `v1` signatures, constant-time comparison, and a five-minute default tolerance.
+- fail-closed mapping of subscription created/updated/deleted events to entitlement snapshots; an absent `metadata.guardian_plan` becomes `free`, and a deleted subscription becomes `canceled`.
 
 The Stripe coverage uses synthetic test-mode fixtures only. It does not call Stripe, create customers, receive webhooks, persist subscriptions, or verify a real transaction. A live test-mode endpoint still requires a Stripe account, webhook secret, HTTP service, persistence, and an explicit product decision about subscription events.
 

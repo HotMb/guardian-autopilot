@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {createHmac} from 'node:crypto';
 import test from 'node:test';
 import {
+  entitlementSnapshotFromStripeEvent,
   entitlementsForPlan,
   hasEntitlement,
   normalizeEntitlementSnapshot,
@@ -45,4 +46,27 @@ test('Stripe test-mode fixture signatures verify from the raw body', () => {
   assert.throws(() => verifyStripeWebhookSignature(`${payload} `, `t=${timestamp},v1=${signature(timestamp)}`, secret, {nowSeconds: timestamp}), /verification failed/);
   assert.throws(() => verifyStripeWebhookSignature(payload, `t=${timestamp - 301},v1=${signature(timestamp - 301)}`, secret, {nowSeconds: timestamp}), /outside the allowed tolerance/);
   assert.throws(() => verifyStripeWebhookSignature(payload, `t=${timestamp},v0=${signature(timestamp)}`, secret, {nowSeconds: timestamp}), /missing a valid timestamp or v1 signature/);
+});
+
+test('Stripe subscription events map to fail-closed entitlement snapshots', () => {
+  const updated = entitlementSnapshotFromStripeEvent({
+    type: 'customer.subscription.updated',
+    data: {object: {metadata: {guardian_plan: 'pro'}, status: 'active', current_period_end: 1_800_000_000}},
+  });
+  assert.deepEqual(updated, {plan: 'pro', status: 'active', currentPeriodEnd: 1_800_000_000});
+
+  const missingPlan = entitlementSnapshotFromStripeEvent({
+    type: 'customer.subscription.created',
+    data: {object: {status: 'active'}},
+  });
+  assert.deepEqual(missingPlan, {plan: 'free', status: 'active'});
+
+  const deleted = entitlementSnapshotFromStripeEvent({
+    type: 'customer.subscription.deleted',
+    data: {object: {metadata: {guardian_plan: 'team'}, status: 'active'}},
+  });
+  assert.deepEqual(deleted, {plan: 'team', status: 'canceled'});
+
+  assert.equal(entitlementSnapshotFromStripeEvent({type: 'invoice.paid', data: {object: {}}}), null);
+  assert.throws(() => entitlementSnapshotFromStripeEvent({type: 'customer.subscription.updated', data: {object: {status: 'unknown'}}}), /status is invalid/);
 });

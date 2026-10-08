@@ -28,6 +28,7 @@
 - [ ] Entitlements API and Stripe test mode
   - [x] Local plan and entitlement policy foundation
   - [x] Synthetic Stripe signature verification fixtures
+  - [x] Fail-closed subscription event mapping
   - [ ] Live test-mode webhook endpoint and subscription persistence (requires Stripe account/configuration)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract
