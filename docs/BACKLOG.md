@@ -31,6 +31,7 @@
   - [ ] Live test-mode webhook endpoint and subscription persistence (requires Stripe account/configuration)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract
+  - [x] Raw-body webhook signature verification fixture
   - [ ] App registration, webhook endpoint, and installation (requires deployment owner/configuration)
 - [ ] Team reporting, telemetry consent and data retention
   - [x] Local opt-in anonymous telemetry contract
