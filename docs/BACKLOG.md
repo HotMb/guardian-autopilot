@@ -30,6 +30,7 @@
   - [x] Synthetic Stripe signature verification fixtures
   - [x] Fail-closed subscription event mapping
   - [x] Dependency-free signed webhook processor, retry deduplication, and persistence contract
+  - [x] Local HTTP webhook boundary with bounded raw-body handling
   - [ ] Live test-mode webhook endpoint and subscription persistence (requires Stripe account/configuration)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract
