@@ -3,10 +3,13 @@
 ## P0
 - [x] Starter CLI: read-only exact duplicate scan
 - [ ] Build tests against fixture repositories; symlinks, permissions, large assets, exclusions
+  - [x] Next.js fixture repository and regression matrix
+  - [x] Symlink, large-asset, and generated-directory exclusion coverage
+  - [ ] Permission-denied coverage on a platform with reliable permission controls
 - [x] .guardian config schema and protected path policies
 - [x] Inventory with incremental hashes and safe event coalescing
-- [ ] Reference resolver for JS/TS, CSS, public URL paths, Next.js conventions
-- [ ] Knip integration, candidate confidence and explainable evidence
+- [x] Reference resolver for JS/TS, CSS, public URL paths, Next.js conventions
+- [x] Knip integration, candidate confidence and explainable evidence
 - [x] Git worktree transaction with dry-run diff, checks, and rollback
 
 ## P1
