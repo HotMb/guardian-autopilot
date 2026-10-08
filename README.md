@@ -30,6 +30,7 @@ node dist/cli.js references /path/to/project
 node dist/cli.js plan /path/to/project
 npm exec guardian -- cleanup /path/to/project path/to/tracked-file.png
 npm exec guardian -- cleanup /path/to/project --apply --check-json '{"command":"npm","args":["test"]}' path/to/tracked-file.png
+npm exec guardian -- mcp
 npm test
 ```
 
@@ -44,6 +45,8 @@ npm test
 `plan` also runs Knip when the target project provides a `knip` executable. The adapter requests only JSON analysis of dependency, unlisted and unresolved issues; it never invokes Knip's fix mode. If Knip is unavailable, the report returns `status: "unavailable"` and the rest of the plan still works.
 
 `cleanup` accepts an explicit list of tracked files and produces a worktree diff by default. Passing `--apply` is required to apply the verified diff to the source repository. Use repeated `--check <executable>` or `--check-json '{"command":"npm","args":["test"]}'` to add checks; commands are executed without a shell, and post-apply checks and rollback remain enforced by the transaction API.
+
+`mcp` starts a newline-delimited stdio adapter with the read-only tools `guardian_scan`, `guardian_references`, and `guardian_plan`. It restricts requested roots to `GUARDIAN_MCP_ROOT`, `CLAUDE_PROJECT_DIR`, or the current directory, in that order. Cleanup is intentionally not exposed through MCP yet.
 
 To enable it in a target JavaScript/TypeScript project, install Knip there with `npm install --save-dev knip`. Guardian consumes Knip's machine-readable JSON reporter and uses `--no-exit-code`; it does not install packages or modify the target project.
 

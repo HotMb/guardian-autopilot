@@ -23,4 +23,4 @@
 - [ ] Entitlements API and Stripe test mode
 - [ ] GitHub App installation and audit permissions
 - [ ] Team reporting, telemetry consent and data retention
-- [ ] MCP adapter
+- [x] Read-only MCP stdio adapter

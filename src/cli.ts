@@ -4,6 +4,7 @@ import { buildInventory, writeInventory } from './inventory.js';
 import { findAssetReferences } from './references.js';
 import { planCandidates } from './candidates.js';
 import { runCleanupTransaction } from './transaction.js';
+import { serveMcp } from './mcp.js';
 
 function cleanupArguments(values: string[]): {apply: boolean; files: string[]; checks: Array<{command: string; args?: string[]}>} {
   const files: string[] = [];
@@ -44,12 +45,14 @@ const argumentsList = process.argv.slice(2);
 const command = argumentsList.shift();
 const target = argumentsList[0]?.startsWith('--') || argumentsList.length === 0 ? '.' : (argumentsList.shift() ?? '.');
 
-if (command !== 'scan' && command !== 'inventory' && command !== 'references' && command !== 'plan' && command !== 'cleanup') {
-  console.log('Guardian Autopilot\nUsage:\n  guardian scan [directory]\n  guardian inventory [directory]\n  guardian references [directory]\n  guardian plan [directory]\n  guardian cleanup [directory] [--apply] [--check <command>] [--check-json <json>] <tracked-file>...\nScan, references and plan are read-only; inventory writes only .guardian/index.json. Cleanup is a dry-run unless --apply is explicitly provided.');
+if (command !== 'scan' && command !== 'inventory' && command !== 'references' && command !== 'plan' && command !== 'cleanup' && command !== 'mcp') {
+  console.log('Guardian Autopilot\nUsage:\n  guardian scan [directory]\n  guardian inventory [directory]\n  guardian references [directory]\n  guardian plan [directory]\n  guardian cleanup [directory] [--apply] [--check <command>] [--check-json <json>] <tracked-file>...\n  guardian mcp\nScan, references and plan are read-only; inventory writes only .guardian/index.json. Cleanup is a dry-run unless --apply is explicitly provided. MCP exposes read-only tools only.');
   process.exit(command === undefined || command === '--help' ? 0 : 1);
 }
 try {
-  if (command === 'inventory') {
+  if (command === 'mcp') {
+    await serveMcp();
+  } else if (command === 'inventory') {
     const result = await buildInventory(target);
     await writeInventory(target, result.index);
     console.log(JSON.stringify(result, null, 2));
