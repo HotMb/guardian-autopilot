@@ -35,7 +35,6 @@ test('Checkout client uses an instance and creates a subscription session with p
   assert.equal(received.client_reference_id, 'user_123');
   assert.deepEqual(received.metadata, {guardian_plan: 'pro'});
   assert.deepEqual(received.subscription_data, {metadata: {guardian_plan: 'pro'}});
-  assert.match(received.integration_identifier, /^guardian-autopilot-[a-z]{8}$/);
   assert.equal(received.success_url, 'http://localhost:3000/success?source=guardian&session_id=%7BCHECKOUT_SESSION_ID%7D');
 });
 

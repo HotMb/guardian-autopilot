@@ -27,6 +27,11 @@ function sendJson(response: ServerResponse, statusCode: number, value: unknown):
   response.end(body);
 }
 
+function safeErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/\b(?:sk|rk|whsec)_[A-Za-z0-9_]+\b/g, '[redacted-secret]');
+}
+
 function readRawBody(request: IncomingMessage, maxBodyBytes: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -123,7 +128,8 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
           ...(parsed.clientReferenceId === undefined ? {} : {clientReferenceId: parsed.clientReferenceId as string}),
         });
         sendJson(response, 201, {id: session.id, url: session.url ?? null});
-      } catch {
+      } catch (error) {
+        console.error(`Checkout request failed: ${safeErrorMessage(error)}`);
         sendJson(response, 400, {error: 'invalid Checkout request'});
       }
       return;

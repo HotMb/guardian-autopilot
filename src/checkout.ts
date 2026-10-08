@@ -1,4 +1,3 @@
-import {randomBytes} from 'node:crypto';
 import Stripe from 'stripe';
 import type {BillingPlan} from './billing.js';
 
@@ -55,12 +54,6 @@ export function createStripeClient(configuration: CheckoutConfiguration): Stripe
   return new Stripe(configuration.secretKey);
 }
 
-function integrationIdentifier(): string {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
-  const suffix = Array.from(randomBytes(8), (byte) => alphabet[byte % alphabet.length]).join('');
-  return `guardian-autopilot-${suffix}`;
-}
-
 function successUrlWithSessionId(value: string): string {
   const url = new URL(value);
   url.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');
@@ -86,6 +79,5 @@ export async function createCheckoutSession(
     ...(request.clientReferenceId === undefined ? {} : {client_reference_id: request.clientReferenceId}),
     metadata: {guardian_plan: request.plan},
     subscription_data: {metadata: {guardian_plan: request.plan}},
-    integration_identifier: integrationIdentifier(),
   });
 }
