@@ -11,7 +11,7 @@
 
 ## P1
 - [x] Claude Code plugin manifest and hooks matching currently documented format
-- [ ] E2E React/Next.js fixture apps and regression test matrix
+- [x] E2E React/Next.js fixture apps and regression test matrix
 - [ ] Release pipeline, npm publishing, documentation and signed provenance
 
 ## P2
