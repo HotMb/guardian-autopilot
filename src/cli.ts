@@ -7,6 +7,7 @@ import { runCleanupTransaction } from './transaction.js';
 import { serveMcp } from './mcp.js';
 import { createBillingWebhookServer } from './server.js';
 import { MemorySubscriptionStore } from './subscriptions.js';
+import { checkoutConfigurationFromEnv, createStripeClient } from './checkout.js';
 
 function cleanupArguments(values: string[]): {apply: boolean; files: string[]; checks: Array<{command: string; args?: string[]}>} {
   const files: string[] = [];
@@ -59,7 +60,14 @@ try {
     if (!secret) throw new Error('STRIPE_WEBHOOK_SECRET is required');
     const port = Number.parseInt(process.env.PORT ?? '8787', 10);
     if (!Number.isSafeInteger(port) || port <= 0 || port > 65535) throw new Error('PORT must be a valid TCP port');
-    const server = createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore()});
+    const checkoutEnabled = process.env.STRIPE_SECRET_KEY !== undefined;
+    const checkoutConfiguration = checkoutEnabled ? checkoutConfigurationFromEnv() : undefined;
+    const stripeClient = checkoutConfiguration === undefined ? undefined : createStripeClient(checkoutConfiguration);
+    const server = createBillingWebhookServer({
+      endpointSecret: secret,
+      store: new MemorySubscriptionStore(),
+      ...(stripeClient === undefined || checkoutConfiguration === undefined ? {} : {stripeClient, checkoutConfiguration}),
+    });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, '127.0.0.1', () => {

@@ -1,4 +1,6 @@
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'node:http';
+import type Stripe from 'stripe';
+import {createCheckoutSession, type CheckoutConfiguration} from './checkout.js';
 import {processStripeSubscriptionWebhook} from './webhooks.js';
 import type {SubscriptionStore} from './subscriptions.js';
 
@@ -7,6 +9,8 @@ const defaultMaxBodyBytes = 4 * 1024 * 1024;
 export type BillingWebhookServerOptions = {
   endpointSecret: string;
   store: SubscriptionStore;
+  stripeClient?: Stripe;
+  checkoutConfiguration?: CheckoutConfiguration;
   maxBodyBytes?: number;
   nowSeconds?: number;
 };
@@ -62,10 +66,30 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
   if (options.endpointSecret.trim() === '') throw new Error('Stripe webhook endpoint secret is required');
   const maxBodyBytes = options.maxBodyBytes ?? defaultMaxBodyBytes;
   if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new Error('maxBodyBytes must be a positive safe integer');
+  if ((options.stripeClient === undefined) !== (options.checkoutConfiguration === undefined)) throw new Error('Stripe client and Checkout configuration must be provided together');
 
   return createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/healthz') {
       sendJson(response, 200, {ok: true, service: 'guardian-autopilot'});
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/billing/checkout') {
+      if (options.stripeClient === undefined || options.checkoutConfiguration === undefined) {
+        sendJson(response, 503, {error: 'checkout unavailable'});
+        return;
+      }
+      try {
+        const body = await readRawBody(request, maxBodyBytes);
+        const parsed = JSON.parse(body.toString('utf8')) as {plan?: unknown; customerEmail?: unknown; clientReferenceId?: unknown};
+        const session = await createCheckoutSession(options.stripeClient, options.checkoutConfiguration, {
+          plan: parsed.plan as 'pro' | 'team',
+          ...(parsed.customerEmail === undefined ? {} : {customerEmail: parsed.customerEmail as string}),
+          ...(parsed.clientReferenceId === undefined ? {} : {clientReferenceId: parsed.clientReferenceId as string}),
+        });
+        sendJson(response, 201, {id: session.id, url: session.url ?? null});
+      } catch {
+        sendJson(response, 400, {error: 'invalid Checkout request'});
+      }
       return;
     }
     if (request.method !== 'POST' || request.url !== '/webhooks/stripe') {

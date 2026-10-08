@@ -49,6 +49,16 @@ npm test
 
 `mcp` starts a newline-delimited stdio adapter with the read-only tools `guardian_scan`, `guardian_references`, and `guardian_plan`. It restricts requested roots to `GUARDIAN_MCP_ROOT`, `CLAUDE_PROJECT_DIR`, or the current directory, in that order. Cleanup is intentionally not exposed through MCP yet.
 
+### Stripe test billing
+
+The local webhook server and Checkout route are opt-in. Copy `.env.example` to `.env`, fill in test-mode price ids and the signing secret from `stripe listen`, then run:
+
+```bash
+npm run start:webhook
+```
+
+It exposes `GET /healthz`, `POST /webhooks/stripe`, and — only when the Checkout variables are configured — `POST /billing/checkout`. Live keys are rejected by the local Checkout configuration. The development server uses in-memory subscription state; production requires a durable `SubscriptionStore` implementation.
+
 To enable it in a target JavaScript/TypeScript project, install Knip there with `npm install --save-dev knip`. Guardian consumes Knip's machine-readable JSON reporter and uses `--no-exit-code`; it does not install packages or modify the target project.
 
 The transactional cleanup API in `src/transaction.ts` requires a clean Git repository, accepts tracked regular files only, creates an isolated worktree, generates a binary-safe diff, runs optional checks without a shell, and removes the worktree afterward. Its default mode is dry-run; `dryRun: false` applies only the verified diff and rolls back the source repository if post-apply checks fail. Protected paths and failed checks are rolled back automatically.
