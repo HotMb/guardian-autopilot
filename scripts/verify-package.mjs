@@ -22,6 +22,9 @@ const mcpConfig = readJson('integrations/claude-plugin/.mcp.json');
 if (packageJson.bin?.guardian !== './dist/cli.js') {
   throw new Error('package.json must expose dist/cli.js as the guardian binary');
 }
+if (packageJson.private !== false || packageJson.publishConfig?.access !== 'public') {
+  throw new Error('package.json must be explicitly configured as a public npm package');
+}
 if (packageJson.scripts?.prepack !== 'npm run build') {
   throw new Error('package.json must build before packing');
 }

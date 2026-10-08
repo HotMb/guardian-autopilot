@@ -1,7 +1,8 @@
 {
   "name": "guardian-autopilot",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "publishConfig": {"access": "public"},
   "repository": {"type": "git", "url": "https://github.com/HotMb/guardian-autopilot.git"},
   "homepage": "https://github.com/HotMb/guardian-autopilot#readme",
   "bugs": {"url": "https://github.com/HotMb/guardian-autopilot/issues"},

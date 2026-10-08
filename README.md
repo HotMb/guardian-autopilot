@@ -31,6 +31,7 @@ node dist/cli.js plan /path/to/project
 npm exec guardian -- cleanup /path/to/project path/to/tracked-file.png
 npm exec guardian -- cleanup /path/to/project --apply --check-json '{"command":"npm","args":["test"]}' path/to/tracked-file.png
 npm exec guardian -- mcp
+npm install --global guardian-autopilot
 npm test
 ```
 

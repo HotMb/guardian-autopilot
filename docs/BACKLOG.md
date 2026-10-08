@@ -20,6 +20,7 @@
   - [x] Tag/manual release artifact workflow with GitHub build attestation
   - [x] Read-only package content verification in the release workflow
   - [x] Release and future npm trusted-publishing documentation
+  - [x] Manual tag-only npm workflow with explicit confirmation and OIDC
 
 ## P2
 - [ ] Entitlements API and Stripe test mode
