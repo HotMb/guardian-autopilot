@@ -34,6 +34,7 @@
   - [x] Test-only Checkout Session builder with plan metadata and live-key guard
   - [x] Test sandbox Pro and Team products with recurring price fixtures
   - [x] Durable local subscription store with restart-safe webhook de-duplication
+  - [x] Provider-neutral container and healthcheck for hosted deployment
   - [ ] Hosted test-mode webhook endpoint and database-backed subscription persistence (requires deployment configuration)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract

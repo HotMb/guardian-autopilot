@@ -60,6 +60,7 @@ try {
     if (!secret) throw new Error('STRIPE_WEBHOOK_SECRET is required');
     const port = Number.parseInt(process.env.PORT ?? '8787', 10);
     if (!Number.isSafeInteger(port) || port <= 0 || port > 65535) throw new Error('PORT must be a valid TCP port');
+    const host = process.env.HOST?.trim() || '127.0.0.1';
     const checkoutEnabled = process.env.STRIPE_SECRET_KEY !== undefined;
     const checkoutConfiguration = checkoutEnabled ? checkoutConfigurationFromEnv() : undefined;
     const stripeClient = checkoutConfiguration === undefined ? undefined : createStripeClient(checkoutConfiguration);
@@ -72,8 +73,8 @@ try {
     });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(port, '127.0.0.1', () => {
-        console.error(`Guardian webhook listening on http://127.0.0.1:${port}/webhooks/stripe`);
+      server.listen(port, host, () => {
+        console.error(`Guardian webhook listening on http://${host}:${port}/webhooks/stripe`);
         resolve();
       });
     });

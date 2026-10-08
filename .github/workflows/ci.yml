@@ -32,3 +32,15 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  container:
+    name: Webhook container
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build webhook container
+        run: docker build --tag guardian-autopilot-webhook:ci .
