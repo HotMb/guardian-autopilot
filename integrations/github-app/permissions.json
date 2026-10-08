@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "repositoryPermissions": {
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+    "checks": "read"
+  },
+  "events": ["installation", "push", "pull_request"],
+  "writeAccess": false,
+  "webhookSecret": "configured-at-registration-time"
+}

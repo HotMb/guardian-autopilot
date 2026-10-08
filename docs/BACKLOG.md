@@ -30,6 +30,8 @@
   - [x] Synthetic Stripe signature verification fixtures
   - [ ] Live test-mode webhook endpoint and subscription persistence (requires Stripe account/configuration)
 - [ ] GitHub App installation and audit permissions
+  - [x] Least-privilege read-only permission contract
+  - [ ] App registration, webhook endpoint, and installation (requires deployment owner/configuration)
 - [ ] Team reporting, telemetry consent and data retention
 - [x] Read-only MCP stdio adapter
   - [x] JSON-RPC error and unknown-request coverage
