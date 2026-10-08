@@ -21,16 +21,19 @@ const tools = [
     name: 'guardian_scan',
     description: 'Run a read-only asset scan for the configured project or a child directory.',
     inputSchema: {type: 'object', properties: {root: {type: 'string', description: 'Relative project subdirectory; defaults to the configured root.'}}, additionalProperties: false},
+    annotations: {title: 'Guardian scan', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false},
   },
   {
     name: 'guardian_references',
     description: 'Resolve supported local asset references without changing files.',
     inputSchema: {type: 'object', properties: {root: {type: 'string', description: 'Relative project subdirectory; defaults to the configured root.'}}, additionalProperties: false},
+    annotations: {title: 'Guardian references', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false},
   },
   {
     name: 'guardian_plan',
     description: 'Produce explainable review-only cleanup candidates without changing files.',
     inputSchema: {type: 'object', properties: {root: {type: 'string', description: 'Relative project subdirectory; defaults to the configured root.'}}, additionalProperties: false},
+    annotations: {title: 'Guardian plan', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false},
   },
 ];
 

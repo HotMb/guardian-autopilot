@@ -41,6 +41,12 @@ test('MCP stdio adapter lists and calls read-only Guardian tools', async () => {
 
     const listed = await request(server, {jsonrpc: '2.0', id: 2, method: 'tools/list'});
     assert.deepEqual(listed.result.tools.map((tool) => tool.name), ['guardian_scan', 'guardian_references', 'guardian_plan']);
+    for (const tool of listed.result.tools) {
+      assert.equal(tool.annotations.readOnlyHint, true);
+      assert.equal(tool.annotations.destructiveHint, false);
+      assert.equal(tool.annotations.idempotentHint, true);
+      assert.equal(tool.annotations.openWorldHint, false);
+    }
 
     const resources = await request(server, {jsonrpc: '2.0', id: 12, method: 'resources/list'});
     assert.deepEqual(resources, {jsonrpc: '2.0', id: 12, result: {resources: []}});
