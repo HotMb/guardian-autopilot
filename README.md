@@ -54,9 +54,20 @@ Create `.guardian/config.json` inside the scanned project:
 
 All configured paths must be relative to the project root. `.env*` files and common certificate/key extensions are protected by default. Protected paths are not modified by the current read-only scanner; they will be enforced by the future cleanup transaction.
 
+### Claude Code plugin
+
+The repository includes an optional Claude Code plugin under `integrations/claude-plugin`. It follows the current plugin layout with `.claude-plugin/plugin.json`, `hooks/hooks.json`, and a namespaced read-only audit skill. Validate and load it for one session with:
+
+```bash
+claude plugin validate ./integrations/claude-plugin
+claude --plugin-dir ./integrations/claude-plugin
+```
+
+The `Stop` hook is debounced for five minutes per project, runs `guardian plan` only, and never performs cleanup. It does not create a permanent background process. The explicit skill is `/guardian-autopilot:audit`.
+
 ## Planned, not yet implemented
 
-Reference graph, static-analysis integration (Knip), policy engine, isolated worktrees, test validation, automatic reversible cleanup, Claude Code hooks, MCP adapter, GitHub integration, paid cloud service.
+Policy engine, automatic reversible cleanup, MCP adapter, GitHub integration, paid cloud service.
 
 ## Start here
 

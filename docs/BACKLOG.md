@@ -10,7 +10,7 @@
 - [x] Git worktree transaction with dry-run diff, checks, and rollback
 
 ## P1
-- [ ] Claude Code plugin manifest and hooks matching currently documented format
+- [x] Claude Code plugin manifest and hooks matching currently documented format
 - [ ] E2E React/Next.js fixture apps and regression test matrix
 - [ ] Release pipeline, npm publishing, documentation and signed provenance
 

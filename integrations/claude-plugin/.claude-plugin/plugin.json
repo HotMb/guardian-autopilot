@@ -1,0 +1,5 @@
+{
+  "name": "guardian-autopilot",
+  "description": "Read-only project hygiene audits with explainable duplicate and reference evidence.",
+  "version": "0.1.0"
+}

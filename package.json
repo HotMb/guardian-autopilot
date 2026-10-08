@@ -10,7 +10,7 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "prepack": "npm run build"
   },
-  "files": ["dist"],
+  "files": ["dist", "integrations/claude-plugin"],
   "engines": {"node": ">=20"},
   "devDependencies": {"typescript": "^5.8.0", "@types/node": "^22.0.0"}
 }
