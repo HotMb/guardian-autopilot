@@ -1,6 +1,6 @@
 import {createReadStream} from 'node:fs';
-import {lstat, mkdir, readFile, readdir, writeFile} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
+import {lstat, mkdir, readFile, readdir, rename, unlink, writeFile} from 'node:fs/promises';
+import {createHash, randomUUID} from 'node:crypto';
 import {join, resolve} from 'node:path';
 import {isIgnoredPath, loadConfig} from './config.js';
 
@@ -23,6 +23,10 @@ export type InventoryResult = {
   hashedFiles: number;
   reusedHashes: number;
   removedFiles: number;
+};
+
+export type InventoryCoalescer = {
+  request(rootDir: string): Promise<InventoryResult>;
 };
 
 const indexRelativePath = '.guardian/index.json';
@@ -124,7 +128,51 @@ export async function writeInventory(rootDir: string, index: InventoryIndex): Pr
   const root = resolve(rootDir);
   if (index.schemaVersion !== 1 || index.root !== root) throw new Error('Inventory index does not belong to this root');
   const path = join(root, indexRelativePath);
-  await mkdir(join(root, '.guardian'), {recursive: true});
-  await writeFile(path, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
+  const directory = join(root, '.guardian');
+  const temporaryPath = join(directory, `index.json.tmp-${process.pid}-${randomUUID()}`);
+  await mkdir(directory, {recursive: true});
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
+    await rename(temporaryPath, path);
+  } finally {
+    await unlink(temporaryPath).catch(() => undefined);
+  }
   return path;
+}
+
+/**
+ * Coalesces bursts of inventory requests for the same root without creating a
+ * watcher or a permanent background process. Requests that arrive during the
+ * debounce window share one read-only build and one result.
+ */
+export function createInventoryCoalescer(
+  delayMs = 250,
+  builder: (rootDir: string) => Promise<InventoryResult> = buildInventory,
+): InventoryCoalescer {
+  type Waiter = {resolve: (result: InventoryResult) => void; reject: (error: unknown) => void};
+  type Pending = {waiters: Waiter[]; timer: ReturnType<typeof setTimeout>};
+  const pending = new Map<string, Pending>();
+
+  return {
+    request(rootDir: string): Promise<InventoryResult> {
+      const root = resolve(rootDir);
+      const promise = new Promise<InventoryResult>((resolvePromise, rejectPromise) => {
+        const existing = pending.get(root);
+        const waiters = existing?.waiters ?? [];
+        waiters.push({resolve: resolvePromise, reject: rejectPromise});
+        if (existing) clearTimeout(existing.timer);
+        const timer = setTimeout(async () => {
+          pending.delete(root);
+          try {
+            const result = await builder(root);
+            for (const waiter of waiters) waiter.resolve(result);
+          } catch (error) {
+            for (const waiter of waiters) waiter.reject(error);
+          }
+        }, Math.max(0, delayMs));
+        pending.set(root, {waiters, timer});
+      });
+      return promise;
+    },
+  };
 }

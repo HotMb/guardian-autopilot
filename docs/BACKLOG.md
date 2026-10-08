@@ -4,7 +4,7 @@
 - [x] Starter CLI: read-only exact duplicate scan
 - [ ] Build tests against fixture repositories; symlinks, permissions, large assets, exclusions
 - [x] .guardian config schema and protected path policies
-- [ ] Inventory with incremental hashes and safe event coalescing
+- [x] Inventory with incremental hashes and safe event coalescing
 - [ ] Reference resolver for JS/TS, CSS, public URL paths, Next.js conventions
 - [ ] Knip integration, candidate confidence and explainable evidence
 - [x] Git worktree transaction with dry-run diff, checks, and rollback
