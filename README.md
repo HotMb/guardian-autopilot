@@ -37,6 +37,8 @@ To enable it in a target JavaScript/TypeScript project, install Knip there with 
 
 The transactional cleanup API in `src/transaction.ts` requires a clean Git repository, accepts tracked regular files only, creates an isolated worktree, generates a binary-safe diff, runs optional checks without a shell, and removes the worktree afterward. Its default mode is dry-run; protected paths and failed checks are rolled back automatically.
 
+Every push to `main` and every pull request runs the test suite on Node.js 20 and 22 through GitHub Actions.
+
 ### Optional configuration
 
 Create `.guardian/config.json` inside the scanned project:
