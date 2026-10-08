@@ -26,3 +26,4 @@
 - [ ] GitHub App installation and audit permissions
 - [ ] Team reporting, telemetry consent and data retention
 - [x] Read-only MCP stdio adapter
+  - [x] JSON-RPC error and unknown-request coverage

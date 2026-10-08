@@ -21,6 +21,10 @@ function startServer() {
 
 async function request(server, message) {
   server.child.stdin.write(`${JSON.stringify(message)}\n`);
+  return nextResponse(server);
+}
+
+async function nextResponse(server) {
   const next = await server.responses.next();
   assert.equal(next.done, false);
   return JSON.parse(next.value);
@@ -50,6 +54,32 @@ test('MCP adapter rejects roots outside its configured project', async () => {
     const response = await request(server, {jsonrpc: '2.0', id: 4, method: 'tools/call', params: {name: 'guardian_scan', arguments: {root: '..'}}});
     assert.equal(response.result.isError, true);
     assert.match(response.result.content[0].text, /inside GUARDIAN_MCP_ROOT/);
+  } finally {
+    server.child.stdin.end();
+    await once(server.child, 'close');
+  }
+});
+
+test('MCP adapter returns JSON-RPC errors for malformed and unknown requests', async () => {
+  const server = startServer();
+  try {
+    server.child.stdin.write('not-json\n');
+    const parseError = await nextResponse(server);
+    assert.equal(parseError.id, null);
+    assert.equal(parseError.error.code, -32700);
+
+    const invalidRequest = await request(server, {jsonrpc: '1.0', id: 5, method: 'ping'});
+    assert.equal(invalidRequest.error.code, -32600);
+
+    const unknownMethod = await request(server, {jsonrpc: '2.0', id: 6, method: 'completion/complete'});
+    assert.equal(unknownMethod.error.code, -32601);
+
+    const missingTool = await request(server, {jsonrpc: '2.0', id: 7, method: 'tools/call', params: {}});
+    assert.equal(missingTool.error.code, -32602);
+
+    const unknownTool = await request(server, {jsonrpc: '2.0', id: 8, method: 'tools/call', params: {name: 'guardian_cleanup', arguments: {}}});
+    assert.equal(unknownTool.result.isError, true);
+    assert.match(unknownTool.result.content[0].text, /Unknown tool/);
   } finally {
     server.child.stdin.end();
     await once(server.child, 'close');
