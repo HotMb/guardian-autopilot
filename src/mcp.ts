@@ -1,4 +1,5 @@
 import {createInterface} from 'node:readline';
+import {realpath} from 'node:fs/promises';
 import {isAbsolute, relative, resolve} from 'node:path';
 import {planCandidates} from './candidates.js';
 import {findAssetReferences} from './references.js';
@@ -44,7 +45,7 @@ function configuredRoot(): string {
   return resolve(process.env.GUARDIAN_MCP_ROOT || process.env.CLAUDE_PROJECT_DIR || process.cwd());
 }
 
-function requestedRoot(params: unknown): string {
+async function requestedRoot(params: unknown): Promise<string> {
   const raw = params && typeof params === 'object' && !Array.isArray(params) && typeof (params as {root?: unknown}).root === 'string'
     ? (params as {root: string}).root
     : '.';
@@ -54,7 +55,12 @@ function requestedRoot(params: unknown): string {
   if (outside === '..' || outside.startsWith('../') || isAbsolute(outside)) {
     throw new Error('Requested root must stay inside GUARDIAN_MCP_ROOT');
   }
-  return candidate;
+  const [realBase, realCandidate] = await Promise.all([realpath(base), realpath(candidate)]);
+  const realOutside = relative(realBase, realCandidate).replaceAll('\\', '/');
+  if (realOutside === '..' || realOutside.startsWith('../') || isAbsolute(realOutside)) {
+    throw new Error('Requested root must stay inside GUARDIAN_MCP_ROOT');
+  }
+  return realCandidate;
 }
 
 function toolResult(value: unknown) {
@@ -62,7 +68,7 @@ function toolResult(value: unknown) {
 }
 
 async function callTool(name: string, params: unknown) {
-  const root = requestedRoot(params);
+  const root = await requestedRoot(params);
   if (name === 'guardian_scan') return toolResult(await scan(root));
   if (name === 'guardian_references') return toolResult(await findAssetReferences(root));
   if (name === 'guardian_plan') return toolResult(await planCandidates(root));

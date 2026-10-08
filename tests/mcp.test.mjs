@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
+import {mkdir, mkdtemp, rm, symlink} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {once} from 'node:events';
 import {createInterface} from 'node:readline';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
 
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const fixtureRoot = fileURLToPath(new URL('./fixtures/next-app/', import.meta.url));
 
-function startServer() {
+function startServer(root = fixtureRoot) {
   const child = spawn(process.execPath, [cli, 'mcp'], {
-    cwd: fixtureRoot,
-    env: {...process.env, GUARDIAN_MCP_ROOT: fixtureRoot},
+    cwd: root,
+    env: {...process.env, GUARDIAN_MCP_ROOT: root},
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const output = createInterface({input: child.stdout, crlfDelay: Infinity});
@@ -83,5 +86,33 @@ test('MCP adapter returns JSON-RPC errors for malformed and unknown requests', a
   } finally {
     server.child.stdin.end();
     await once(server.child, 'close');
+  }
+});
+
+test('MCP adapter rejects a symlinked child root that resolves outside the project', async (t) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'guardian-mcp-project-'));
+  const outsideRoot = await mkdtemp(join(tmpdir(), 'guardian-mcp-outside-'));
+  const linkPath = join(projectRoot, 'linked-outside');
+  try {
+    await mkdir(join(outsideRoot, 'nested'));
+    try {
+      await symlink(outsideRoot, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      t.skip(`symbolic links are unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+
+    const server = startServer(projectRoot);
+    try {
+      const response = await request(server, {jsonrpc: '2.0', id: 9, method: 'tools/call', params: {name: 'guardian_scan', arguments: {root: 'linked-outside'}}});
+      assert.equal(response.result.isError, true);
+      assert.match(response.result.content[0].text, /inside GUARDIAN_MCP_ROOT/);
+    } finally {
+      server.child.stdin.end();
+      await once(server.child, 'close');
+    }
+  } finally {
+    await rm(projectRoot, {recursive: true, force: true});
+    await rm(outsideRoot, {recursive: true, force: true});
   }
 });
