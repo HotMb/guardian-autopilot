@@ -14,6 +14,7 @@
 
 ## P1
 - [x] Claude Code plugin manifest and hooks matching currently documented format
+  - [x] Stop-hook smoke coverage for read-only output, debounce, and recursion guard
 - [x] E2E React/Next.js fixture apps and regression test matrix
 - [ ] npm publishing and final release policy
   - [x] Tag/manual release artifact workflow with GitHub build attestation
