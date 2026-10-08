@@ -16,4 +16,6 @@ The repository can now receive locally forwarded Stripe test-mode events and bui
 
 For local use, copy `.env.example` to `.env`, fill in test-mode price ids and the webhook secret printed by `stripe listen`, then start `npm run start:webhook`. The Checkout route expects JSON such as `{"plan":"pro","customerEmail":"buyer@example.com"}`. Never commit `.env` or place a live key in these variables.
 
+The repository's connected test sandbox currently has one monthly EUR price per paid plan. These ids are examples only and can be replaced in `.env` for another Stripe account.
+
 Stripe requires the unmodified raw request body for signature verification and recommends returning a successful `2xx` response quickly before complex processing. The implementation follows those constraints and uses the official Stripe Node SDK for Checkout. See the [Stripe webhook guide](https://docs.stripe.com/webhooks) and its [manual signature verification steps](https://docs.stripe.com/webhooks#verify-manually).

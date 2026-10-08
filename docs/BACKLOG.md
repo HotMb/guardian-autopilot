@@ -32,6 +32,7 @@
   - [x] Dependency-free signed webhook processor, retry deduplication, and persistence contract
   - [x] Local HTTP webhook boundary with bounded raw-body handling
   - [x] Test-only Checkout Session builder with plan metadata and live-key guard
+  - [x] Test sandbox Pro and Team products with recurring price fixtures
   - [ ] Live test-mode webhook endpoint and subscription persistence (requires Stripe account/configuration)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract
