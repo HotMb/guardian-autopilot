@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "guardian": {
+      "command": "guardian",
+      "args": ["mcp"],
+      "env": {
+        "GUARDIAN_MCP_ROOT": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}

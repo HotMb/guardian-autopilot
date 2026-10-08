@@ -29,3 +29,10 @@ test('Claude Code plugin exposes an explicit read-only audit skill', async () =>
   assert.match(skill, /read-only/i);
   assert.match(skill, /Do not delete, rename, rewrite, or stage files/);
 });
+
+test('Claude Code plugin declares the read-only Guardian MCP server', async () => {
+  const mcp = await json('.mcp.json');
+  assert.equal(mcp.mcpServers.guardian.command, 'guardian');
+  assert.deepEqual(mcp.mcpServers.guardian.args, ['mcp']);
+  assert.equal(mcp.mcpServers.guardian.env.GUARDIAN_MCP_ROOT, '${CLAUDE_PROJECT_DIR}');
+});
