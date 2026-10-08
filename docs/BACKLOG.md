@@ -12,7 +12,9 @@
 ## P1
 - [x] Claude Code plugin manifest and hooks matching currently documented format
 - [x] E2E React/Next.js fixture apps and regression test matrix
-- [ ] Release pipeline, npm publishing, documentation and signed provenance
+- [ ] npm publishing and final release policy
+  - [x] Tag/manual release artifact workflow with GitHub build attestation
+  - [x] Release and future npm trusted-publishing documentation
 
 ## P2
 - [ ] Entitlements API and Stripe test mode
