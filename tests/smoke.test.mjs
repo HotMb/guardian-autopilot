@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, mkdir, writeFile, symlink, rm, readFile, stat} from 'node:fs/promises';
+import {chmod, mkdtemp, mkdir, writeFile, symlink, rm, readFile, stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {scan} from '../dist/scanner.js';
@@ -93,4 +93,23 @@ test('hashes large assets without modifying them', async () => {
     assert.deepEqual(after, before);
     assert.equal((await stat(join(root, 'assets', 'a.webp'))).size, 1024 * 1024);
   } finally { await rm(root, {recursive:true, force:true}); }
+});
+
+test('reports unreadable assets without aborting the scan', {
+  skip: process.platform === 'win32' || process.getuid?.() === 0,
+}, async () => {
+  const root = await makeRoot();
+  const unreadable = join(root, 'private.png');
+  try {
+    await writeFile(unreadable, 'private');
+    await chmod(unreadable, 0o000);
+
+    const result = await scan(root);
+
+    assert.ok(result.errors.some((error) => error.file === 'private.png'));
+    assert.equal(result.mode, 'read-only');
+  } finally {
+    await chmod(unreadable, 0o600).catch(() => undefined);
+    await rm(root, {recursive:true, force:true});
+  }
 });

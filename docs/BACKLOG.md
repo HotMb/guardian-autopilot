@@ -5,7 +5,7 @@
 - [ ] Build tests against fixture repositories; symlinks, permissions, large assets, exclusions
   - [x] Next.js fixture repository and regression matrix
   - [x] Symlink, large-asset, and generated-directory exclusion coverage
-  - [ ] Permission-denied coverage on a platform with reliable permission controls
+  - [x] Permission-denied coverage on POSIX CI runners; skipped where Windows permissions are not reliable
 - [x] .guardian config schema and protected path policies
 - [x] Inventory with incremental hashes and safe event coalescing
 - [x] Reference resolver for JS/TS, CSS, public URL paths, Next.js conventions
