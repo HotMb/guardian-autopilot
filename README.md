@@ -28,6 +28,8 @@ node dist/cli.js scan /path/to/project
 node dist/cli.js inventory /path/to/project
 node dist/cli.js references /path/to/project
 node dist/cli.js plan /path/to/project
+npm exec guardian -- cleanup /path/to/project path/to/tracked-file.png
+npm exec guardian -- cleanup /path/to/project --apply path/to/tracked-file.png
 npm test
 ```
 
@@ -40,6 +42,8 @@ npm test
 `plan` combines duplicate detection and reference evidence into explainable `review-only` candidates. It never deletes or changes files.
 
 `plan` also runs Knip when the target project provides a `knip` executable. The adapter requests only JSON analysis of dependency, unlisted and unresolved issues; it never invokes Knip's fix mode. If Knip is unavailable, the report returns `status: "unavailable"` and the rest of the plan still works.
+
+`cleanup` accepts an explicit list of tracked files and produces a worktree diff by default. Passing `--apply` is required to apply the verified diff to the source repository; post-apply checks and rollback remain enforced by the transaction API.
 
 To enable it in a target JavaScript/TypeScript project, install Knip there with `npm install --save-dev knip`. Guardian consumes Knip's machine-readable JSON reporter and uses `--no-exit-code`; it does not install packages or modify the target project.
 
