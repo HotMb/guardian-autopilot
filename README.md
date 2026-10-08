@@ -82,7 +82,7 @@ The `Stop` hook is debounced for five minutes per project, runs `guardian plan` 
 
 ## Planned, not yet implemented
 
-Policy engine, automatic reversible cleanup, MCP adapter, GitHub integration, paid cloud service.
+Policy engine, GitHub integration, paid cloud service, and team reporting. The local read-only MCP adapter is implemented; destructive cleanup remains behind the explicit CLI transaction path.
 
 ## Start here
 

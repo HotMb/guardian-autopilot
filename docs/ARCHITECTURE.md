@@ -1,7 +1,7 @@
 # Technical architecture
 
 ## Layers
-- Integrations: CLI first; Claude Code hooks; later MCP and GitHub App.
+- Integrations: CLI first; Claude Code hooks and read-only MCP adapter; later GitHub App.
 - Local core: repository discovery, file manifest, reference graph, exact duplicate hashing, Knip adapter, policy engine.
 - Execution: candidate planner -> sandbox/worktree -> bounded changes -> build/typecheck/tests -> acceptance criteria -> patch or rollback.
 - SaaS later: auth, organizations, entitlements, Stripe webhooks, scheduled GitHub audits, aggregated metadata reports.
@@ -24,4 +24,4 @@ users, organizations, memberships, subscriptions, entitlements, repositories, au
 POST /auth/device; POST /billing/checkout; POST /webhooks/stripe; GET /license; POST /audits; GET /audits/:id.
 
 ## Plugins
-Claude Code plugin wraps CLI commands; plugin not sole source of business logic. MCP exposes audit/plan/report with destructive actions requiring policy approval and reversible execution.
+Claude Code plugin wraps CLI commands; plugin is not the sole source of business logic. MCP exposes read-only audit/plan/report tools; destructive actions remain in the explicit CLI transaction path with policy approval and reversible execution.

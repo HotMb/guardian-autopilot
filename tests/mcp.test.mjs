@@ -42,6 +42,12 @@ test('MCP stdio adapter lists and calls read-only Guardian tools', async () => {
     const listed = await request(server, {jsonrpc: '2.0', id: 2, method: 'tools/list'});
     assert.deepEqual(listed.result.tools.map((tool) => tool.name), ['guardian_scan', 'guardian_references', 'guardian_plan']);
 
+    const resources = await request(server, {jsonrpc: '2.0', id: 12, method: 'resources/list'});
+    assert.deepEqual(resources, {jsonrpc: '2.0', id: 12, result: {resources: []}});
+
+    const prompts = await request(server, {jsonrpc: '2.0', id: 13, method: 'prompts/list'});
+    assert.deepEqual(prompts, {jsonrpc: '2.0', id: 13, result: {prompts: []}});
+
     const called = await request(server, {jsonrpc: '2.0', id: 3, method: 'tools/call', params: {name: 'guardian_plan', arguments: {}}});
     assert.equal(called.result.isError, undefined);
     assert.equal(called.result.structuredContent.mode, 'read-only');

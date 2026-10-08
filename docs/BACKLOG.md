@@ -30,3 +30,4 @@
   - [x] Notification handling without response noise
   - [x] Oversized-message rejection and continued service
   - [x] Real-path containment against symlink escapes
+  - [x] Empty resources and prompts capability responses
