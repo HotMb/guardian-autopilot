@@ -89,6 +89,18 @@ test('MCP adapter returns JSON-RPC errors for malformed and unknown requests', a
   }
 });
 
+test('MCP adapter does not answer notifications', async () => {
+  const server = startServer();
+  try {
+    server.child.stdin.write(`${JSON.stringify({jsonrpc: '2.0', method: 'notifications/initialized', params: {}})}\n`);
+    const response = await request(server, {jsonrpc: '2.0', id: 10, method: 'ping'});
+    assert.deepEqual(response, {jsonrpc: '2.0', id: 10, result: {}});
+  } finally {
+    server.child.stdin.end();
+    await once(server.child, 'close');
+  }
+});
+
 test('MCP adapter rejects a symlinked child root that resolves outside the project', async (t) => {
   const projectRoot = await mkdtemp(join(tmpdir(), 'guardian-mcp-project-'));
   const outsideRoot = await mkdtemp(join(tmpdir(), 'guardian-mcp-outside-'));

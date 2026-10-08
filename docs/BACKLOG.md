@@ -27,4 +27,5 @@
 - [ ] Team reporting, telemetry consent and data retention
 - [x] Read-only MCP stdio adapter
   - [x] JSON-RPC error and unknown-request coverage
+  - [x] Notification handling without response noise
   - [x] Real-path containment against symlink escapes
