@@ -2,6 +2,14 @@
 
 An agent-agnostic, local-first foundation for safe cleanup of AI-generated codebases and assets.
 
+## Repository
+
+The canonical public repository is [HotMb/guardian-autopilot](https://github.com/HotMb/guardian-autopilot). Clone it with:
+
+```bash
+git clone https://github.com/HotMb/guardian-autopilot.git
+```
+
 ## Current working scope
 
 - Read-only scanning of files in a selected local directory.

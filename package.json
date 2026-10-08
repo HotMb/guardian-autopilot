@@ -2,6 +2,9 @@
   "name": "guardian-autopilot",
   "version": "0.1.0",
   "private": true,
+  "repository": {"type": "git", "url": "https://github.com/HotMb/guardian-autopilot.git"},
+  "homepage": "https://github.com/HotMb/guardian-autopilot#readme",
+  "bugs": {"url": "https://github.com/HotMb/guardian-autopilot/issues"},
   "type": "module",
   "bin": {"guardian": "./dist/cli.js"},
   "scripts": {
