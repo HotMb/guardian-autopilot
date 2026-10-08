@@ -2,7 +2,7 @@
 
 ## P0
 - [x] Starter CLI: read-only exact duplicate scan
-- [ ] Build tests against fixture repositories; symlinks, permissions, large assets, exclusions
+- [x] Build tests against fixture repositories; symlinks, permissions, large assets, exclusions
   - [x] Next.js fixture repository and regression matrix
   - [x] Symlink, large-asset, and generated-directory exclusion coverage
   - [x] Permission-denied coverage on POSIX CI runners; skipped where Windows permissions are not reliable
@@ -16,11 +16,12 @@
 - [x] Claude Code plugin manifest and hooks matching currently documented format
   - [x] Stop-hook smoke coverage for read-only output, debounce, and recursion guard
 - [x] E2E React/Next.js fixture apps and regression test matrix
-- [ ] npm publishing and final release policy
+- [x] npm publishing and final release policy
   - [x] Tag/manual release artifact workflow with GitHub build attestation
   - [x] Read-only package content verification in the release workflow
   - [x] Release and future npm trusted-publishing documentation
   - [x] Manual tag-only npm workflow with explicit confirmation and OIDC
+  - [x] Exact release-tag and package-version match check
 
 ## P2
 - [ ] Entitlements API and Stripe test mode

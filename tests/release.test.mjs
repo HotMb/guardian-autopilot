@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 
 const root = new URL('../', import.meta.url);
@@ -13,5 +15,16 @@ test('npm publication is manual, tag-only, and OIDC-gated', async () => {
   assert.match(workflow, /id-token: write/);
   assert.match(workflow, /name: npm-release/);
   assert.match(workflow, /npm publish --access public/);
+  assert.match(workflow, /verify-release-tag\.mjs/);
   assert.doesNotMatch(workflow, /\n\s+push:/);
+});
+
+test('release tag must match package version exactly', async () => {
+  const script = fileURLToPath(new URL('../scripts/verify-release-tag.mjs', import.meta.url));
+  const matching = spawnSync(process.execPath, [script, 'v0.1.0'], {encoding: 'utf8', windowsHide: true});
+  assert.equal(matching.status, 0);
+
+  const mismatched = spawnSync(process.execPath, [script, 'v0.1.1'], {encoding: 'utf8', windowsHide: true});
+  assert.notEqual(mismatched.status, 0);
+  assert.match(mismatched.stderr, /must match package version exactly/);
 });
