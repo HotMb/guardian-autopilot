@@ -8,6 +8,8 @@ The repository currently produces a versioned package artifact; it does not publ
 2. Push a protected tag matching `v*.*.*`, or start the `Release artifact` workflow manually.
 3. The workflow installs from the lockfile, runs the complete test suite, creates the npm tarball, uploads it as a workflow artifact, and creates a signed GitHub artifact attestation.
 
+The workflow also runs `npm run verify:package`. This read-only smoke test checks that the built `guardian` executable, matching plugin metadata, Claude hook, audit skill, and read-only MCP entry point will be included in the package.
+
 The release workflow requires only repository read access plus the short-lived OIDC and attestation permissions used by GitHub Actions. It does not need an npm token.
 
 ## Future npm publishing

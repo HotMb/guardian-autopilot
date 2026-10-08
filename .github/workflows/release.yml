@@ -30,6 +30,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Verify package contents
+        run: npm run verify:package
+
       - name: Build package archive
         run: npm pack --pack-destination release
 

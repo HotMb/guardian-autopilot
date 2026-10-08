@@ -17,6 +17,7 @@
 - [x] E2E React/Next.js fixture apps and regression test matrix
 - [ ] npm publishing and final release policy
   - [x] Tag/manual release artifact workflow with GitHub build attestation
+  - [x] Read-only package content verification in the release workflow
   - [x] Release and future npm trusted-publishing documentation
 
 ## P2
