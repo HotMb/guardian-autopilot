@@ -7,6 +7,7 @@ import {scan} from './scanner.js';
 
 const protocolVersion = '2025-06-18';
 const serverVersion = '0.1.0';
+const maxMessageBytes = 4 * 1024 * 1024;
 
 type JsonRpcRequest = {
   jsonrpc?: unknown;
@@ -121,7 +122,7 @@ async function handle(request: JsonRpcRequest): Promise<void> {
 export async function serveMcp(): Promise<void> {
   const input = createInterface({input: process.stdin, crlfDelay: Infinity});
   for await (const line of input) {
-    if (line.length > 4 * 1024 * 1024) {
+    if (Buffer.byteLength(line, 'utf8') > maxMessageBytes) {
       errorResponse(null, -32600, 'MCP message exceeds the 4 MiB limit');
       continue;
     }

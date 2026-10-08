@@ -28,4 +28,5 @@
 - [x] Read-only MCP stdio adapter
   - [x] JSON-RPC error and unknown-request coverage
   - [x] Notification handling without response noise
+  - [x] Oversized-message rejection and continued service
   - [x] Real-path containment against symlink escapes

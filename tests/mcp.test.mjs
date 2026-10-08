@@ -101,6 +101,23 @@ test('MCP adapter does not answer notifications', async () => {
   }
 });
 
+test('MCP adapter rejects oversized messages and remains available', async () => {
+  const server = startServer();
+  try {
+    server.child.stdin.write(`${'x'.repeat(4 * 1024 * 1024 + 1)}\n`);
+    const oversized = await nextResponse(server);
+    assert.equal(oversized.id, null);
+    assert.equal(oversized.error.code, -32600);
+    assert.match(oversized.error.message, /4 MiB/);
+
+    const ping = await request(server, {jsonrpc: '2.0', id: 11, method: 'ping'});
+    assert.deepEqual(ping, {jsonrpc: '2.0', id: 11, result: {}});
+  } finally {
+    server.child.stdin.end();
+    await once(server.child, 'close');
+  }
+});
+
 test('MCP adapter rejects a symlinked child root that resolves outside the project', async (t) => {
   const projectRoot = await mkdtemp(join(tmpdir(), 'guardian-mcp-project-'));
   const outsideRoot = await mkdtemp(join(tmpdir(), 'guardian-mcp-outside-'));
