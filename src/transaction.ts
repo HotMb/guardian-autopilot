@@ -1,5 +1,5 @@
 import {execFile as execFileCallback} from 'node:child_process';
-import {lstat, mkdtemp, rm} from 'node:fs/promises';
+import {lstat, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import {isAbsolute, join, relative, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -105,6 +105,9 @@ export async function runCleanupTransaction(rootDir: string, options: Transactio
   await assertTrackedAndAllowed(root, files);
 
   let worktree: string | undefined;
+  let patchDirectory: string | undefined;
+  let patchPath: string | undefined;
+  let applied = false;
   let diff = '';
   const checkResults: Array<{command: string; passed: boolean; output?: string}> = [];
   try {
@@ -117,10 +120,35 @@ export async function runCleanupTransaction(rootDir: string, options: Transactio
     diff = (await runGit(worktree, ['diff', '--no-ext-diff', '--binary', '--', ...files])).stdout;
     if (checks.length > 0) checkResults.push(...await runChecks(worktree, checks));
 
+    if (!dryRun) {
+      patchDirectory = await mkdtemp(join(tmpdir(), 'guardian-patch-'));
+      patchPath = join(patchDirectory, 'change.patch');
+      await writeFile(patchPath, diff, 'utf8');
+      await runGit(root, ['apply', '--binary', '--whitespace=error-all', patchPath]);
+      applied = true;
+      try {
+        await runGit(root, ['diff', '--check', '--']);
+        if (checks.length > 0) checkResults.push(...await runChecks(root, checks));
+        const appliedDiff = (await runGit(root, ['diff', '--no-ext-diff', '--binary', '--', ...files])).stdout;
+        if (appliedDiff !== diff) throw new Error('Applied source diff does not match the verified worktree diff');
+      } catch (error) {
+        try { await runGit(root, ['apply', '--reverse', '--binary', patchPath]); } catch (rollbackError) {
+          throw new Error(`${errorMessage(error)}; source rollback failed: ${errorMessage(rollbackError)}`);
+        }
+        applied = false;
+        throw error;
+      }
+      applied = false;
+    }
+
     return {status: dryRun ? 'dry-run' : 'verified', root, files, diff, checks: checkResults};
   } catch (error) {
     return {status: 'rolled-back', root, files, diff, checks: checkResults, error: errorMessage(error)};
   } finally {
+    if (applied && patchPath) {
+      try { await runGit(root, ['apply', '--reverse', '--binary', patchPath]); } catch { /* best-effort cleanup */ }
+    }
+    if (patchDirectory) await rm(patchDirectory, {recursive: true, force: true});
     if (worktree) {
       try { await runGit(root, ['worktree', 'remove', '--force', worktree]); } catch { /* best-effort cleanup */ }
       await rm(worktree, {recursive: true, force: true});

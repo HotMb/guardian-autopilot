@@ -36,6 +36,20 @@ test('creates a dry-run diff in an isolated worktree and leaves the source untou
   } finally { await rm(root, {recursive: true, force: true}); }
 });
 
+test('applies a verified transaction only when dry-run is disabled', async () => {
+  const root = await makeRepo();
+  const file = join(root, 'duplicate.png');
+  try {
+    await writeFile(file, 'duplicate');
+    await commitAll(root);
+    const result = await runCleanupTransaction(root, {files: ['duplicate.png'], dryRun: false});
+
+    assert.equal(result.status, 'verified');
+    await assert.rejects(() => readFile(file, 'utf8'));
+    assert.match((await exec('git', ['-C', root, 'status', '--porcelain'])).stdout.trim(), /^D\s+duplicate\.png$/);
+  } finally { await rm(root, {recursive: true, force: true}); }
+});
+
 test('rejects dirty and untracked workspaces before creating a worktree', async () => {
   const root = await makeRepo();
   try {
@@ -63,5 +77,24 @@ test('protects secrets and rolls back when a verification fails', async () => {
     assert.equal(result.status, 'rolled-back');
     assert.match(result.error, /Verification check failed/);
     assert.equal(await readFile(join(root, 'safe.txt'), 'utf8'), 'safe');
+  } finally { await rm(root, {recursive: true, force: true}); }
+});
+
+test('rolls back a source repository when post-apply verification fails', async () => {
+  const root = await makeRepo();
+  const file = join(root, 'safe.txt');
+  try {
+    await writeFile(file, 'safe');
+    await commitAll(root);
+    const result = await runCleanupTransaction(root, {
+      files: ['safe.txt'],
+      dryRun: false,
+      checks: [{command: process.execPath, args: ['-e', 'process.exit(1)']}],
+    });
+
+    assert.equal(result.status, 'rolled-back');
+    assert.match(result.error, /Verification check failed/);
+    assert.equal(await readFile(file, 'utf8'), 'safe');
+    assert.equal((await exec('git', ['-C', root, 'status', '--porcelain'])).stdout.trim(), '');
   } finally { await rm(root, {recursive: true, force: true}); }
 });
