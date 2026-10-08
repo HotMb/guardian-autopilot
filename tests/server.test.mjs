@@ -12,6 +12,10 @@ function signature(body) {
   return `t=${timestamp},v1=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
 }
 
+function githubSignature(body) {
+  return `sha256=${createHmac('sha256', 'github_webhook_test').update(body).digest('hex')}`;
+}
+
 async function call(server, path, method, body = '', headers = {}) {
   const address = server.address();
   const result = await new Promise((resolve, reject) => {
@@ -82,5 +86,37 @@ test('billing server exposes Checkout only when configured', async () => {
     assert.equal(received.metadata.guardian_plan, 'team');
   } finally {
     await new Promise((resolve, reject) => configured.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('billing server verifies GitHub webhook deliveries without executing actions', async () => {
+  const unavailable = createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore()});
+  await new Promise((resolve) => unavailable.listen(0, '127.0.0.1', resolve));
+  try {
+    assert.equal((await call(unavailable, '/webhooks/github', 'POST', '{}')).statusCode, 503);
+  } finally {
+    await new Promise((resolve, reject) => unavailable.close((error) => error ? reject(error) : resolve()));
+  }
+
+  const server = createBillingWebhookServer({endpointSecret: secret, githubWebhookSecret: 'github_webhook_test', store: new MemorySubscriptionStore()});
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const body = JSON.stringify({zen: 'Keep it logically awesome.'});
+    const accepted = await call(server, '/webhooks/github', 'POST', body, {
+      'content-type': 'application/json',
+      'x-github-event': 'ping',
+      'x-github-delivery': 'delivery-001',
+      'x-hub-signature-256': githubSignature(body),
+    });
+    assert.deepEqual(accepted, {statusCode: 200, json: {status: 'accepted', event: 'ping', deliveryId: 'delivery-001'}});
+
+    const invalid = await call(server, '/webhooks/github', 'POST', body, {
+      'x-github-event': 'ping',
+      'x-github-delivery': 'delivery-002',
+      'x-hub-signature-256': 'sha256=bad',
+    });
+    assert.equal(invalid.statusCode, 400);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });

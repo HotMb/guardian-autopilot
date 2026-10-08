@@ -23,9 +23,10 @@ The image binds to `0.0.0.0`, exposes port `8787`, runs as the unprivileged `nod
 
 1. Choose a hosting provider with a stable HTTPS URL and a durable volume or database.
 2. Supply `STRIPE_WEBHOOK_SECRET`, and provide the Checkout variables only when Checkout is enabled.
-3. Register `https://<host>/webhooks/stripe` as a Stripe test-mode endpoint subscribed to the three subscription lifecycle events.
-4. Configure the provider's health probe to `GET /healthz`.
-5. Restrict logs and environment access; do not put secrets in the image, repository, or command history.
-6. Run a Stripe CLI test-mode event and confirm a `2xx` response before accepting test Checkout traffic.
+3. If a GitHub App is registered, supply `GITHUB_WEBHOOK_SECRET`; the same server then accepts signed deliveries at `/webhooks/github` without performing actions.
+4. Register `https://<host>/webhooks/stripe` as a Stripe test-mode endpoint subscribed to the three subscription lifecycle events.
+5. Configure the provider's health probe to `GET /healthz`.
+6. Restrict logs and environment access; do not put secrets in the image, repository, or command history.
+7. Run a Stripe CLI test-mode event and confirm a `2xx` response before accepting test Checkout traffic.
 
 This checklist intentionally stops before provider registration and public deployment because those actions require the deployment owner, domain, secret storage, and persistence choice.

@@ -57,7 +57,7 @@ The local webhook server and Checkout route are opt-in. Copy `.env.example` to `
 npm run start:webhook
 ```
 
-It exposes `GET /healthz`, `POST /webhooks/stripe`, and — only when the Checkout variables are configured — `POST /billing/checkout`. Live keys are rejected by the local Checkout configuration. By default the development server uses in-memory subscription state; set `STRIPE_SUBSCRIPTION_STORE_PATH` to an absolute path to persist subscriptions and webhook de-duplication across restarts.
+It exposes `GET /healthz`, `POST /webhooks/stripe`, optional `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured, and — only when the Checkout variables are configured — `POST /billing/checkout`. Live keys are rejected by the local Checkout configuration. By default the development server uses in-memory subscription state; set `STRIPE_SUBSCRIPTION_STORE_PATH` to an absolute path to persist subscriptions and webhook de-duplication across restarts.
 
 For a provider-neutral container deployment, build the included `Dockerfile`. It binds to `0.0.0.0`, runs as the unprivileged `node` user, exposes `/healthz`, and stores local subscription state in the mounted `/var/lib/guardian` volume. See [the deployment checklist](docs/DEPLOYMENT.md); public hosting and Stripe endpoint registration remain owner-controlled steps.
 

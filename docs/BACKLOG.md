@@ -40,6 +40,7 @@
   - [x] Least-privilege read-only permission contract
   - [x] Raw-body webhook signature verification fixture
   - [x] Short-lived GitHub App JWT helper
+  - [x] Local signed webhook boundary with no-op acknowledgement
   - [ ] App registration, webhook endpoint, and installation (requires deployment owner/configuration)
 - [ ] Team reporting, telemetry consent and data retention
   - [x] Local opt-in anonymous telemetry contract

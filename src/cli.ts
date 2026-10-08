@@ -49,7 +49,7 @@ const command = argumentsList.shift();
 const target = argumentsList[0]?.startsWith('--') || argumentsList.length === 0 ? '.' : (argumentsList.shift() ?? '.');
 
 if (command !== 'scan' && command !== 'inventory' && command !== 'references' && command !== 'plan' && command !== 'cleanup' && command !== 'mcp' && command !== 'webhook') {
-  console.log('Guardian Autopilot\nUsage:\n  guardian scan [directory]\n  guardian inventory [directory]\n  guardian references [directory]\n  guardian plan [directory]\n  guardian cleanup [directory] [--apply] [--check <command>] [--check-json <json>] <tracked-file>...\n  guardian mcp\n  guardian webhook\nScan, references and plan are read-only; inventory writes only .guardian/index.json. Cleanup is a dry-run unless --apply is explicitly provided. MCP exposes read-only tools only. Webhook listens on PORT (default 8787) and requires STRIPE_WEBHOOK_SECRET.');
+  console.log('Guardian Autopilot\nUsage:\n  guardian scan [directory]\n  guardian inventory [directory]\n  guardian references [directory]\n  guardian plan [directory]\n  guardian cleanup [directory] [--apply] [--check <command>] [--check-json <json>] <tracked-file>...\n  guardian mcp\n  guardian webhook\nScan, references and plan are read-only; inventory writes only .guardian/index.json. Cleanup is a dry-run unless --apply is explicitly provided. MCP exposes read-only tools only. Webhook listens on HOST/PORT (defaults 127.0.0.1:8787), requires STRIPE_WEBHOOK_SECRET, and optionally verifies GitHub deliveries with GITHUB_WEBHOOK_SECRET.');
   process.exit(command === undefined || command === '--help' ? 0 : 1);
 }
 try {
@@ -68,6 +68,7 @@ try {
     const store = storePath === undefined || storePath === '' ? new MemorySubscriptionStore() : new FileSubscriptionStore(storePath);
     const server = createBillingWebhookServer({
       endpointSecret: secret,
+      ...(process.env.GITHUB_WEBHOOK_SECRET === undefined ? {} : {githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET}),
       store,
       ...(stripeClient === undefined || checkoutConfiguration === undefined ? {} : {stripeClient, checkoutConfiguration}),
     });
