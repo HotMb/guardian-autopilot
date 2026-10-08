@@ -33,6 +33,9 @@
   - [x] Least-privilege read-only permission contract
   - [ ] App registration, webhook endpoint, and installation (requires deployment owner/configuration)
 - [ ] Team reporting, telemetry consent and data retention
+  - [x] Local opt-in anonymous telemetry contract
+  - [x] Aggregation and bounded retention policy
+  - [ ] Hosted storage, consent UI, deletion workflow, and team dashboard (requires product/deployment decisions)
 - [x] Read-only MCP stdio adapter
   - [x] JSON-RPC error and unknown-request coverage
   - [x] Notification handling without response noise
