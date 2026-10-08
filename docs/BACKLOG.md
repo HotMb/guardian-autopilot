@@ -22,6 +22,7 @@
   - [x] Release and future npm trusted-publishing documentation
   - [x] Manual tag-only npm workflow with explicit confirmation and OIDC
   - [x] Exact release-tag and package-version match check
+  - [x] Node 24-compatible GitHub Actions majors
 
 ## P2
 - [ ] Entitlements API and Stripe test mode

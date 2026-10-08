@@ -28,3 +28,12 @@ test('release tag must match package version exactly', async () => {
   assert.notEqual(mismatched.status, 0);
   assert.match(mismatched.stderr, /must match package version exactly/);
 });
+
+test('GitHub workflows use Node 24-compatible action majors', async () => {
+  for (const workflow of ['ci.yml', 'release.yml', 'publish.yml']) {
+    const source = await readFile(new URL(`../.github/workflows/${workflow}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /actions\/(?:checkout|setup-node)@v4/);
+    assert.match(source, /actions\/checkout@v5/);
+    assert.match(source, /actions\/setup-node@v5/);
+  }
+});
