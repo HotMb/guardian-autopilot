@@ -15,6 +15,10 @@
     "./safeguards": {
       "types": "./dist/safeguards.d.ts",
       "import": "./dist/safeguards.js"
+    },
+    "./manifest": {
+      "types": "./dist/manifest.d.ts",
+      "import": "./dist/manifest.js"
     }
   },
   "scripts": {
