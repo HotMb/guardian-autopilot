@@ -9,3 +9,5 @@ export * from './knip.js';
 export * from './planner.js';
 export * from './verifier.js';
 export * from './executor.js';
+export * from './audit-log.js';
+export * from './receipts.js';

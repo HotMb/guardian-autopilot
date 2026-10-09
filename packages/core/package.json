@@ -51,6 +51,14 @@
     "./executor": {
       "types": "./dist/executor.d.ts",
       "import": "./dist/executor.js"
+    },
+    "./audit-log": {
+      "types": "./dist/audit-log.d.ts",
+      "import": "./dist/audit-log.js"
+    },
+    "./receipts": {
+      "types": "./dist/receipts.d.ts",
+      "import": "./dist/receipts.js"
     }
   },
   "scripts": {
