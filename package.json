@@ -19,8 +19,10 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:shared": "npm run build --prefix packages/shared",
     "scan": "node dist/cli.js scan",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "test": "npm run build && npm run build:shared && node --test tests/*.test.mjs && npm run test --prefix packages/shared",
+    "test:shared": "npm run test --prefix packages/shared",
     "verify:package": "npm run build && node scripts/verify-package.mjs",
     "start:webhook": "node dist/cli.js webhook",
     "prepack": "npm run build"
