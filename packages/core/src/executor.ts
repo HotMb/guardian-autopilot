@@ -4,8 +4,8 @@ import {randomBytes} from 'node:crypto';
 import {dirname, isAbsolute, join, relative, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {promisify} from 'node:util';
-import type {Candidate} from '../../shared/dist/types.js';
-import {CleanCodeError} from '../../shared/dist/errors.js';
+import type {Candidate} from '@cleancode/shared/types';
+import {CleanCodeError} from '@cleancode/shared/errors';
 import {canDelete, enforceChangeLimits, isProtectedPath, isSafePath} from './safeguards.js';
 
 const execFile = promisify(execFileCallback);

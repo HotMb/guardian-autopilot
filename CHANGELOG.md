@@ -8,3 +8,4 @@
 - Added read-only report rendering in JSON, Markdown, and HTML formats.
 - Added offline Ed25519 license issue/verify primitives and CLI activation/status checks with expiration and tamper rejection.
 - Added a separately namespaced CleanCode MCP stdio adapter with root containment and read-only tool annotations.
+- Made the shared, core, license, and CLI packages npm-workspace aware with publishable metadata and package-boundary imports.

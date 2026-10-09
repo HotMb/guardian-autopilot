@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {generateKeyPairSync} from 'node:crypto';
-import {issueLicense} from '../../license/dist/index.js';
+import {issueLicense} from '@cleancode/license';
 
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL('../dist/index.js', import.meta.url));

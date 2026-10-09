@@ -1,6 +1,6 @@
 import {appendFile, mkdir, readFile} from 'node:fs/promises';
 import {dirname} from 'node:path';
-import {EXECUTION_STATES, type State} from '../../shared/dist/types.js';
+import {EXECUTION_STATES, type State} from '@cleancode/shared/types';
 
 export type AuditEvent = {
   schemaVersion: 1;

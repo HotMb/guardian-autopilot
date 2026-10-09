@@ -1,8 +1,8 @@
-import {CleanCodeError} from '../../shared/dist/errors.js';
+import {CleanCodeError} from '@cleancode/shared/errors';
 import {
   isValidStateTransition,
   type State,
-} from '../../shared/dist/types.js';
+} from '@cleancode/shared/types';
 
 export class ExecutionStateMachine {
   private state: State;

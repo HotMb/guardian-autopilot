@@ -1,7 +1,7 @@
 import {createInterface} from 'node:readline';
 import {realpath} from 'node:fs/promises';
 import {isAbsolute, relative, resolve} from 'node:path';
-import {buildReferenceGraph, discoverRepository, planRepository, renderReport, type ReportFormat} from '../../core/dist/index.js';
+import {buildReferenceGraph, discoverRepository, planRepository, renderReport, type ReportFormat} from '@cleancode/core';
 
 const protocolVersion = '2025-06-18';
 const maxMessageBytes = 4 * 1024 * 1024;

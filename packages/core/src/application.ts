@@ -1,8 +1,8 @@
 import {randomBytes} from 'node:crypto';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import type {Candidate, State, VerificationResult} from '../../shared/dist/types.js';
-import {CleanCodeError} from '../../shared/dist/errors.js';
+import type {Candidate, State, VerificationResult} from '@cleancode/shared/types';
+import {CleanCodeError} from '@cleancode/shared/errors';
 import {AuditLog, type AuditEventInput} from './audit-log.js';
 import {ExecutionStateMachine} from './state-machine.js';
 import {WorktreeExecutor} from './executor.js';

@@ -1,6 +1,6 @@
 import {execFile as execFileCallback} from 'node:child_process';
 import {promisify} from 'node:util';
-import type {VerificationResult} from '../../shared/dist/types.js';
+import type {VerificationResult} from '@cleancode/shared/types';
 
 const execFile = promisify(execFileCallback);
 

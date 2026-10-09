@@ -1,6 +1,6 @@
 import {realpathSync} from 'node:fs';
 import {relative, resolve} from 'node:path';
-import type {Candidate, Evidence} from '../../shared/dist/types.js';
+import type {Candidate, Evidence} from '@cleancode/shared/types';
 
 export const DEFAULT_CHANGE_LIMITS = {
   maxFiles: 50,

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
-import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '../../core/dist/index.js';
-import {verifyLicense} from '../../license/dist/index.js';
-import {CleanCodeError, isCleanCodeError} from '../../shared/dist/errors.js';
-import type {Candidate, Evidence} from '../../shared/dist/types.js';
+import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
+import {verifyLicense} from '@cleancode/license';
+import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
+import type {Candidate, Evidence} from '@cleancode/shared/types';
 import {serveMcp} from './mcp.js';
 
 type OutputFormat = 'text' | 'json';

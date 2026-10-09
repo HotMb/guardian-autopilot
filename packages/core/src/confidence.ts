@@ -1,4 +1,4 @@
-import type {Evidence} from '../../shared/dist/types.js';
+import type {Evidence} from '@cleancode/shared/types';
 
 export function calculateConfidence(evidence: readonly Evidence[]): number {
   if (evidence.length === 0) return 0.5;

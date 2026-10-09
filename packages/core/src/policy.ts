@@ -1,4 +1,4 @@
-import type {Candidate} from '../../shared/dist/types.js';
+import type {Candidate} from '@cleancode/shared/types';
 import {calculateConfidence} from './confidence.js';
 import {canDelete, isProtectedPath} from './safeguards.js';
 

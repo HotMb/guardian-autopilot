@@ -2,6 +2,9 @@
   "name": "guardian-autopilot",
   "version": "0.1.0",
   "private": false,
+  "workspaces": [
+    "packages/*"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -28,7 +31,7 @@
     "test:shared": "npm run test --prefix packages/shared",
     "test:core": "npm run test --prefix packages/core",
     "test:cli": "npm run test --prefix packages/cli",
-    "verify:package": "npm run build && node scripts/verify-package.mjs",
+    "verify:package": "npm run build && node scripts/verify-package.mjs && npm run build:license && npm run build:core && npm run build:cli && node scripts/verify-cleancode-packages.mjs",
     "start:webhook": "node dist/cli.js webhook",
     "prepack": "npm run build"
   },

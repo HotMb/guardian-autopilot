@@ -1,5 +1,5 @@
 import {relative} from 'node:path';
-import type {Candidate, Evidence} from '../../shared/dist/types.js';
+import type {Candidate, Evidence} from '@cleancode/shared/types';
 import {buildManifest, type RepositoryManifest} from './manifest.js';
 import {buildReferenceGraph, type ReferenceGraph} from './reference-graph.js';
 import {findExactDuplicates, type ExactDuplicateGroup} from './duplicates.js';

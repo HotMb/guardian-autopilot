@@ -1,15 +1,20 @@
 {
   "name": "@cleancode/cli",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "description": "Safe local-first dead-code analysis and reversible cleanup CLI.",
+  "repository": "https://github.com/HotMb/guardian-autopilot.git",
+  "engines": {"node": ">=20"},
+  "publishConfig": {"access": "public"},
+  "files": ["dist"],
   "type": "module",
   "bin": {
     "cleancode": "./dist/index.js"
   },
   "dependencies": {
-    "@cleancode/core": "workspace:*",
-    "@cleancode/license": "workspace:*",
-    "@cleancode/shared": "workspace:*"
+    "@cleancode/core": "^0.1.0",
+    "@cleancode/license": "^0.1.0",
+    "@cleancode/shared": "^0.1.0"
   },
   "scripts": {
     "build": "npm run build --prefix ../license && npm run build --prefix ../core && tsc -p tsconfig.json",

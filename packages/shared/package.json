@@ -1,7 +1,12 @@
 {
   "name": "@cleancode/shared",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "description": "Shared guarded execution contracts for CleanCode.",
+  "repository": "https://github.com/HotMb/guardian-autopilot.git",
+  "engines": {"node": ">=20"},
+  "publishConfig": {"access": "public"},
+  "files": ["dist"],
   "type": "module",
   "exports": {
     ".": {

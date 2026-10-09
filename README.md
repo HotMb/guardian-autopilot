@@ -75,6 +75,8 @@ node packages/cli/dist/index.js mcp
 
 `report` produces a compact read-only summary in JSON, Markdown (`md`) or HTML. It writes a file only when `--output` is explicitly provided.
 
+The four packages are workspace-linked for development and have publishable package metadata. Publishing is still an explicit owner-controlled release action; no package is published automatically by the test or CI workflow.
+
 Licences are Ed25519-signed and checked offline. `license activate` refuses an invalid or expired key and uses an exclusive output write when storage is requested; `license status` only reads the key and public key.
 
 The CleanCode MCP adapter is read-only and exposes only `discover`, `analyze`, `plan` and `report`. Set `CLEANCODE_MCP_ROOT` to the permitted project root; destructive operations remain CLI-only.
