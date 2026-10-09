@@ -4,6 +4,7 @@ import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, planR
 import {verifyLicense} from '../../license/dist/index.js';
 import {CleanCodeError, isCleanCodeError} from '../../shared/dist/errors.js';
 import type {Candidate, Evidence} from '../../shared/dist/types.js';
+import {serveMcp} from './mcp.js';
 
 type OutputFormat = 'text' | 'json';
 
@@ -38,6 +39,7 @@ function printUsage(): void {
   console.error('  apply --candidates-file file [--verification-file file] [--format=json]');
   console.error('  report [--format=json|md|html] [--output file]');
   console.error('  license <activate|status> --license-file file --public-key-file file [--output file]');
+  console.error('  mcp');
 }
 
 function reportFormat(args: string[]): ReportFormat {
@@ -118,6 +120,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
     return command === '--help' ? 0 : 1;
   }
   if (command === 'license') return runLicenseCommand(args.slice(1));
+  if (command === 'mcp') { await serveMcp(); return 0; }
   if (!['discover', 'analyze', 'plan', 'apply', 'report'].includes(command)) {
     console.error(`Unknown command: ${command}`);
     printUsage();
