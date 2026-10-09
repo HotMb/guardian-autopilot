@@ -37,3 +37,13 @@ test('production preflight accepts PostgreSQL and a public container bind', () =
   const result = runPreflight({...base, DATABASE_URL: 'postgresql://user:pass@db.example.test:5432/guardian', HOST: '0.0.0.0'}, true);
   assert.equal(result.status, 'ready');
 });
+
+test('production preflight validates the PostgreSQL connection pool cap', () => {
+  const invalid = runPreflight({...base, DATABASE_URL: 'postgresql://user:pass@db.example.test:5432/guardian', HOST: '0.0.0.0', DATABASE_MAX_CONNECTIONS: '0'}, true);
+  assert.equal(invalid.status, 'blocked');
+  assert.equal(invalid.checks.find((check) => check.id === 'database-pool').status, 'fail');
+
+  const valid = runPreflight({...base, DATABASE_URL: 'postgresql://user:pass@db.example.test:5432/guardian', HOST: '0.0.0.0', DATABASE_MAX_CONNECTIONS: '10'}, true);
+  assert.equal(valid.status, 'ready');
+  assert.equal(valid.checks.find((check) => check.id === 'database-pool').status, 'pass');
+});

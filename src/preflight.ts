@@ -64,6 +64,15 @@ export function runPreflight(env: NodeJS.ProcessEnv = process.env, production = 
     add(checks, 'subscription-storage', production ? 'fail' : 'warn', production ? 'Production mode requires DATABASE_URL or a deliberately durable single-instance store.' : 'Subscription state is in memory and will be lost on restart.');
   }
 
+  const databaseMaxConnections = env.DATABASE_MAX_CONNECTIONS?.trim();
+  if (present(databaseMaxConnections)) {
+    const parsed = Number(databaseMaxConnections);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) add(checks, 'database-pool', 'fail', 'DATABASE_MAX_CONNECTIONS must be a positive safe integer.');
+    else add(checks, 'database-pool', 'pass', `PostgreSQL pool is capped at ${parsed} connections per process.`);
+  } else if (production && databaseUrl !== undefined && databaseUrl !== '') {
+    add(checks, 'database-pool', 'warn', 'DATABASE_MAX_CONNECTIONS is unset; the process default is 10 connections per instance.');
+  }
+
   const host = env.HOST?.trim() || '127.0.0.1';
   if (production && (host === '127.0.0.1' || host === 'localhost' || host === '::1')) add(checks, 'network-bind', 'fail', 'Production mode cannot bind only to localhost.');
   else add(checks, 'network-bind', 'pass', `${production ? 'Production' : 'Local'} mode binds to ${host}.`);

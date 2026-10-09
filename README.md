@@ -97,6 +97,8 @@ It exposes `GET /healthz`, `POST /webhooks/stripe`, optional `POST /webhooks/git
 
 For a provider-neutral container deployment, build the included `Dockerfile`. It binds to `0.0.0.0`, runs as the unprivileged `node` user, exposes `/healthz`, and can store single-instance local state in the mounted `/var/lib/guardian` volume. For horizontal scaling, set `DATABASE_URL` and use PostgreSQL instead. See [the deployment checklist](docs/DEPLOYMENT.md); public hosting and Stripe endpoint registration remain owner-controlled steps.
 
+The final recommended topology is documented in [the production deployment runbook](docs/PRODUCTION-DEPLOYMENT.md), with a non-secret reference configuration in [`deploy/production.env.example`](deploy/production.env.example).
+
 Before any public deployment, run `npm exec guardian -- preflight --production` and read the [security and launch gate](docs/SECURITY.md). The preflight is local-only and returns a non-zero status when it finds a blocking configuration. The recommended zero-cost test path is local execution plus Stripe CLI; a Cloudflare Quick Tunnel is acceptable only as a temporary development callback and is not production hosting.
 
 To enable it in a target JavaScript/TypeScript project, install Knip there with `npm install --save-dev knip`. Guardian consumes Knip's machine-readable JSON reporter and uses `--no-exit-code`; it does not install packages or modify the target project.

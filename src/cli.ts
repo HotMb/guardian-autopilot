@@ -46,6 +46,13 @@ function cleanupArguments(values: string[]): {apply: boolean; files: string[]; c
   return {apply, files, checks};
 }
 
+function optionalPositiveInteger(value: string | undefined, name: string): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  const parsed = Number(value.trim());
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive safe integer`);
+  return parsed;
+}
+
 const argumentsList = process.argv.slice(2);
 const command = argumentsList.shift();
 const target = argumentsList[0]?.startsWith('--') || argumentsList.length === 0 ? '.' : (argumentsList.shift() ?? '.');
@@ -75,8 +82,9 @@ try {
     const allowedOrigins = corsOriginsValue === undefined || corsOriginsValue === '' ? undefined : corsOriginsValue.split(',').map((origin) => origin.trim()).filter((origin) => origin !== '');
     const storePath = process.env.STRIPE_SUBSCRIPTION_STORE_PATH?.trim();
     const databaseUrl = process.env.DATABASE_URL?.trim();
+    const databaseMaxConnections = optionalPositiveInteger(process.env.DATABASE_MAX_CONNECTIONS, 'DATABASE_MAX_CONNECTIONS');
     if (databaseUrl && storePath) throw new Error('Set either DATABASE_URL or STRIPE_SUBSCRIPTION_STORE_PATH, not both');
-    const postgresStore = databaseUrl === undefined || databaseUrl === '' ? undefined : new PostgresSubscriptionStore({connectionString: databaseUrl});
+    const postgresStore = databaseUrl === undefined || databaseUrl === '' ? undefined : new PostgresSubscriptionStore({connectionString: databaseUrl, ...(databaseMaxConnections === undefined ? {} : {maxConnections: databaseMaxConnections})});
     if (postgresStore !== undefined) await postgresStore.initialize();
     const store = postgresStore ?? (storePath === undefined || storePath === '' ? new MemorySubscriptionStore() : new FileSubscriptionStore(storePath));
     const server = createBillingWebhookServer({
