@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '../../core/dist/index.js';
-import {isCleanCodeError} from '../../shared/dist/errors.js';
+import {verifyLicense} from '../../license/dist/index.js';
+import {CleanCodeError, isCleanCodeError} from '../../shared/dist/errors.js';
 import type {Candidate, Evidence} from '../../shared/dist/types.js';
 
 type OutputFormat = 'text' | 'json';
@@ -36,6 +37,7 @@ function printUsage(): void {
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
   console.error('  apply --candidates-file file [--verification-file file] [--format=json]');
   console.error('  report [--format=json|md|html] [--output file]');
+  console.error('  license <activate|status> --license-file file --public-key-file file [--output file]');
 }
 
 function reportFormat(args: string[]): ReportFormat {
@@ -90,12 +92,32 @@ async function loadVerification(args: string[]): Promise<VerificationConfig> {
   };
 }
 
+async function runLicenseCommand(args: string[]): Promise<number> {
+  const action = args[0];
+  if (action !== 'activate' && action !== 'status') throw new Error('Usage: cleancode license <activate|status> --license-file file --public-key-file file [--output file]');
+  const licenseFile = optionValue(args, '--license-file');
+  const publicKeyFile = optionValue(args, '--public-key-file');
+  const license = optionValue(args, '--license') ?? (licenseFile === undefined ? undefined : (await readFile(licenseFile, 'utf8')).trim());
+  if (license === undefined || license === '') throw new CleanCodeError('INVALID_LICENSE', 'A license key or --license-file is required');
+  if (publicKeyFile === undefined) throw new CleanCodeError('INVALID_LICENSE', '--public-key-file is required');
+  const payload = verifyLicense(license, await readFile(publicKeyFile, 'utf8'));
+  if (payload === null) throw new CleanCodeError('INVALID_LICENSE', 'License signature or expiration is invalid');
+  if (action === 'activate') {
+    const output = optionValue(args, '--output');
+    if (output !== undefined) await writeFile(output, `${license}\n`, {encoding: 'utf8', flag: 'wx'});
+  }
+  if (format(args) === 'json') console.log(JSON.stringify(payload, null, 2));
+  else console.log(`✓ ${payload.plan} license for ${payload.org}, ${payload.seats} seat(s), expires ${new Date(payload.exp * 1000).toISOString()}`);
+  return 0;
+}
+
 export async function runCli(args: readonly string[]): Promise<number> {
   const command = args[0];
   if (command === undefined || command === '--help') {
     printUsage();
     return command === '--help' ? 0 : 1;
   }
+  if (command === 'license') return runLicenseCommand(args.slice(1));
   if (!['discover', 'analyze', 'plan', 'apply', 'report'].includes(command)) {
     console.error(`Unknown command: ${command}`);
     printUsage();

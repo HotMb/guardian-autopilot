@@ -66,11 +66,15 @@ node packages/cli/dist/index.js analyze /path/to/project --format=json
 node packages/cli/dist/index.js plan /path/to/project --format=json
 node packages/cli/dist/index.js report /path/to/project --format=html --output cleancode-report.html
 node packages/cli/dist/index.js apply /path/to/project --dry-run --candidates-file approved-candidates.json
+node packages/cli/dist/index.js license activate --license-file license.key --public-key-file cleancode-public-key.pem --output .cleancode-license.key
+node packages/cli/dist/index.js license status --license-file .cleancode-license.key --public-key-file cleancode-public-key.pem
 ```
 
 `apply --dry-run` never creates a worktree or writes the target repository. A real `apply` requires an explicit candidates file whose evidence contains positive proof, creates a backup branch and isolated worktree, runs build/typecheck/tests, writes an audit log, and commits only after every verification passes. Failed verification rolls back the isolated change. Verification commands can be supplied with `--verification-file`; no source code is uploaded.
 
 `report` produces a compact read-only summary in JSON, Markdown (`md`) or HTML. It writes a file only when `--output` is explicitly provided.
+
+Licences are Ed25519-signed and checked offline. `license activate` refuses an invalid or expired key and uses an exclusive output write when storage is requested; `license status` only reads the key and public key.
 
 `cleanup` accepts an explicit list of tracked files and produces a worktree diff by default. Passing `--apply` is required to apply the verified diff to the source repository. Use repeated `--check <executable>` or `--check-json '{"command":"npm","args":["test"]}'` to add checks; commands are executed without a shell, and post-apply checks and rollback remain enforced by the transaction API.
 

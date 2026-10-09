@@ -6,6 +6,8 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {generateKeyPairSync} from 'node:crypto';
+import {issueLicense} from '../../license/dist/index.js';
 
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL('../dist/index.js', import.meta.url));
@@ -82,5 +84,24 @@ test('report emits Markdown from a read-only plan', async () => {
 
   assert.match(result.stdout, /# CleanCode report/);
   assert.match(result.stdout, /src\/unused\.ts/);
+});
+
+test('license activate and status verify Ed25519 offline', async () => {
+  const root = await fixture();
+  const pair = generateKeyPairSync('ed25519');
+  const privateKey = pair.privateKey.export({format: 'pem', type: 'pkcs8'});
+  const publicKey = pair.publicKey.export({format: 'pem', type: 'spki'});
+  const publicKeyFile = join(root, 'public-key.pem');
+  const licenseFile = join(root, 'license.key');
+  const storedFile = join(root, 'stored-license.key');
+  await writeFile(publicKeyFile, publicKey);
+  await writeFile(licenseFile, issueLicense(privateKey, {
+    plan: 'pro', seats: 1, org: 'acme', features: ['reports'], kid: 'test', durationSeconds: 3600,
+  }, Math.floor(Date.now() / 1000)));
+
+  const activated = await exec(process.execPath, [cli, 'license', 'activate', '--license-file', licenseFile, '--public-key-file', publicKeyFile, '--output', storedFile, '--format=json']);
+  assert.equal(JSON.parse(activated.stdout).plan, 'pro');
+  const status = await exec(process.execPath, [cli, 'license', 'status', '--license-file', storedFile, '--public-key-file', publicKeyFile, '--format=json']);
+  assert.equal(JSON.parse(status.stdout).org, 'acme');
 });
 

@@ -8,10 +8,11 @@
   },
   "dependencies": {
     "@cleancode/core": "workspace:*",
+    "@cleancode/license": "workspace:*",
     "@cleancode/shared": "workspace:*"
   },
   "scripts": {
-    "build": "npm run build --prefix ../core && tsc -p tsconfig.json",
+    "build": "npm run build --prefix ../license && npm run build --prefix ../core && tsc -p tsconfig.json",
     "test": "npm run build && node --test tests/*.test.mjs"
   }
 }

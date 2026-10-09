@@ -6,3 +6,4 @@
 - Added append-only JSONL audit events and compare-and-swap undo receipts for crash-safe cleanup recovery.
 - Added CleanCode CLI commands for read-only discovery, analysis, planning, and guarded `apply --dry-run` / apply execution.
 - Added read-only report rendering in JSON, Markdown, and HTML formats.
+- Added offline Ed25519 license issue/verify primitives and CLI activation/status checks with expiration and tamper rejection.
