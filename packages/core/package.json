@@ -1,0 +1,24 @@
+{
+  "name": "@cleancode/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./state-machine": {
+      "types": "./dist/state-machine.d.ts",
+      "import": "./dist/state-machine.js"
+    },
+    "./safeguards": {
+      "types": "./dist/safeguards.d.ts",
+      "import": "./dist/safeguards.js"
+    }
+  },
+  "scripts": {
+    "build": "npm run build --prefix ../shared && tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  }
+}
