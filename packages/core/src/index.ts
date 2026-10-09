@@ -7,3 +7,5 @@ export * from './duplicates.js';
 export * from './reference-graph.js';
 export * from './knip.js';
 export * from './planner.js';
+export * from './verifier.js';
+export * from './executor.js';

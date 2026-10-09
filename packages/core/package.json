@@ -43,6 +43,14 @@
     "./planner": {
       "types": "./dist/planner.d.ts",
       "import": "./dist/planner.js"
+    },
+    "./verifier": {
+      "types": "./dist/verifier.d.ts",
+      "import": "./dist/verifier.js"
+    },
+    "./executor": {
+      "types": "./dist/executor.d.ts",
+      "import": "./dist/executor.js"
     }
   },
   "scripts": {
