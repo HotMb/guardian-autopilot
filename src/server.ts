@@ -67,6 +67,17 @@ function sendJson(response: ServerResponse, statusCode: number, value: unknown):
   response.end(body);
 }
 
+function sendHtml(response: ServerResponse, statusCode: number, body: string): void {
+  response.statusCode = statusCode;
+  response.setHeader('content-type', 'text/html; charset=utf-8');
+  response.setHeader('cache-control', 'no-store');
+  response.setHeader('content-length', Buffer.byteLength(body));
+  response.end(body);
+}
+
+const checkoutSuccessPage = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Payment received</title></head><body><main><h1>Payment received</h1><p>Your checkout was completed. Subscription activation is confirmed by the Stripe webhook.</p></main></body></html>';
+const checkoutCancelPage = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Payment cancelled</title></head><body><main><h1>Payment cancelled</h1><p>No subscription was activated. You can safely close this page.</p></main></body></html>';
+
 function setSecurityHeaders(response: ServerResponse): void {
   response.setHeader('x-content-type-options', 'nosniff');
   response.setHeader('x-frame-options', 'DENY');
@@ -210,6 +221,14 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
     }
     if (request.method === 'GET' && request.url === '/healthz') {
       sendJson(response, 200, {ok: true, service: 'guardian-autopilot'});
+      return;
+    }
+    if (request.method === 'GET' && request.url?.startsWith('/billing/success')) {
+      sendHtml(response, 200, checkoutSuccessPage);
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/billing/cancel') {
+      sendHtml(response, 200, checkoutCancelPage);
       return;
     }
     if (request.method === 'POST' && request.url === '/billing/checkout') {

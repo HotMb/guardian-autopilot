@@ -94,6 +94,24 @@ test('billing server emits security headers and applies bounded rate limiting', 
   }
 });
 
+test('billing server serves hosted Checkout return pages', async () => {
+  const server = createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore()});
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const success = await callWithHeaders(server, '/billing/success?session_id=cs_test_http', 'GET');
+    assert.equal(success.statusCode, 200);
+    assert.equal(success.headers['content-type'], 'text/html; charset=utf-8');
+    assert.match(success.body, /Payment received/i);
+    assert.equal(success.headers['cache-control'], 'no-store');
+
+    const cancel = await callWithHeaders(server, '/billing/cancel', 'GET');
+    assert.equal(cancel.statusCode, 200);
+    assert.match(cancel.body, /Payment cancelled/i);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('billing server validates rate limits and restricts browser origins', async () => {
   assert.throws(
     () => createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore(), rateLimit: {maxRequests: 0}}),
