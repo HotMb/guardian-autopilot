@@ -17,7 +17,8 @@ git clone https://github.com/HotMb/guardian-autopilot.git
 - Ignores `.git`, `node_modules`, common build folders, and symlinks.
 - Hashes assets as a stream, so large files are not loaded entirely into memory.
 - Stable JSON report to stdout with schema version, relative POSIX paths, and non-fatal read errors.
-- **No automatic deletion yet.** Identical files may still be referenced under different names.
+- The original `guardian` CLI remains conservative and asset-focused.
+- The CleanCode packages under `packages/` now provide guarded TypeScript cleanup discovery, analysis, planning, isolated apply, verification, audit JSONL, and crash-safe receipts.
 
 ## Run
 
@@ -46,6 +47,27 @@ npm test
 `plan` combines duplicate detection and reference evidence into explainable `review-only` candidates. It never deletes or changes files.
 
 `plan` also runs Knip when the target project provides a `knip` executable. The adapter requests only JSON analysis of dependency, unlisted and unresolved issues; it never invokes Knip's fix mode. If Knip is unavailable, the report returns `status: "unavailable"` and the rest of the plan still works.
+
+### CleanCode packages
+
+Build and test the CleanCode implementation with:
+
+```bash
+npm run build:shared
+npm run test:core
+npm run test:cli
+```
+
+The package CLI is available after building `packages/cli`:
+
+```bash
+node packages/cli/dist/index.js discover /path/to/project
+node packages/cli/dist/index.js analyze /path/to/project --format=json
+node packages/cli/dist/index.js plan /path/to/project --format=json
+node packages/cli/dist/index.js apply /path/to/project --dry-run --candidates-file approved-candidates.json
+```
+
+`apply --dry-run` never creates a worktree or writes the target repository. A real `apply` requires an explicit candidates file whose evidence contains positive proof, creates a backup branch and isolated worktree, runs build/typecheck/tests, writes an audit log, and commits only after every verification passes. Failed verification rolls back the isolated change. Verification commands can be supplied with `--verification-file`; no source code is uploaded.
 
 `cleanup` accepts an explicit list of tracked files and produces a worktree diff by default. Passing `--apply` is required to apply the verified diff to the source repository. Use repeated `--check <executable>` or `--check-json '{"command":"npm","args":["test"]}'` to add checks; commands are executed without a shell, and post-apply checks and rollback remain enforced by the transaction API.
 

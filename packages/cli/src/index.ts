@@ -1,9 +1,14 @@
 #!/usr/bin/env node
-import {buildReferenceGraph, discoverRepository, planRepository} from '../../core/dist/index.js';
+import {readFile} from 'node:fs/promises';
+import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, planRepository, type VerificationConfig} from '../../core/dist/index.js';
+import {isCleanCodeError} from '../../shared/dist/errors.js';
+import type {Candidate, Evidence} from '../../shared/dist/types.js';
 
 type OutputFormat = 'text' | 'json';
 
 function optionValue(args: string[], option: string): string | undefined {
+  const inline = args.find((value) => value.startsWith(`${option}=`));
+  if (inline !== undefined) return inline.slice(option.length + 1);
   const index = args.indexOf(option);
   return index < 0 ? undefined : args[index + 1];
 }
@@ -14,11 +19,66 @@ function format(args: string[]): OutputFormat {
 }
 
 function targetRoot(args: string[]): string {
-  return args.find((value) => !value.startsWith('--') && value !== optionValue(args, '--format')) ?? '.';
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory']);
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value === '--dry-run' || value.startsWith('--')) {
+      if (valueOptions.has(value)) index += 1;
+      continue;
+    }
+    return value;
+  }
+  return '.';
 }
 
 function printUsage(): void {
-  console.error('Usage: cleancode <discover|analyze|plan> [root] [--format=json]');
+  console.error('Usage: cleancode <discover|analyze|plan|apply> [root] [options]');
+  console.error('  apply --dry-run [--candidates-file file] [--format=json]');
+  console.error('  apply --candidates-file file [--verification-file file] [--format=json]');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseCandidates(value: unknown): Array<Pick<Candidate, 'path' | 'evidence'>> {
+  const entries = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.candidates) ? value.candidates : undefined;
+  if (entries === undefined) throw new Error('Candidates file must contain an array or a candidates array');
+  return entries.map((entry, index) => {
+    if (!isRecord(entry) || typeof entry.path !== 'string' || !Array.isArray(entry.evidence)) {
+      throw new Error(`Invalid candidate at index ${index}`);
+    }
+    const evidence: Evidence[] = entry.evidence.map((item, evidenceIndex) => {
+      if (!isRecord(item) || typeof item.type !== 'string' || typeof item.confidence !== 'number') {
+        throw new Error(`Invalid evidence at candidate ${index}, item ${evidenceIndex}`);
+      }
+      return {type: item.type as Evidence['type'], confidence: item.confidence, details: typeof item.details === 'string' ? item.details : undefined};
+    });
+    return {path: entry.path, evidence};
+  });
+}
+
+async function loadCandidates(args: string[], root: string): Promise<Array<Pick<Candidate, 'path' | 'evidence'>>> {
+  const file = optionValue(args, '--candidates-file');
+  if (file !== undefined) return parseCandidates(JSON.parse(await readFile(file, 'utf8')));
+  const plan = await planRepository(root, {knipExecutable: optionValue(args, '--knip')});
+  return plan.candidates.filter((candidate) => candidate.decision.allowed).map((candidate) => ({path: candidate.path, evidence: candidate.evidence}));
+}
+
+async function loadVerification(args: string[]): Promise<VerificationConfig> {
+  const file = optionValue(args, '--verification-file');
+  if (file !== undefined) {
+    const value = JSON.parse(await readFile(file, 'utf8'));
+    if (!isRecord(value)) throw new Error('Verification file must contain an object');
+    return value as VerificationConfig;
+  }
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return {
+    build: {command: npm, args: ['run', 'build']},
+    typecheck: {command: npm, args: ['run', 'typecheck']},
+    test: {command: npm, args: ['test']},
+    requireAll: true,
+  };
 }
 
 export async function runCli(args: readonly string[]): Promise<number> {
@@ -27,7 +87,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
     printUsage();
     return command === '--help' ? 0 : 1;
   }
-  if (!['discover', 'analyze', 'plan'].includes(command)) {
+  if (!['discover', 'analyze', 'plan', 'apply'].includes(command)) {
     console.error(`Unknown command: ${command}`);
     printUsage();
     return 1;
@@ -56,6 +116,28 @@ export async function runCli(args: readonly string[]): Promise<number> {
     }
     return 0;
   }
+  if (command === 'apply') {
+    const candidates = await loadCandidates(values, root);
+    const dryRun = values.includes('--dry-run');
+    const result = await executeCleanup({
+      rootDir: root,
+      candidates,
+      dryRun,
+      verification: dryRun ? undefined : await loadVerification(values),
+      auditLog: dryRun ? undefined : optionValue(values, '--audit-file') === undefined ? undefined : new AuditLog(optionValue(values, '--audit-file') as string),
+      receiptDirectory: optionValue(values, '--receipt-directory'),
+    });
+    if (outputFormat === 'json') console.log(JSON.stringify(result, null, 2));
+    else if (result.mode === 'dry-run') {
+      console.log(`✓ dry-run: ${result.files} file(s), ${result.lines} line(s), ${result.bytes} byte(s)`);
+      for (const path of result.changedPaths) console.log(`→ would delete ${path}`);
+    } else if (result.state === 'COMMITTED') {
+      console.log(`✓ committed ${result.changedPaths.length} file(s) in ${result.commit}`);
+    } else {
+      console.error(`! cleanup rolled back: ${result.error ?? 'verification failed'}`);
+    }
+    return result.state === 'COMMITTED' || result.mode === 'dry-run' ? 0 : 5;
+  }
   const result = await planRepository(root, {knipExecutable: optionValue(values, '--knip')});
   if (outputFormat === 'json') console.log(JSON.stringify(result, null, 2));
   else {
@@ -73,5 +155,5 @@ try {
   process.exitCode = await runCli(process.argv.slice(2));
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  process.exitCode = isCleanCodeError(error) ? error.exitCode : 1;
 }

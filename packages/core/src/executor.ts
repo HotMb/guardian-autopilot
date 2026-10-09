@@ -22,6 +22,13 @@ export type IsolatedWorktree = {
   backupBranchName: string;
 };
 
+export type DeletionPreview = {
+  paths: string[];
+  files: number;
+  lines: number;
+  bytes: number;
+};
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     const candidate = error as Error & {stderr?: string; stdout?: string};
@@ -68,6 +75,11 @@ export class WorktreeExecutor {
     return this.isolated === undefined ? undefined : {...this.isolated};
   }
 
+  async previewDeletions(candidates: readonly Pick<Candidate, 'path' | 'evidence'>[]): Promise<DeletionPreview> {
+    if (candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', 'At least one candidate is required');
+    return this.inspectDeletions(this.root, candidates);
+  }
+
   async createIsolatedWorktree(): Promise<IsolatedWorktree> {
     if (this.isolated !== undefined) throw new CleanCodeError('WORKTREE_ERROR', 'An isolated worktree already exists');
     try {
@@ -95,28 +107,8 @@ export class WorktreeExecutor {
 
   async applyDeletions(candidates: readonly Pick<Candidate, 'path' | 'evidence'>[]): Promise<void> {
     if (this.isolated === undefined) throw new CleanCodeError('WORKTREE_ERROR', 'Create an isolated worktree first');
-    if (candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', 'At least one candidate is required');
-    const paths = new Set<string>();
-    let lines = 0;
-    let bytes = 0;
-    for (const candidate of candidates) {
-      if (!canDelete(candidate)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate lacks positive proof: ${candidate.path}`);
-      const path = safeRelativePath(this.isolated.worktreePath, candidate.path);
-      if (paths.has(path)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate is duplicated: ${path}`);
-      if (isProtectedPath(path)) throw new CleanCodeError('POLICY_VIOLATION', `Protected path cannot be changed: ${path}`);
-      const absolute = join(this.isolated.worktreePath, path);
-      if (!isSafePath(absolute, this.isolated.worktreePath)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate path is unsafe: ${path}`);
-      const details = await lstat(absolute);
-      if (!details.isFile() || details.isSymbolicLink()) throw new CleanCodeError('POLICY_VIOLATION', `Only regular files can be deleted: ${path}`);
-      try { await runGit(this.isolated.worktreePath, ['ls-files', '--error-unmatch', '--', path]); }
-      catch { throw new CleanCodeError('POLICY_VIOLATION', `Only tracked files can be deleted: ${path}`); }
-      const content = await readFile(absolute, 'utf8');
-      paths.add(path);
-      bytes += details.size;
-      lines += content.length === 0 ? 0 : content.split(/\r?\n/).length;
-    }
-    enforceChangeLimits({files: paths.size, lines, bytes});
-    for (const path of paths) await rm(join(this.isolated.worktreePath, path), {force: true});
+    const preview = await this.inspectDeletions(this.isolated.worktreePath, candidates);
+    for (const path of preview.paths) await rm(join(this.isolated.worktreePath, path), {force: true});
   }
 
   async commit(message: string): Promise<string> {
@@ -156,5 +148,34 @@ export class WorktreeExecutor {
     try { await runGit(this.root, ['worktree', 'remove', '--force', path]); } finally {
       await rm(path, {recursive: true, force: true});
     }
+  }
+
+  private async inspectDeletions(
+    root: string,
+    candidates: readonly Pick<Candidate, 'path' | 'evidence'>[],
+  ): Promise<DeletionPreview> {
+    const paths = new Set<string>();
+    let lines = 0;
+    let bytes = 0;
+    for (const candidate of candidates) {
+      if (!canDelete(candidate)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate lacks positive proof: ${candidate.path}`);
+      const path = safeRelativePath(root, candidate.path);
+      if (paths.has(path)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate is duplicated: ${path}`);
+      if (isProtectedPath(path)) throw new CleanCodeError('POLICY_VIOLATION', `Protected path cannot be changed: ${path}`);
+      const absolute = join(root, path);
+      if (!isSafePath(absolute, root)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate path is unsafe: ${path}`);
+      let details;
+      try { details = await lstat(absolute); }
+      catch { throw new CleanCodeError('POLICY_VIOLATION', `Candidate file does not exist: ${path}`); }
+      if (!details.isFile() || details.isSymbolicLink()) throw new CleanCodeError('POLICY_VIOLATION', `Only regular files can be deleted: ${path}`);
+      try { await runGit(root, ['ls-files', '--error-unmatch', '--', path]); }
+      catch { throw new CleanCodeError('POLICY_VIOLATION', `Only tracked files can be deleted: ${path}`); }
+      const content = await readFile(absolute, 'utf8');
+      paths.add(path);
+      bytes += details.size;
+      lines += content.length === 0 ? 0 : content.split(/\r?\n/).length;
+    }
+    enforceChangeLimits({files: paths.size, lines, bytes});
+    return {paths: [...paths].sort(), files: paths.size, lines, bytes};
   }
 }
