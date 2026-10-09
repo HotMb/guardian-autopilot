@@ -47,3 +47,5 @@ This repository does not create the Google Cloud project, billing account, datab
 9. Run a Stripe CLI test-mode event and confirm a `2xx` response before accepting test Checkout traffic.
 
 This checklist intentionally stops before provider registration and public deployment because those actions require the deployment owner, domain, secret storage, and persistence choice.
+
+If no deployment budget is available yet, use the separate [free beta runbook](FREE-BETA-DEPLOYMENT.md). It uses Render Free and Supabase Free only for short-lived validation and must not receive live payments.

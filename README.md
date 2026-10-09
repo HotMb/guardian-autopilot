@@ -99,6 +99,8 @@ For a provider-neutral container deployment, build the included `Dockerfile`. It
 
 The final recommended topology is documented in [the production deployment runbook](docs/PRODUCTION-DEPLOYMENT.md), with a non-secret reference configuration in [`deploy/production.env.example`](deploy/production.env.example).
 
+For a no-capital test deployment, follow the [free beta runbook](docs/FREE-BETA-DEPLOYMENT.md) using Render Free, Supabase Free and Stripe sandbox only. This path is intentionally not production-ready.
+
 Before any public deployment, run `npm exec guardian -- preflight --production` and read the [security and launch gate](docs/SECURITY.md). The preflight is local-only and returns a non-zero status when it finds a blocking configuration. The recommended zero-cost test path is local execution plus Stripe CLI; a Cloudflare Quick Tunnel is acceptable only as a temporary development callback and is not production hosting.
 
 To enable it in a target JavaScript/TypeScript project, install Knip there with `npm install --save-dev knip`. Guardian consumes Knip's machine-readable JSON reporter and uses `--no-exit-code`; it does not install packages or modify the target project.
