@@ -56,8 +56,12 @@ export function createStripeClient(configuration: CheckoutConfiguration): Stripe
 
 function successUrlWithSessionId(value: string): string {
   const url = new URL(value);
-  url.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');
-  return url.toString();
+  // Stripe replaces this exact template after Checkout completes. URLSearchParams
+  // percent-encodes braces, so use an unreserved sentinel and restore the literal
+  // template after serializing the URL.
+  const sentinel = '__GUARDIAN_CHECKOUT_SESSION_ID__';
+  url.searchParams.set('session_id', sentinel);
+  return url.toString().replace(sentinel, '{CHECKOUT_SESSION_ID}');
 }
 
 export async function createCheckoutSession(
