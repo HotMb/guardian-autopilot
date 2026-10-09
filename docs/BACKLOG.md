@@ -38,7 +38,7 @@
   - [x] Provider-neutral container and healthcheck for hosted deployment
   - [x] Security preflight, fail-closed Checkout access, and zero-cost test deployment guidance
   - [x] Read-only local/production configuration preflight with fail-closed checks
-  - [ ] Hosted test-mode webhook endpoint and database-backed subscription persistence (requires deployment configuration)
+  - [x] Hosted test-mode webhook endpoint and database-backed subscription persistence (validated on Render Free + Supabase Free)
 - [ ] GitHub App installation and audit permissions
   - [x] Least-privilege read-only permission contract
   - [x] Raw-body webhook signature verification fixture

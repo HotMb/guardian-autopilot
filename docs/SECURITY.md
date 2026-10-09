@@ -86,5 +86,6 @@ Before accepting real users or real payments, the owner must confirm:
   deletion requests;
 - a load/abuse test using only test data and an explicit monthly cost ceiling.
 
-The hosted test-mode webhook and database-backed deployment remain intentionally
-uncompleted until these owner-controlled decisions are made.
+The hosted test-mode webhook and database-backed deployment are validated on the
+free beta path. Production availability, backups, cost controls and the remaining
+owner-controlled launch decisions are still intentionally uncompleted.
