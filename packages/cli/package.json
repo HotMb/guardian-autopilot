@@ -1,0 +1,17 @@
+{
+  "name": "@cleancode/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cleancode": "./dist/index.js"
+  },
+  "dependencies": {
+    "@cleancode/core": "workspace:*",
+    "@cleancode/shared": "workspace:*"
+  },
+  "scripts": {
+    "build": "npm run build --prefix ../core && tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  }
+}
