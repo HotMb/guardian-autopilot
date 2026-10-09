@@ -19,6 +19,18 @@
     "./manifest": {
       "types": "./dist/manifest.d.ts",
       "import": "./dist/manifest.js"
+    },
+    "./confidence": {
+      "types": "./dist/confidence.d.ts",
+      "import": "./dist/confidence.js"
+    },
+    "./policy": {
+      "types": "./dist/policy.d.ts",
+      "import": "./dist/policy.js"
+    },
+    "./duplicates": {
+      "types": "./dist/duplicates.d.ts",
+      "import": "./dist/duplicates.js"
     }
   },
   "scripts": {
