@@ -4,3 +4,6 @@ export * from './manifest.js';
 export * from './confidence.js';
 export * from './policy.js';
 export * from './duplicates.js';
+export * from './reference-graph.js';
+export * from './knip.js';
+export * from './planner.js';

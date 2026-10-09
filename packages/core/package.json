@@ -31,6 +31,18 @@
     "./duplicates": {
       "types": "./dist/duplicates.d.ts",
       "import": "./dist/duplicates.js"
+    },
+    "./reference-graph": {
+      "types": "./dist/reference-graph.d.ts",
+      "import": "./dist/reference-graph.js"
+    },
+    "./knip": {
+      "types": "./dist/knip.d.ts",
+      "import": "./dist/knip.js"
+    },
+    "./planner": {
+      "types": "./dist/planner.d.ts",
+      "import": "./dist/planner.js"
     }
   },
   "scripts": {
