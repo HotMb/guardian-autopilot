@@ -14,6 +14,7 @@ docker run --rm -p 8787:8787 \
   -e STRIPE_CHECKOUT_SUCCESS_URL=https://example.invalid/billing/success \
   -e STRIPE_CHECKOUT_CANCEL_URL=https://example.invalid/billing/cancel \
   -e STRIPE_CHECKOUT_ACCESS_TOKEN=replace_with_a_long_random_value \
+  -e CORS_ORIGINS=https://app.example.com \
   -e STRIPE_SUBSCRIPTION_STORE_PATH=/var/lib/guardian/subscriptions.json \
   -v guardian-autopilot-data:/var/lib/guardian \
   guardian-autopilot-webhook
@@ -41,6 +42,8 @@ This repository does not create the Google Cloud project, billing account, datab
 4. Register `https://<host>/webhooks/stripe` as a Stripe test-mode endpoint subscribed to the three subscription lifecycle events.
 5. Configure the provider's health probe to `GET /healthz`.
 6. Restrict logs and environment access; do not put secrets in the image, repository, or command history.
-7. Run a Stripe CLI test-mode event and confirm a `2xx` response before accepting test Checkout traffic.
+7. If a browser frontend calls Checkout, set `CORS_ORIGINS` to its exact HTTPS origin; never use `*`.
+8. Put provider-level rate limiting and a WAF/CDN policy in front of the origin; the built-in limiter is per process and is not DDoS protection.
+9. Run a Stripe CLI test-mode event and confirm a `2xx` response before accepting test Checkout traffic.
 
 This checklist intentionally stops before provider registration and public deployment because those actions require the deployment owner, domain, secret storage, and persistence choice.

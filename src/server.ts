@@ -7,6 +7,7 @@ import {processStripeSubscriptionWebhook} from './webhooks.js';
 import type {SubscriptionStore} from './subscriptions.js';
 
 const defaultMaxBodyBytes = 4 * 1024 * 1024;
+const defaultRateLimit = {windowMs: 60_000, maxRequests: 120, maxEntries: 10_000} as const;
 
 export type BillingWebhookServerOptions = {
   endpointSecret: string;
@@ -16,8 +17,47 @@ export type BillingWebhookServerOptions = {
   checkoutConfiguration?: CheckoutConfiguration;
   checkoutAccessToken?: string;
   maxBodyBytes?: number;
+  rateLimit?: Partial<typeof defaultRateLimit>;
+  allowedOrigins?: readonly string[];
   nowSeconds?: number;
 };
+
+type RateLimitConfig = typeof defaultRateLimit;
+
+class RateLimiter {
+  private readonly config: RateLimitConfig;
+  private readonly buckets = new Map<string, {startedAt: number; count: number}>();
+
+  constructor(options: Partial<RateLimitConfig> = {}) {
+    const config = {...defaultRateLimit, ...options};
+    if (!Number.isSafeInteger(config.windowMs) || config.windowMs <= 0) throw new Error('rateLimit.windowMs must be a positive safe integer');
+    if (!Number.isSafeInteger(config.maxRequests) || config.maxRequests <= 0) throw new Error('rateLimit.maxRequests must be a positive safe integer');
+    if (!Number.isSafeInteger(config.maxEntries) || config.maxEntries <= 0) throw new Error('rateLimit.maxEntries must be a positive safe integer');
+    this.config = config;
+  }
+
+  consume(key: string, now = Date.now()): {allowed: boolean; retryAfterSeconds: number} {
+    const existing = this.buckets.get(key);
+    if (existing === undefined || now - existing.startedAt >= this.config.windowMs) {
+      this.buckets.set(key, {startedAt: now, count: 1});
+      this.trim();
+      return {allowed: true, retryAfterSeconds: 0};
+    }
+    if (existing.count >= this.config.maxRequests) {
+      return {allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((this.config.windowMs - (now - existing.startedAt)) / 1000))};
+    }
+    existing.count += 1;
+    return {allowed: true, retryAfterSeconds: 0};
+  }
+
+  private trim(): void {
+    while (this.buckets.size > this.config.maxEntries) {
+      const first = this.buckets.keys().next().value;
+      if (first === undefined) return;
+      this.buckets.delete(first);
+    }
+  }
+}
 
 function sendJson(response: ServerResponse, statusCode: number, value: unknown): void {
   const body = JSON.stringify(value);
@@ -25,6 +65,43 @@ function sendJson(response: ServerResponse, statusCode: number, value: unknown):
   response.setHeader('content-type', 'application/json; charset=utf-8');
   response.setHeader('content-length', Buffer.byteLength(body));
   response.end(body);
+}
+
+function setSecurityHeaders(response: ServerResponse): void {
+  response.setHeader('x-content-type-options', 'nosniff');
+  response.setHeader('x-frame-options', 'DENY');
+  response.setHeader('referrer-policy', 'no-referrer');
+  response.setHeader('content-security-policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+  response.setHeader('cross-origin-resource-policy', 'same-origin');
+  response.setHeader('permissions-policy', 'camera=(), geolocation=(), microphone=()');
+}
+
+function normalizeAllowedOrigins(origins: readonly string[] | undefined): string[] {
+  if (origins === undefined) return [];
+  const normalized = origins.map((origin) => {
+    const value = origin.trim();
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new Error('allowedOrigins must contain explicit http or https origins');
+    }
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username !== '' || parsed.password !== '' || parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '') {
+      throw new Error('allowedOrigins must contain explicit http or https origins');
+    }
+    return parsed.origin;
+  });
+  return [...new Set(normalized)];
+}
+
+function normalizeRequestOrigin(origin: string): string | undefined {
+  try {
+    const parsed = new URL(origin);
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username !== '' || parsed.password !== '' || parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '') return undefined;
+    return parsed.origin;
+  } catch {
+    return undefined;
+  }
 }
 
 function safeErrorMessage(error: unknown): string {
@@ -103,8 +180,34 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
   const maxBodyBytes = options.maxBodyBytes ?? defaultMaxBodyBytes;
   if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new Error('maxBodyBytes must be a positive safe integer');
   if ((options.stripeClient === undefined) !== (options.checkoutConfiguration === undefined)) throw new Error('Stripe client and Checkout configuration must be provided together');
+  const rateLimiter = new RateLimiter(options.rateLimit);
+  const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins);
 
   return createServer(async (request, response) => {
+    setSecurityHeaders(response);
+    const rate = rateLimiter.consume(request.socket.remoteAddress ?? 'unknown');
+    if (!rate.allowed) {
+      response.setHeader('retry-after', String(rate.retryAfterSeconds));
+      sendJson(response, 429, {error: 'rate limit exceeded'});
+      return;
+    }
+    const requestOrigin = typeof request.headers.origin === 'string' ? normalizeRequestOrigin(request.headers.origin) : undefined;
+    if (request.headers.origin !== undefined && (requestOrigin === undefined || !allowedOrigins.includes(requestOrigin))) {
+      sendJson(response, 403, {error: 'origin not allowed'});
+      return;
+    }
+    if (requestOrigin !== undefined) {
+      response.setHeader('access-control-allow-origin', requestOrigin);
+      response.setHeader('vary', 'Origin');
+      if (request.method === 'OPTIONS') {
+        response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+        response.setHeader('access-control-allow-headers', 'authorization, content-type');
+        response.statusCode = 204;
+        response.setHeader('content-length', '0');
+        response.end();
+        return;
+      }
+    }
     if (request.method === 'GET' && request.url === '/healthz') {
       sendJson(response, 200, {ok: true, service: 'guardian-autopilot'});
       return;

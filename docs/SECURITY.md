@@ -15,6 +15,10 @@ only reads configuration and never creates cloud resources.
 - GitHub deliveries verify `X-Hub-Signature-256` and are acknowledged without
   running repository actions.
 - Request bodies are bounded to 4 MiB by default.
+- The HTTP boundary emits restrictive security headers and applies a bounded
+  per-process rate limit (120 requests per minute per source address by default).
+- Browser requests are denied unless their exact origin is listed in
+  `CORS_ORIGINS`; wildcard origins are not accepted.
 - Checkout is disabled unless the Stripe configuration **and**
   `STRIPE_CHECKOUT_ACCESS_TOKEN` are present. Calls must send
   `Authorization: Bearer <token>`.
@@ -52,6 +56,16 @@ free tier do not create a hard spending ceiling. Before any public deployment:
 These controls reduce cost exposure; they do not guarantee that a DDoS attack
 will cost zero. The free Quick Tunnel is therefore the temporary choice, not a
 production DDoS mitigation plan.
+
+The built-in rate limiter is intentionally small and local: it is in-memory,
+per process, and keyed by the source address visible to the Node process. It
+does not coordinate across replicas and must not be treated as a WAF, bot
+filter, or volumetric DDoS defense. A hosted service still needs provider-level
+rate limits and an upstream WAF/CDN policy before the origin is exposed.
+
+When Checkout is called from a browser, set `CORS_ORIGINS` to a comma-separated
+list of exact `http` or `https` origins such as `https://app.example.com`.
+Do not use `*`, paths, credentials in the URL, or a broad origin pattern.
 
 ## Pre-launch obligations
 

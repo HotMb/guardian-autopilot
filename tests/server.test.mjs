@@ -30,6 +30,19 @@ async function call(server, path, method, body = '', headers = {}) {
   return {statusCode: result.statusCode, json: JSON.parse(result.body)};
 }
 
+async function callWithHeaders(server, path, method, body = '', headers = {}) {
+  const address = server.address();
+  return new Promise((resolve, reject) => {
+    const req = request({hostname: '127.0.0.1', port: address.port, path, method, headers}, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve({statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8')}));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 test('billing webhook HTTP boundary preserves signed raw bodies and returns health', async () => {
   const server = createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore(), nowSeconds: timestamp});
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -53,6 +66,67 @@ test('billing webhook HTTP boundary rejects oversized bodies and unknown routes'
   try {
     assert.equal((await call(server, '/unknown', 'GET')).statusCode, 404);
     assert.equal((await call(server, '/webhooks/stripe', 'POST', '12345678901234567')).statusCode, 413);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('billing server emits security headers and applies bounded rate limiting', async () => {
+  const server = createBillingWebhookServer({
+    endpointSecret: secret,
+    store: new MemorySubscriptionStore(),
+    rateLimit: {maxRequests: 1, windowMs: 60_000},
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const first = await callWithHeaders(server, '/healthz', 'GET');
+    assert.equal(first.statusCode, 200);
+    assert.equal(first.headers['x-content-type-options'], 'nosniff');
+    assert.equal(first.headers['x-frame-options'], 'DENY');
+    assert.equal(first.headers['referrer-policy'], 'no-referrer');
+    assert.equal(first.headers['content-security-policy'], "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+
+    const limited = await callWithHeaders(server, '/healthz', 'GET');
+    assert.equal(limited.statusCode, 429);
+    assert.equal(limited.headers['retry-after'], '60');
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('billing server validates rate limits and restricts browser origins', async () => {
+  assert.throws(
+    () => createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore(), rateLimit: {maxRequests: 0}}),
+    /rateLimit\.maxRequests must be a positive safe integer/,
+  );
+  assert.throws(
+    () => createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore(), allowedOrigins: ['*']}),
+    /allowedOrigins must contain explicit http or https origins/,
+  );
+
+  const server = createBillingWebhookServer({
+    endpointSecret: secret,
+    store: new MemorySubscriptionStore(),
+    allowedOrigins: ['http://localhost:3000'],
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const denied = await callWithHeaders(server, '/healthz', 'GET', '', {origin: 'https://attacker.example'});
+    assert.equal(denied.statusCode, 403);
+
+    const preflight = await callWithHeaders(server, '/billing/checkout', 'OPTIONS', '', {
+      origin: 'http://localhost:3000',
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'authorization, content-type',
+    });
+    assert.equal(preflight.statusCode, 204);
+    assert.equal(preflight.headers['access-control-allow-origin'], 'http://localhost:3000');
+    assert.equal(preflight.headers['access-control-allow-methods'], 'GET, POST, OPTIONS');
+    assert.equal(preflight.headers['access-control-allow-headers'], 'authorization, content-type');
+
+    const allowed = await callWithHeaders(server, '/healthz', 'GET', '', {origin: 'http://localhost:3000'});
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(allowed.headers['access-control-allow-origin'], 'http://localhost:3000');
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
