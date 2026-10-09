@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import {readFile} from 'node:fs/promises';
-import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, planRepository, type VerificationConfig} from '../../core/dist/index.js';
+import {readFile, writeFile} from 'node:fs/promises';
+import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '../../core/dist/index.js';
 import {isCleanCodeError} from '../../shared/dist/errors.js';
 import type {Candidate, Evidence} from '../../shared/dist/types.js';
 
@@ -19,7 +19,7 @@ function format(args: string[]): OutputFormat {
 }
 
 function targetRoot(args: string[]): string {
-  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory']);
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output']);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--dry-run' || value.startsWith('--')) {
@@ -32,9 +32,18 @@ function targetRoot(args: string[]): string {
 }
 
 function printUsage(): void {
-  console.error('Usage: cleancode <discover|analyze|plan|apply> [root] [options]');
+  console.error('Usage: cleancode <discover|analyze|plan|apply|report> [root] [options]');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
   console.error('  apply --candidates-file file [--verification-file file] [--format=json]');
+  console.error('  report [--format=json|md|html] [--output file]');
+}
+
+function reportFormat(args: string[]): ReportFormat {
+  const value = optionValue(args, '--format') ?? 'md';
+  if (value === 'json') return 'json';
+  if (value === 'html') return 'html';
+  if (value === 'md' || value === 'markdown' || value === 'text') return 'markdown';
+  throw new Error(`Unsupported report format: ${value}`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -87,7 +96,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
     printUsage();
     return command === '--help' ? 0 : 1;
   }
-  if (!['discover', 'analyze', 'plan', 'apply'].includes(command)) {
+  if (!['discover', 'analyze', 'plan', 'apply', 'report'].includes(command)) {
     console.error(`Unknown command: ${command}`);
     printUsage();
     return 1;
@@ -114,6 +123,13 @@ export async function runCli(args: readonly string[]): Promise<number> {
       if (result.unresolved.length > 0) console.log(`! ${result.unresolved.length} local references unresolved`);
       console.log('→ run `cleancode plan` to review candidates');
     }
+    return 0;
+  }
+  if (command === 'report') {
+    const report = renderReport(await planRepository(root, {knipExecutable: optionValue(values, '--knip')}), reportFormat(values));
+    const output = optionValue(values, '--output');
+    if (output === undefined) process.stdout.write(report);
+    else await writeFile(output, report, 'utf8');
     return 0;
   }
   if (command === 'apply') {

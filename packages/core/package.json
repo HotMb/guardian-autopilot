@@ -56,6 +56,10 @@
       "types": "./dist/application.d.ts",
       "import": "./dist/application.js"
     },
+    "./report": {
+      "types": "./dist/report.d.ts",
+      "import": "./dist/report.js"
+    },
     "./audit-log": {
       "types": "./dist/audit-log.d.ts",
       "import": "./dist/audit-log.js"

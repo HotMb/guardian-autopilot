@@ -10,5 +10,6 @@ export * from './planner.js';
 export * from './verifier.js';
 export * from './executor.js';
 export * from './application.js';
+export * from './report.js';
 export * from './audit-log.js';
 export * from './receipts.js';

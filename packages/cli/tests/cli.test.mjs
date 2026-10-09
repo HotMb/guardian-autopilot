@@ -76,3 +76,11 @@ test('apply --dry-run reports the guarded change without writing the target', as
   assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), before);
 });
 
+test('report emits Markdown from a read-only plan', async () => {
+  const root = await fixture();
+  const result = await exec(process.execPath, [cli, 'report', root, '--format=md']);
+
+  assert.match(result.stdout, /# CleanCode report/);
+  assert.match(result.stdout, /src\/unused\.ts/);
+});
+
