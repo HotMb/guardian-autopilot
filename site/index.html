@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f2ed">
+    <meta name="description" content="Guardian Autopilot helps developers inspect code and assets, then prepare cautious, reviewable cleanup — locally, with evidence and rollback.">
+    <title>Guardian Autopilot — safer cleanup for codebases</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="wordmark" href="#top" aria-label="Guardian Autopilot home">
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span>guardian<span class="wordmark-light">/autopilot</span></span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#safety">Safety</a>
+        <a class="nav-cta" href="https://github.com/HotMb/guardian-autopilot" target="_blank" rel="noreferrer">View on GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero shell" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> LOCAL-FIRST · OPEN SOURCE · EARLY BETA</p>
+          <h1 id="hero-title">Keep the good.<br><span>Clean up with proof.</span></h1>
+          <p class="hero-lede">Guardian helps you find stale assets, trace references, and review safe cleanup plans—without sending your source code anywhere.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/HotMb/guardian-autopilot" target="_blank" rel="noreferrer">Explore the repository <span aria-hidden="true">↗</span></a>
+            <a class="text-link" href="#how-it-works">See how it works <span aria-hidden="true">↓</span></a>
+          </div>
+          <p class="hero-note"><span aria-hidden="true">↳</span> Analysis runs on your machine. You stay in control.</p>
+        </div>
+
+        <div class="blueprint" aria-label="Guardian's guarded cleanup workflow: inspect, review evidence, verify in an isolated worktree, then commit or roll back." role="img">
+          <div class="blueprint-top"><span>GUARDIAN / SAFE-CHANGE PIPELINE</span><span>LOCAL PROCESS <b aria-hidden="true"></b></span></div>
+          <div class="pipeline">
+            <div class="pipe-node node-source"><span class="node-index">01 / INPUT</span><strong>Your<br>codebase</strong><span class="node-meta">stays on device</span><span class="node-glyph glyph-folders" aria-hidden="true"><i></i><i></i><i></i></span></div>
+            <div class="pipe-link" aria-hidden="true"><span></span></div>
+            <div class="pipe-node node-evidence"><span class="node-index">02 / EVIDENCE</span><strong>Inspect<br>& explain</strong><span class="node-meta">read-only first</span><span class="node-glyph glyph-proof" aria-hidden="true">✓</span></div>
+            <div class="pipe-link" aria-hidden="true"><span></span></div>
+            <div class="pipe-node node-review"><span class="node-index">03 / REVIEW</span><strong>You<br>approve</strong><span class="node-meta">nothing runs alone</span><span class="node-glyph glyph-review" aria-hidden="true">↗</span></div>
+          </div>
+          <div class="blueprint-bottom"><span>ISOLATED GIT WORKTREE</span><span class="bottom-line" aria-hidden="true"></span><span>VERIFY · COMMIT / ROLLBACK</span></div>
+          <div class="blueprint-stamp" aria-hidden="true">HUMAN<br>IN THE<br>LOOP</div>
+        </div>
+        <div class="hero-index" aria-hidden="true">FIELD NOTE 001 <span>·</span> BUILT FOR REACT / NEXT.JS TEAMS</div>
+      </section>
+
+      <section class="ticker" aria-label="Product principles">
+        <div class="ticker-inner"><span>NO SOURCE UPLOAD</span><b aria-hidden="true">✳</b><span>READ-ONLY BY DEFAULT</span><b aria-hidden="true">✳</b><span>REVIEW BEFORE CHANGE</span><b aria-hidden="true">✳</b><span>ROLLBACK WHEN CHECKS FAIL</span><b aria-hidden="true">✳</b></div>
+      </section>
+
+      <section class="section shell" id="how-it-works" aria-labelledby="how-title">
+        <div class="section-heading">
+          <p class="eyebrow">A SMALL, EXPLAINABLE LOOP</p>
+          <h2 id="how-title">Evidence first.<br>Changes last.</h2>
+          <p>Guardian is built to make maintenance less guessy—not to turn your repository into someone else’s data.</p>
+        </div>
+        <div class="steps">
+          <article class="step-card"><span class="step-number">01</span><div class="step-icon icon-scan" aria-hidden="true"><i></i><i></i><i></i></div><h3>Inspect locally</h3><p>Scan files, find exact duplicate assets, map local references, and review dependency signals on your own machine.</p><span class="step-tag">NO SOURCE UPLOAD</span></article>
+          <article class="step-card"><span class="step-number">02</span><div class="step-icon icon-plan" aria-hidden="true">≋</div><h3>Understand the plan</h3><p>See the evidence and uncertainty behind each candidate. A duplicate or missing import alone is never enough to delete.</p><span class="step-tag">REVIEW-ONLY REPORT</span></article>
+          <article class="step-card"><span class="step-number">03</span><div class="step-icon icon-verify" aria-hidden="true">✓</div><h3>Verify in isolation</h3><p>Explicitly approved cleanup is checked in a separate Git worktree. Failed verification rolls back the attempted change.</p><span class="step-tag">COMMIT OR ROLLBACK</span></article>
+        </div>
+      </section>
+
+      <section class="safety-section" id="safety" aria-labelledby="safety-title">
+        <div class="safety-inner shell">
+          <div class="safety-copy"><p class="eyebrow">GUARDRAILS ARE THE PRODUCT</p><h2 id="safety-title">Autonomy should<br>earn its way in.</h2><p>Guardian starts with observation. When it proposes a change, the path is explicit, isolated, and reversible. Ambiguity means skip—not guess.</p><a class="text-link" href="https://github.com/HotMb/guardian-autopilot/blob/main/docs/SECURITY.md" target="_blank" rel="noreferrer">Read the security notes <span aria-hidden="true">↗</span></a></div>
+          <div class="guard-list" aria-label="Safety guarantees">
+            <div><span class="guard-check" aria-hidden="true">✓</span><p><strong>Protected paths stay protected</strong><small>Secrets, migrations, and user-modified files are guarded.</small></p><span class="guard-ref">POLICY</span></div>
+            <div><span class="guard-check" aria-hidden="true">✓</span><p><strong>Dry-run before apply</strong><small>Review the proposed diff before changes reach your checkout.</small></p><span class="guard-ref">REVIEW</span></div>
+            <div><span class="guard-check" aria-hidden="true">✓</span><p><strong>Checks before commit</strong><small>Build and test checks must pass in the isolated worktree.</small></p><span class="guard-ref">VERIFY</span></div>
+            <div><span class="guard-check" aria-hidden="true">✓</span><p><strong>Failure has an exit path</strong><small>Verification failure rolls back the isolated change.</small></p><span class="guard-ref">RECOVER</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="beta-section shell" aria-labelledby="beta-title">
+        <div class="beta-label"><span class="status-dot" aria-hidden="true"></span> CURRENT STATUS</div>
+        <div class="beta-main"><h2 id="beta-title">Useful today.<br>Still a beta.</h2><p>Use the local CLI for real repository analysis. Hosted integrations are intentionally limited while the product is validated.</p><a class="button button-dark" href="https://github.com/HotMb/guardian-autopilot#readme" target="_blank" rel="noreferrer">Check setup & limitations <span aria-hidden="true">↗</span></a></div>
+        <ul class="beta-facts"><li><span>AVAILABLE</span><strong>Local CLI &amp; read-only reports</strong></li><li><span>GITHUB APP</span><strong>Installation metadata only; no hosted audits</strong></li><li><span>PACKAGE</span><strong>CleanCode CLI not yet published to npm</strong></li><li><span>BILLING</span><strong>Stripe sandbox only; no real payments</strong></li></ul>
+      </section>
+
+      <section class="closing shell" aria-labelledby="closing-title"><p class="eyebrow">YOUR CODE STAYS YOURS.</p><h2 id="closing-title">Make cleanup<br><span>boringly safe.</span></h2><a class="button button-primary" href="https://github.com/HotMb/guardian-autopilot" target="_blank" rel="noreferrer">Get started on GitHub <span aria-hidden="true">↗</span></a></section>
+    </main>
+
+    <footer class="site-footer"><a class="wordmark footer-mark" href="#top"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>guardian<span class="wordmark-light">/autopilot</span></span></a><p>Local-first maintenance for AI-shaped codebases.</p><div><a href="https://github.com/HotMb/guardian-autopilot" target="_blank" rel="noreferrer">GitHub ↗</a><span>© 2026 Guardian Autopilot</span></div></footer>
+  </body>
+</html>

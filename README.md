@@ -10,6 +10,15 @@ The canonical public repository is [HotMb/guardian-autopilot](https://github.com
 git clone https://github.com/HotMb/guardian-autopilot.git
 ```
 
+## Product landing page
+
+The static product page lives in [`site/`](site/). It is intentionally dependency-
+free, does not load third-party scripts or fonts, and describes the current beta
+limits as well as the local-first workflow. Preview it locally from the repository
+root with `python -m http.server 8080 --directory site`, then open
+`http://localhost:8080`. Hosting and a custom domain are not required to use the
+CLI.
+
 ## Current working scope
 
 - Read-only scanning of files in a selected local directory.
