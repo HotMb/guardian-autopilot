@@ -30,10 +30,18 @@ Generate a webhook secret during registration and store the same value in
 Render as `GITHUB_WEBHOOK_SECRET`. Do not commit it or send it through chat.
 The Render Blueprint declares this variable as a non-synchronized secret.
 
-The current server verifies and acknowledges signed deliveries only; it does
-not yet install repositories, exchange installation tokens or run audits from
-GitHub webhooks. Those operations remain a later implementation step and are
-intentionally not implied by registering the App.
+The current server verifies and acknowledges signed deliveries only. The
+library client in `src/github-installation.ts` can exchange an App JWT for an
+installation token restricted to one repository and read-only permissions,
+then return that repository's metadata. It checks the returned permissions and
+repository scope, rejects redirects and applies a request timeout. Credentials
+and remote error bodies are not returned to callers.
+
+The client is covered by local mocked API tests; a real authenticated API call
+still requires the App private key and numerical App/repository identifiers.
+It is not yet connected to the webhook or a public HTTP route. Repository audit
+scheduling, installation persistence and account authorization remain pending.
+The successful webhook deliveries do not prove these later features work.
 
 `src/github.ts` contains the corresponding raw-body `X-Hub-Signature-256` verifier, covered by GitHub's published test vector, plus a short-lived RS256 App JWT builder tested against an ephemeral key. The local webhook server exposes `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured; it verifies and acknowledges signed deliveries without executing repository changes. Runtime private keys and the registration-time webhook secret are still required through deployment secrets.
 
