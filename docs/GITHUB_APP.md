@@ -37,11 +37,30 @@ then return that repository's metadata. It checks the returned permissions and
 repository scope, rejects redirects and applies a request timeout. Credentials
 and remote error bodies are not returned to callers.
 
-The client is covered by local mocked API tests; a real authenticated API call
-still requires the App private key and numerical App/repository identifiers.
-It is not yet connected to the webhook or a public HTTP route. Repository audit
-scheduling, installation persistence and account authorization remain pending.
-The successful webhook deliveries do not prove these later features work.
+The client and its HTTP route are covered by local mocked API tests; a real
+authenticated API call still requires the App private key and numerical
+App/repository identifiers. The route is not triggered by webhooks. Repository
+audit scheduling, installation persistence and account authorization remain
+pending. Successful webhook deliveries do not prove these later features work.
+
+## Read-only repository connection test
+
+The server exposes `POST /github/repository` only when all seven
+`GITHUB_*` variables in `.env.example` are configured. Set them in the hosting
+dashboard, keeping the private key and `GITHUB_API_ACCESS_TOKEN` secret. The
+App ID is on the App's General settings page; the installation ID is the number
+in the installation settings URL; the repository ID is available from the
+repository's API URL. Download a new private key from the App's **Private keys**
+section and paste its PEM contents into the secret field. Render accepts
+multiline environment values; escaped `\n` is also normalized by the server.
+
+Use a unique random bearer token for `GITHUB_API_ACCESS_TOKEN`; never reuse the
+Stripe Checkout token. After Render deploys, call the route with
+`Authorization: Bearer <GITHUB_API_ACCESS_TOKEN>`. It returns only the
+configured repository ID, full name, default branch and visibility. It does not
+return the installation token or private key. The route cannot select a
+different repository. Remove these GitHub API variables from Render to disable
+the connection.
 
 `src/github.ts` contains the corresponding raw-body `X-Hub-Signature-256` verifier, covered by GitHub's published test vector, plus a short-lived RS256 App JWT builder tested against an ephemeral key. The local webhook server exposes `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured; it verifies and acknowledges signed deliveries without executing repository changes. Runtime private keys and the registration-time webhook secret are still required through deployment secrets.
 

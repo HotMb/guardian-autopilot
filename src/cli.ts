@@ -6,6 +6,8 @@ import { planCandidates } from './candidates.js';
 import { runCleanupTransaction } from './transaction.js';
 import { serveMcp } from './mcp.js';
 import { createBillingWebhookServer } from './server.js';
+import {createGitHubAppJwt} from './github.js';
+import {GitHubInstallationClient} from './github-installation.js';
 import { FileSubscriptionStore, MemorySubscriptionStore } from './subscriptions.js';
 import { PostgresSubscriptionStore } from './postgres-subscriptions.js';
 import { checkoutConfigurationFromEnv, createStripeClient } from './checkout.js';
@@ -83,6 +85,22 @@ try {
     const storePath = process.env.STRIPE_SUBSCRIPTION_STORE_PATH?.trim();
     const databaseUrl = process.env.DATABASE_URL?.trim();
     const databaseMaxConnections = optionalPositiveInteger(process.env.DATABASE_MAX_CONNECTIONS, 'DATABASE_MAX_CONNECTIONS');
+    const githubValues = [process.env.GITHUB_APP_ID, process.env.GITHUB_INSTALLATION_ID, process.env.GITHUB_REPOSITORY_ID, process.env.GITHUB_REPOSITORY_OWNER, process.env.GITHUB_REPOSITORY_NAME, process.env.GITHUB_APP_PRIVATE_KEY, process.env.GITHUB_API_ACCESS_TOKEN];
+    const githubConfiguredCount = githubValues.filter((value) => value?.trim() !== undefined && value.trim() !== '').length;
+    if (githubConfiguredCount !== 0 && githubConfiguredCount !== githubValues.length) throw new Error('GitHub repository access configuration is incomplete');
+    const githubAppId = process.env.GITHUB_APP_ID?.trim();
+    const githubInstallationId = githubConfiguredCount === 0 ? undefined : Number(process.env.GITHUB_INSTALLATION_ID);
+    const githubRepositoryId = githubConfiguredCount === 0 ? undefined : Number(process.env.GITHUB_REPOSITORY_ID);
+    if (githubConfiguredCount > 0 && (!Number.isSafeInteger(githubInstallationId) || !Number.isSafeInteger(githubRepositoryId) || (githubInstallationId ?? 0) <= 0 || (githubRepositoryId ?? 0) <= 0)) throw new Error('GitHub installation and repository ids must be positive safe integers');
+    const githubPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    const githubAccessToken = process.env.GITHUB_API_ACCESS_TOKEN?.trim();
+    const githubOwner = process.env.GITHUB_REPOSITORY_OWNER?.trim();
+    const githubName = process.env.GITHUB_REPOSITORY_NAME?.trim();
+    const githubClient = githubConfiguredCount === 0 ? undefined : new GitHubInstallationClient({
+      installationId: githubInstallationId as number,
+      repositoryId: githubRepositoryId as number,
+      createJwt: () => createGitHubAppJwt(githubAppId as string, githubPrivateKey as string),
+    });
     if (databaseUrl && storePath) throw new Error('Set either DATABASE_URL or STRIPE_SUBSCRIPTION_STORE_PATH, not both');
     const postgresStore = databaseUrl === undefined || databaseUrl === '' ? undefined : new PostgresSubscriptionStore({connectionString: databaseUrl, ...(databaseMaxConnections === undefined ? {} : {maxConnections: databaseMaxConnections})});
     if (postgresStore !== undefined) await postgresStore.initialize();
@@ -90,6 +108,7 @@ try {
     const server = createBillingWebhookServer({
       endpointSecret: secret,
       ...(process.env.GITHUB_WEBHOOK_SECRET === undefined ? {} : {githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET}),
+      ...(githubClient === undefined || githubAccessToken === undefined || githubOwner === undefined || githubName === undefined ? {} : {githubClient, githubAccessToken, githubRepository: {owner: githubOwner, name: githubName}}),
       store,
       ...(allowedOrigins === undefined ? {} : {allowedOrigins}),
       ...(stripeClient === undefined || checkoutConfiguration === undefined || checkoutAccessToken === undefined || checkoutAccessToken === '' ? {} : {stripeClient, checkoutConfiguration, checkoutAccessToken}),

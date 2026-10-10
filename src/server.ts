@@ -3,6 +3,7 @@ import {createHash, timingSafeEqual} from 'node:crypto';
 import type Stripe from 'stripe';
 import {createCheckoutSession, type CheckoutConfiguration} from './checkout.js';
 import {verifyGitHubWebhookSignature} from './github.js';
+import type {GitHubInstallationClient} from './github-installation.js';
 import {processStripeSubscriptionWebhook} from './webhooks.js';
 import type {SubscriptionStore} from './subscriptions.js';
 
@@ -16,6 +17,9 @@ export type BillingWebhookServerOptions = {
   stripeClient?: Stripe;
   checkoutConfiguration?: CheckoutConfiguration;
   checkoutAccessToken?: string;
+  githubClient?: GitHubInstallationClient;
+  githubAccessToken?: string;
+  githubRepository?: {owner: string; name: string};
   maxBodyBytes?: number;
   rateLimit?: Partial<typeof defaultRateLimit>;
   allowedOrigins?: readonly string[];
@@ -191,6 +195,10 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
   const maxBodyBytes = options.maxBodyBytes ?? defaultMaxBodyBytes;
   if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new Error('maxBodyBytes must be a positive safe integer');
   if ((options.stripeClient === undefined) !== (options.checkoutConfiguration === undefined)) throw new Error('Stripe client and Checkout configuration must be provided together');
+  if ([options.githubClient, options.githubAccessToken, options.githubRepository].filter((value) => value !== undefined).length !== 0 &&
+      (options.githubClient === undefined || options.githubAccessToken === undefined || options.githubAccessToken.trim() === '' || options.githubRepository === undefined)) {
+    throw new Error('GitHub repository access requires a client, a separate access token and a configured repository');
+  }
   const rateLimiter = new RateLimiter(options.rateLimit);
   const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins);
 
@@ -253,6 +261,27 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
       } catch (error) {
         console.error(`Checkout request failed: ${safeErrorMessage(error)}`);
         sendJson(response, 400, {error: 'invalid Checkout request'});
+      }
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/github/repository') {
+      if (options.githubClient === undefined || options.githubAccessToken === undefined || options.githubRepository === undefined) {
+        sendJson(response, 503, {error: 'GitHub repository access unavailable'});
+        return;
+      }
+      if (!hasValidBearerToken(request, options.githubAccessToken)) {
+        response.setHeader('www-authenticate', 'Bearer');
+        sendJson(response, 401, {error: 'GitHub authorization required'});
+        return;
+      }
+      try {
+        const repository = await options.githubClient.getRepository(options.githubRepository.owner, options.githubRepository.name);
+        sendJson(response, 200, {repository});
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const statusCode = message.startsWith('GitHub request failed (404)') ? 404 : message.startsWith('GitHub request failed (401)') ? 502 : 502;
+        console.error(`GitHub repository lookup failed: ${safeErrorMessage(error)}`);
+        sendJson(response, statusCode, {error: 'GitHub repository lookup failed'});
       }
       return;
     }

@@ -184,6 +184,32 @@ test('billing server exposes Checkout only when configured', async () => {
   }
 });
 
+test('GitHub repository route is separately authorized and returns only configured read-only metadata', async () => {
+  const unavailable = createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore()});
+  await new Promise((resolve) => unavailable.listen(0, '127.0.0.1', resolve));
+  try {
+    assert.equal((await call(unavailable, '/github/repository', 'POST', '{}')).statusCode, 503);
+  } finally {
+    await new Promise((resolve, reject) => unavailable.close((error) => error ? reject(error) : resolve()));
+  }
+
+  const configured = createBillingWebhookServer({
+    endpointSecret: secret,
+    store: new MemorySubscriptionStore(),
+    githubClient: {getRepository: async (owner, name) => ({id: 17, fullName: `${owner}/${name}`, defaultBranch: 'main', private: true})},
+    githubAccessToken: 'separate_github_access_token',
+    githubRepository: {owner: 'HotMb', name: 'guardian-autopilot'},
+  });
+  await new Promise((resolve) => configured.listen(0, '127.0.0.1', resolve));
+  try {
+    assert.equal((await call(configured, '/github/repository', 'POST', '{}')).statusCode, 401);
+    const result = await call(configured, '/github/repository', 'POST', '{}', {authorization: 'Bearer separate_github_access_token'});
+    assert.deepEqual(result, {statusCode: 200, json: {repository: {id: 17, fullName: 'HotMb/guardian-autopilot', defaultBranch: 'main', private: true}}});
+  } finally {
+    await new Promise((resolve, reject) => configured.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('billing server verifies GitHub webhook deliveries without executing actions', async () => {
   const unavailable = createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore()});
   await new Promise((resolve) => unavailable.listen(0, '127.0.0.1', resolve));
