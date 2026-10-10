@@ -1,5 +1,6 @@
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'node:http';
 import {createHash, timingSafeEqual} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 import type Stripe from 'stripe';
 import {createCheckoutSession, type CheckoutConfiguration} from './checkout.js';
 import {verifyGitHubWebhookSignature} from './github.js';
@@ -76,6 +77,22 @@ function sendHtml(response: ServerResponse, statusCode: number, body: string): v
   response.setHeader('content-type', 'text/html; charset=utf-8');
   response.setHeader('cache-control', 'no-store');
   response.setHeader('content-length', Buffer.byteLength(body));
+  response.end(body);
+}
+
+async function sendLandingAsset(response: ServerResponse, fileName: 'index.html' | 'styles.css'): Promise<void> {
+  let body: Buffer;
+  try {
+    body = await readFile(new URL(`../site/${fileName}`, import.meta.url));
+  } catch {
+    sendJson(response, 404, {error: 'not found'});
+    return;
+  }
+  response.statusCode = 200;
+  response.setHeader('content-type', fileName === 'index.html' ? 'text/html; charset=utf-8' : 'text/css; charset=utf-8');
+  response.setHeader('cache-control', fileName === 'index.html' ? 'public, max-age=60' : 'public, max-age=300');
+  response.setHeader('content-security-policy', "default-src 'none'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'");
+  response.setHeader('content-length', body.byteLength);
   response.end(body);
 }
 
@@ -224,6 +241,17 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
         response.statusCode = 204;
         response.setHeader('content-length', '0');
         response.end();
+        return;
+      }
+    }
+    if (request.method === 'GET') {
+      const pathname = request.url?.split('?', 1)[0];
+      if (pathname === '/') {
+        await sendLandingAsset(response, 'index.html');
+        return;
+      }
+      if (pathname === '/styles.css') {
+        await sendLandingAsset(response, 'styles.css');
         return;
       }
     }

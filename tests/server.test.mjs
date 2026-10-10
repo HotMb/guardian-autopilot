@@ -112,6 +112,28 @@ test('billing server serves hosted Checkout return pages', async () => {
   }
 });
 
+test('billing server serves the static privacy-first landing page and stylesheet', async () => {
+  const server = createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore()});
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const page = await callWithHeaders(server, '/', 'GET');
+    assert.equal(page.statusCode, 200);
+    assert.equal(page.headers['content-type'], 'text/html; charset=utf-8');
+    assert.match(page.body, /Keep the good/i);
+    assert.match(page.headers['content-security-policy'], /style-src 'self'/);
+    assert.doesNotMatch(page.body, /<script\b/i);
+
+    const stylesheet = await callWithHeaders(server, '/styles.css', 'GET');
+    assert.equal(stylesheet.statusCode, 200);
+    assert.equal(stylesheet.headers['content-type'], 'text/css; charset=utf-8');
+    assert.match(stylesheet.body, /prefers-reduced-motion/);
+
+    assert.equal((await callWithHeaders(server, '/%2e%2e/Dockerfile', 'GET')).statusCode, 404);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('billing server validates rate limits and restricts browser origins', async () => {
   assert.throws(
     () => createBillingWebhookServer({endpointSecret: secret, store: new MemorySubscriptionStore(), rateLimit: {maxRequests: 0}}),

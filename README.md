@@ -17,7 +17,8 @@ free, does not load third-party scripts or fonts, and describes the current beta
 limits as well as the local-first workflow. Preview it locally from the repository
 root with `python -m http.server 8080 --directory site`, then open
 `http://localhost:8080`. Hosting and a custom domain are not required to use the
-CLI.
+CLI. The hosted Docker service serves this page at `/` and its stylesheet at
+`/styles.css` when the latest deployment is live.
 
 ## Current working scope
 

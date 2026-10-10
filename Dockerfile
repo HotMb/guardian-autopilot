@@ -16,6 +16,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY site ./site
 
 RUN mkdir -p /var/lib/guardian && chown -R node:node /app /var/lib/guardian
 USER node
