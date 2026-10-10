@@ -46,7 +46,7 @@
   - [x] Local signed webhook boundary with no-op acknowledgement
   - [x] App registration, webhook endpoint, and installation (owner configured; signed deliveries and repository lookup validated)
   - [x] Beta boundary: GitHub connection exposes metadata only; source analysis stays on the user's computer
-  - [ ] Local CLI workflow using the user's Git credentials to analyze a checked-out private repository
+  - [x] Local CLI workflow using the user's GitHub CLI credentials to clone and analyze a repository without source upload
 - [ ] Team reporting, telemetry consent and data retention
   - [x] Local opt-in anonymous telemetry contract
   - [x] Aggregation and bounded retention policy

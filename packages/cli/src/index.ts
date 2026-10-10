@@ -5,6 +5,7 @@ import {verifyLicense} from '@cleancode/license';
 import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
 import {serveMcp} from './mcp.js';
+import {cloneGitHubRepository} from './github.js';
 
 type OutputFormat = 'text' | 'json';
 
@@ -35,6 +36,7 @@ function targetRoot(args: string[]): string {
 
 function printUsage(): void {
   console.error('Usage: cleancode <discover|analyze|plan|apply|report> [root] [options]');
+  console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
   console.error('  apply --candidates-file file [--verification-file file] [--format=json]');
   console.error('  report [--format=json|md|html] [--output file]');
@@ -121,6 +123,32 @@ export async function runCli(args: readonly string[]): Promise<number> {
   }
   if (command === 'license') return runLicenseCommand(args.slice(1));
   if (command === 'mcp') { await serveMcp(); return 0; }
+  if (command === 'github') {
+    const action = args[1];
+    if (action !== 'analyze') throw new Error('Usage: cleancode github analyze <owner/repository> --destination <new-local-path> [--format=json]');
+    const repository = args[2] ?? '';
+    const destination = optionValue(args.slice(3), '--destination');
+    if (destination === undefined) throw new Error('An explicit --destination path is required; existing paths are never overwritten.');
+    const localPath = await cloneGitHubRepository(repository, destination);
+    const [files, graph] = await Promise.all([discoverRepository(localPath), buildReferenceGraph(localPath)]);
+    const summary = {
+      repository,
+      localPath,
+      mode: 'local-read-only',
+      filesScanned: files.files.length,
+      referencesResolved: graph.edges.length,
+      unresolvedReferences: graph.unresolved.length,
+      sourceUploaded: false,
+    };
+    if (format(args.slice(3)) === 'json') console.log(JSON.stringify(summary, null, 2));
+    else {
+      console.log(`✓ ${repository} cloned and analyzed locally`);
+      console.log(`✓ ${summary.filesScanned} files scanned; ${summary.referencesResolved} local references resolved`);
+      if (summary.unresolvedReferences > 0) console.log(`! ${summary.unresolvedReferences} local references unresolved`);
+      console.log('✓ No source code was uploaded; no project commands were executed');
+    }
+    return 0;
+  }
   if (!['discover', 'analyze', 'plan', 'apply', 'report'].includes(command)) {
     console.error(`Unknown command: ${command}`);
     printUsage();

@@ -71,22 +71,21 @@ do not copy them into a user workstation or expose an installation token to a
 browser.
 
 For the beta, analyze code on the user's computer. The user checks out the
-target repository with their own Git/GitHub credentials, then points
-Guardian's local CLI at that directory. The CLI package is not yet published;
-from a Guardian checkout, build it once and run:
+target repository with their own GitHub CLI credentials. The CleanCode package
+CLI is not yet published; from a Guardian checkout, install GitHub CLI, sign in
+with `gh auth login`, build it once and run:
 
 ```powershell
 npm install
 npm run build:cli
-node packages/cli/dist/index.js discover C:\path\to\target-project
-node packages/cli/dist/index.js analyze C:\path\to\target-project
+node packages/cli/dist/index.js github analyze OWNER/REPOSITORY --destination C:\path\to\new-local-folder
 ```
 
-The analysis reads local files and writes reports only where explicitly
-requested; repository source is not sent to Guardian's hosted service. Hosted
-source analysis is a separate future feature and must remain disabled until
-explicit consent, retention/deletion behavior, and deployment security are
-designed.
+The command refuses an existing destination, reads the cloned files locally,
+and does not execute project scripts or upload repository source to Guardian's
+hosted service. Hosted source analysis is a separate future feature and must
+remain disabled until explicit consent, retention/deletion behavior, and
+deployment security are designed.
 
 `src/github.ts` contains the corresponding raw-body `X-Hub-Signature-256` verifier, covered by GitHub's published test vector, plus a short-lived RS256 App JWT builder tested against an ephemeral key. The local webhook server exposes `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured; it verifies and acknowledges signed deliveries without executing repository changes. Runtime private keys and the registration-time webhook secret are still required through deployment secrets.
 

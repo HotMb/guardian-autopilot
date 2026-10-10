@@ -71,6 +71,22 @@ node packages/cli/dist/index.js license status --license-file .cleancode-license
 node packages/cli/dist/index.js mcp
 ```
 
+To analyze a GitHub repository without sending its files to Guardian's hosted
+service, install [GitHub CLI](https://cli.github.com/) and sign in (`gh auth
+login`; required for private repositories). From a Guardian checkout, build the
+CleanCode CLI once and run:
+
+```powershell
+npm install
+npm run build:cli
+node packages/cli/dist/index.js github analyze OWNER/REPOSITORY --destination C:\Users\you\source\REPOSITORY
+```
+
+Choose a destination that does not already exist. Guardian uses `gh repo clone`
+to make a local checkout, then performs a read-only source/reference scan on
+that computer. It does not run project scripts, modify the checkout, or upload
+source code. The CleanCode CLI is not yet published as a package.
+
 `apply --dry-run` never creates a worktree or writes the target repository. A real `apply` requires an explicit candidates file whose evidence contains positive proof, creates a backup branch and isolated worktree, runs build/typecheck/tests, writes an audit log, and commits only after every verification passes. Failed verification rolls back the isolated change. Verification commands can be supplied with `--verification-file`; no source code is uploaded.
 
 `report` produces a compact read-only summary in JSON, Markdown (`md`) or HTML. It writes a file only when `--output` is explicitly provided.
