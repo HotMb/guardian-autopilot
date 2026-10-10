@@ -18,7 +18,10 @@ git clone https://github.com/HotMb/guardian-autopilot.git
 - Hashes assets as a stream, so large files are not loaded entirely into memory.
 - Stable JSON report to stdout with schema version, relative POSIX paths, and non-fatal read errors.
 - The original `guardian` CLI remains conservative and asset-focused.
-- The CleanCode packages under `packages/` now provide guarded TypeScript cleanup discovery, analysis, planning, isolated apply, verification, audit JSONL, and crash-safe receipts.
+- The CleanCode CLI under `packages/` discovers source files, resolves local code references, prepares review-only plans and reports, and applies only explicitly approved cleanup through an isolated, verified Git worktree transaction.
+- `cleancode github analyze OWNER/REPOSITORY` clones with the user's local GitHub CLI credentials and analyzes the checkout on-device; source code is not sent to the hosted service.
+- The hosted GitHub App connection validates the installation and reads configured repository metadata. Its webhook only verifies and acknowledges deliveries; it does not schedule or run audits.
+- Stripe Checkout, signed subscription webhooks, and PostgreSQL persistence have been tested in sandbox/free-beta configuration only.
 
 ## Run
 
@@ -151,9 +154,16 @@ claude --plugin-dir ./integrations/claude-plugin
 
 The `Stop` hook is debounced for five minutes per project, runs `guardian plan` only, and never performs cleanup. It does not create a permanent background process. The explicit skill is `/guardian-autopilot:audit`.
 
-## Planned, not yet implemented
+## Not yet shipped / beta limitations
 
-Policy engine, GitHub integration, paid cloud service, and team reporting. The local read-only MCP adapter is implemented; destructive cleanup remains behind the explicit CLI transaction path.
+- The CleanCode CLI is built from this repository but has not been published as an installable package.
+- GitHub push and pull-request deliveries do not trigger scans; hosted source analysis, scheduled audits and automated pull requests are not implemented.
+- There is no customer web dashboard, account/organization management, team reporting, or self-serve entitlement API.
+- Stripe is sandbox-only. Real payments, customer fulfillment, refunds and live billing are not enabled.
+- The free Render/Supabase deployment is for beta validation, not a production availability, backup, or DDoS-protection guarantee.
+- Public launch still requires the security, privacy, support, retention, cost-control and operational gates in [SECURITY.md](docs/SECURITY.md) and [PRODUCTION-DEPLOYMENT.md](docs/PRODUCTION-DEPLOYMENT.md).
+
+The current implementation remains local-first: analysis and cleanup run on the user's computer, while hosted endpoints are limited to test billing and GitHub installation metadata/webhook acknowledgement.
 
 ## Start here
 
