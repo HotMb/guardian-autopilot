@@ -62,6 +62,32 @@ return the installation token or private key. The route cannot select a
 different repository. Remove these GitHub API variables from Render to disable
 the connection.
 
+## Beta analysis boundary
+
+The hosted GitHub connection is currently for installation validation and
+repository metadata only. It does not download, cache, or analyze repository
+contents. Keep the private key and API bearer token on the hosting service;
+do not copy them into a user workstation or expose an installation token to a
+browser.
+
+For the beta, analyze code on the user's computer. The user checks out the
+target repository with their own Git/GitHub credentials, then points
+Guardian's local CLI at that directory. The CLI package is not yet published;
+from a Guardian checkout, build it once and run:
+
+```powershell
+npm install
+npm run build:cli
+node packages/cli/dist/index.js discover C:\path\to\target-project
+node packages/cli/dist/index.js analyze C:\path\to\target-project
+```
+
+The analysis reads local files and writes reports only where explicitly
+requested; repository source is not sent to Guardian's hosted service. Hosted
+source analysis is a separate future feature and must remain disabled until
+explicit consent, retention/deletion behavior, and deployment security are
+designed.
+
 `src/github.ts` contains the corresponding raw-body `X-Hub-Signature-256` verifier, covered by GitHub's published test vector, plus a short-lived RS256 App JWT builder tested against an ephemeral key. The local webhook server exposes `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured; it verifies and acknowledges signed deliveries without executing repository changes. Runtime private keys and the registration-time webhook secret are still required through deployment secrets.
 
 GitHub Apps should request the minimum permissions needed for their API and webhook behavior. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-github-apps/choosing-permissions-for-a-github-app) and [App registration parameters](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-using-url-parameters).
