@@ -2,6 +2,7 @@ import {execFile} from 'node:child_process';
 import {lstat} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {promisify} from 'node:util';
+import type {UnresolvedReference} from '@cleancode/core';
 
 const execFileAsync = promisify(execFile) as (file: string, args: string[], options: {
   shell: false;
@@ -16,6 +17,20 @@ export type GitHubCommandRunner = (file: string, args: string[], options: {
   timeout: number;
   maxBuffer: number;
 }) => Promise<unknown>;
+
+export function summarizeUnresolvedReferences(references: readonly UnresolvedReference[]): {
+  unresolvedReferences: number;
+  unresolvedTestReferences: number;
+  unresolvedGeneratedOutputReferences: number;
+} {
+  const testReferences = references.filter(({from}) => /(^|\/)(?:tests?|__tests__)\//i.test(from));
+  const generatedOutputReferences = testReferences.filter(({specifier}) => /(^|\/)(?:dist|build|out)\//i.test(specifier.replaceAll('\\', '/')));
+  return {
+    unresolvedReferences: references.length - testReferences.length,
+    unresolvedTestReferences: testReferences.length,
+    unresolvedGeneratedOutputReferences: generatedOutputReferences.length,
+  };
+}
 
 function validRepositorySlug(repository: string): boolean {
   const [owner, name, extra] = repository.split('/');

@@ -5,7 +5,7 @@ import {verifyLicense} from '@cleancode/license';
 import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
 import {serveMcp} from './mcp.js';
-import {cloneGitHubRepository} from './github.js';
+import {cloneGitHubRepository, summarizeUnresolvedReferences} from './github.js';
 
 type OutputFormat = 'text' | 'json';
 
@@ -131,20 +131,23 @@ export async function runCli(args: readonly string[]): Promise<number> {
     if (destination === undefined) throw new Error('An explicit --destination path is required; existing paths are never overwritten.');
     const localPath = await cloneGitHubRepository(repository, destination);
     const [files, graph] = await Promise.all([discoverRepository(localPath), buildReferenceGraph(localPath)]);
+    const unresolved = summarizeUnresolvedReferences(graph.unresolved);
     const summary = {
       repository,
       localPath,
       mode: 'local-read-only',
       filesScanned: files.files.length,
       referencesResolved: graph.edges.length,
-      unresolvedReferences: graph.unresolved.length,
+      ...unresolved,
       sourceUploaded: false,
     };
     if (format(args.slice(3)) === 'json') console.log(JSON.stringify(summary, null, 2));
     else {
       console.log(`✓ ${repository} cloned and analyzed locally`);
       console.log(`✓ ${summary.filesScanned} files scanned; ${summary.referencesResolved} local references resolved`);
-      if (summary.unresolvedReferences > 0) console.log(`! ${summary.unresolvedReferences} local references unresolved`);
+      console.log(`✓ ${summary.unresolvedReferences} unresolved source references`);
+      if (summary.unresolvedGeneratedOutputReferences > 0) console.log(`ℹ ${summary.unresolvedGeneratedOutputReferences} test references point to generated build files not included in the clone`);
+      else if (summary.unresolvedTestReferences > 0) console.log(`! ${summary.unresolvedTestReferences} unresolved test references`);
       console.log('✓ No source code was uploaded; no project commands were executed');
     }
     return 0;

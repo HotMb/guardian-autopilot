@@ -6,7 +6,7 @@ import {join, resolve} from 'node:path';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
-import {cloneGitHubRepository} from '../dist/github.js';
+import {cloneGitHubRepository, summarizeUnresolvedReferences} from '../dist/github.js';
 
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL('../dist/index.js', import.meta.url));
@@ -65,4 +65,17 @@ test('GitHub analyze requires an explicit destination before starting', async ()
       return true;
     },
   );
+});
+
+test('local analysis summary separates source references from generated test outputs', () => {
+  const summary = summarizeUnresolvedReferences([
+    {from: 'src/index.ts', specifier: './missing.js', kind: 'import'},
+    {from: 'tests/index.test.mjs', specifier: '../dist/index.js', kind: 'import'},
+    {from: 'packages/core/tests/core.test.mjs', specifier: '../dist/core.js', kind: 'import'},
+  ]);
+  assert.deepEqual(summary, {
+    unresolvedReferences: 1,
+    unresolvedTestReferences: 2,
+    unresolvedGeneratedOutputReferences: 2,
+  });
 });
