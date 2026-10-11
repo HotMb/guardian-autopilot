@@ -103,13 +103,17 @@ function sourceKind(file: string): ts.ScriptKind {
   }
 }
 
+function staticSpecifier(value: ts.Expression | undefined): value is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral {
+  return value !== undefined && (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value));
+}
+
 function referencesInSource(source: string, file: string): Array<{specifier: string; kind: ReferenceKind}> {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, sourceKind(file));
   const references: Array<{specifier: string; kind: ReferenceKind}> = [];
   function visit(node: ts.Node): void {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) references.push({specifier: node.moduleSpecifier.text, kind: 'import'});
     else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) references.push({specifier: node.moduleSpecifier.text, kind: 'export'});
-    else if (ts.isCallExpression(node) && node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0])) {
+    else if (ts.isCallExpression(node) && node.arguments.length === 1 && staticSpecifier(node.arguments[0])) {
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) references.push({specifier: node.arguments[0].text, kind: 'dynamic-import'});
       else if (ts.isIdentifier(node.expression) && node.expression.text === 'require') references.push({specifier: node.arguments[0].text, kind: 'require'});
     }

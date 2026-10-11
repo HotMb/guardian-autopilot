@@ -28,6 +28,20 @@ test('resolves relative imports, re-exports and literal dynamic imports', async 
   assert.deepEqual(graph.unresolved, []);
 });
 
+test('resolves no-substitution template literals as static dynamic-import targets', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-template-import-'));
+  await mkdir(join(root, 'src'), {recursive: true});
+  await writeFile(join(root, 'src', 'index.ts'), 'const load = () => import(`./fixed`); void load;');
+  await writeFile(join(root, 'src', 'fixed.ts'), 'export const fixed = true;');
+
+  const graph = await buildReferenceGraph(root);
+
+  assert.deepEqual(graph.edges.map(({from, to, kind}) => ({from, to, kind})), [
+    {from: 'src/index.ts', to: 'src/fixed.ts', kind: 'dynamic-import'},
+  ]);
+  assert.deepEqual(graph.unresolved, []);
+});
+
 test('resolves tsconfig path aliases and reports unresolved local targets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cleancode-alias-'));
   await mkdir(join(root, 'src', 'lib'), {recursive: true});
