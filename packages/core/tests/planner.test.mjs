@@ -38,3 +38,27 @@ test('plans exact duplicates without treating the hash as positive proof', async
   assert.match(duplicate.evidence.map((item) => item.details ?? item.type).join(' '), /hash|runtime|positive proof/i);
 });
 
+test('never proposes package-declared public entrypoints or files under an invalid package manifest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-package-plan-'));
+  await mkdir(join(root, 'src', 'features'), {recursive: true});
+  await writeFile(join(root, 'src', 'index.ts'), 'export {};\n');
+  await writeFile(join(root, 'src', 'api.ts'), 'export {};\n');
+  await writeFile(join(root, 'src', 'features', 'one.ts'), 'export {};\n');
+  await writeFile(join(root, 'src', 'internal.ts'), 'export {};\n');
+  await writeFile(join(root, 'package.json'), JSON.stringify({
+    exports: {'.': {types: './src/api.ts'}, './features/*': './src/features/*.ts'},
+  }));
+
+  const report = await planRepository(root, {entryFiles: ['src/index.ts'], knipExecutable: 'not-installed'});
+
+  assert.deepEqual(report.packageEntrypoints.files, ['src/api.ts', 'src/features/one.ts']);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/api.ts'), false);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/features/one.ts'), false);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/internal.ts'), true);
+
+  await writeFile(join(root, 'package.json'), '{broken');
+  const invalid = await planRepository(root, {entryFiles: ['src/index.ts'], knipExecutable: 'not-installed'});
+  assert.deepEqual(invalid.packageEntrypoints.invalidManifests, ['package.json']);
+  assert.equal(invalid.candidates.some((candidate) => candidate.path === 'src/internal.ts'), false);
+});
+

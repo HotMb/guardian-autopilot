@@ -7,6 +7,7 @@ export * from './duplicates.js';
 export * from './reference-graph.js';
 export * from './dynamic-hints.js';
 export * from './coverage.js';
+export * from './package-exports.js';
 export * from './knip.js';
 export * from './planner.js';
 export * from './verifier.js';

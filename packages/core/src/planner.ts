@@ -7,6 +7,7 @@ import {evaluateCandidate, type PolicyConfig, type PolicyDecision} from './polic
 import {runKnip, type KnipResult} from './knip.js';
 import {scanDynamicHints, type DynamicHint} from './dynamic-hints.js';
 import {scanCoverage, type CoverageReport} from './coverage.js';
+import {belongsToInvalidPackage, scanPackageEntrypoints, type PackageEntrypointReport} from './package-exports.js';
 
 export type PlannedCandidate = Candidate & {
   action: 'review-only';
@@ -30,6 +31,7 @@ export type PlanReport = {
   knip: KnipResult;
   dynamicHints: DynamicHint[];
   coverage: CoverageReport;
+  packageEntrypoints: PackageEntrypointReport;
   mode: 'read-only';
 };
 
@@ -77,13 +79,15 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
   const knip = await runKnip(manifest.root, options.knipExecutable === undefined ? {} : {executable: options.knipExecutable});
   const dynamicHints = await scanDynamicHints(manifest.root);
   const coverage = await scanCoverage(manifest.root, manifest.files.map((file) => file.path));
+  const packageEntrypoints = await scanPackageEntrypoints(manifest.root, manifest.files.map((file) => file.path));
   const incoming = incomingFiles(graph);
   const observedAtRuntime = new Set(coverage.executedFiles);
+  const publicFiles = new Set(packageEntrypoints.files);
   const entryFiles = new Set(options.entryFiles ?? manifest.files.filter((file) => /(^|\/)index\.[cm]?[jt]sx?$/.test(file.path)).map((file) => file.path));
   const candidates: PlannedCandidate[] = [];
 
   for (const file of manifest.files) {
-    if (!sourceFile(file.path) || entryFiles.has(file.path) || incoming.has(file.path) || observedAtRuntime.has(file.path)) continue;
+    if (!sourceFile(file.path) || entryFiles.has(file.path) || incoming.has(file.path) || observedAtRuntime.has(file.path) || publicFiles.has(file.path) || belongsToInvalidPackage(file.path, packageEntrypoints.invalidManifests)) continue;
     candidates.push(makeCandidate('unreferenced-file', file.path, [
       {type: 'no_import_references', confidence: 0.99, details: 'No local static import or export targets this file'},
     ], options));
@@ -92,6 +96,7 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
   for (const group of duplicates) {
     for (const path of group.duplicates) {
       if (observedAtRuntime.has(path)) continue;
+      if (publicFiles.has(path) || belongsToInvalidPackage(path, packageEntrypoints.invalidManifests)) continue;
       const evidence: Evidence[] = [
         {type: 'no_import_references', confidence: incoming.has(path) ? 0.2 : 0.99},
         {type: 'no_dynamic_references', confidence: 0.5, details: 'Exact hashing cannot prove runtime usage'},
@@ -101,5 +106,5 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
   }
 
   candidates.sort((left, right) => left.path.localeCompare(right.path) || left.kind.localeCompare(right.kind));
-  return {schemaVersion: 1, root: manifest.root, candidates, manifest, graph, duplicates, knip, dynamicHints, coverage, mode: 'read-only'};
+  return {schemaVersion: 1, root: manifest.root, candidates, manifest, graph, duplicates, knip, dynamicHints, coverage, packageEntrypoints, mode: 'read-only'};
 }

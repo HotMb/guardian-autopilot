@@ -65,6 +65,8 @@ Plans and reports also surface documented JavaScript/TypeScript runtime-usage hi
 
 When `coverage/lcov.info` is present, planning cross-references it and excludes files with executed lines from cleanup candidates. Files with measured zero coverage remain candidates for review only: missing execution is not proof that a file is unused.
 
+The planner also protects files declared by `package.json` entrypoints, including `exports`, `bin`, `main`, `module`, `browser`, and type entrypoints. If a package manifest is invalid, candidates within that package are suppressed rather than guessed.
+
 ### CleanCode packages
 
 Build and test the CleanCode implementation with:
