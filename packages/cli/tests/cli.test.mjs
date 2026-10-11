@@ -96,6 +96,27 @@ test('real apply refuses to infer destructive candidates without an explicit app
   assert.equal((await git(root, 'branch', '--list', 'cleancode/*')).stdout.trim(), '');
 });
 
+test('candidate files reject unknown evidence types and confidence outside zero to one', async () => {
+  const root = await fixture();
+  const candidateFile = join(root, 'candidate.json');
+  const invalidEvidence = [
+    {type: 'invented_proof', confidence: 0.99},
+    {type: 'positive_proof', confidence: 1.01},
+    {type: 'positive_proof', confidence: -0.01},
+  ];
+
+  for (const evidence of invalidEvidence) {
+    await writeFile(candidateFile, JSON.stringify({candidates: [{path: 'src/unused.ts', evidence: [evidence]}]}));
+    await assert.rejects(
+      () => exec(process.execPath, [cli, 'apply', root, '--dry-run', '--candidates-file', candidateFile]),
+      (error) => {
+        assert.match(error.stderr, /candidate.*evidence/i);
+        return true;
+      },
+    );
+  }
+});
+
 test('report emits Markdown from a read-only plan', async () => {
   const root = await fixture();
   const result = await exec(process.execPath, [cli, 'report', root, '--format=md']);

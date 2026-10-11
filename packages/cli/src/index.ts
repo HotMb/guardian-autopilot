@@ -8,6 +8,14 @@ import {serveMcp} from './mcp.js';
 import {cloneGitHubRepository, summarizeUnresolvedReferences} from './github.js';
 
 type OutputFormat = 'text' | 'json';
+const evidenceTypes = new Set<Evidence['type']>([
+  'no_import_references',
+  'no_dynamic_references',
+  'not_in_public_api',
+  'not_in_package_json_exports',
+  'no_string_reference_in_repo',
+  'positive_proof',
+]);
 
 function optionValue(args: string[], option: string): string | undefined {
   const inline = args.find((value) => value.startsWith(`${option}=`));
@@ -66,6 +74,9 @@ function parseCandidates(value: unknown): Array<Pick<Candidate, 'path' | 'eviden
     const evidence: Evidence[] = entry.evidence.map((item, evidenceIndex) => {
       if (!isRecord(item) || typeof item.type !== 'string' || typeof item.confidence !== 'number') {
         throw new Error(`Invalid evidence at candidate ${index}, item ${evidenceIndex}`);
+      }
+      if (!evidenceTypes.has(item.type as Evidence['type']) || !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1 || (item.details !== undefined && typeof item.details !== 'string')) {
+        throw new Error(`Invalid candidate evidence at candidate ${index}, item ${evidenceIndex}`);
       }
       return {type: item.type as Evidence['type'], confidence: item.confidence, details: typeof item.details === 'string' ? item.details : undefined};
     });
