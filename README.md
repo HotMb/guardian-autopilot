@@ -61,6 +61,8 @@ npm test
 
 `plan` also runs Knip when the target project provides a `knip` executable. The adapter requests only JSON analysis of dependency, unlisted and unresolved issues; it never invokes Knip's fix mode. If Knip is unavailable, the report returns `status: "unavailable"` and the rest of the plan still works.
 
+Plans and reports also surface documented JavaScript/TypeScript runtime-usage hints (dynamic imports/requires, DI and reflective-container markers, and serialization annotations). These are review signals only, capped at 0.50 confidence; they are not proof of use or non-use and never authorize cleanup.
+
 ### CleanCode packages
 
 Build and test the CleanCode implementation with:

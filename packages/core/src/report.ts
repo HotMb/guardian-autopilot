@@ -1,4 +1,5 @@
 import type {PlanReport} from './planner.js';
+import type {DynamicHint} from './dynamic-hints.js';
 
 export type ReportFormat = 'json' | 'markdown' | 'html';
 
@@ -23,6 +24,7 @@ export type CleanCodeReport = {
     issues: number;
     error?: string;
   };
+  dynamicHints: DynamicHint[];
 };
 
 function summary(plan: PlanReport): CleanCodeReport {
@@ -47,6 +49,7 @@ function summary(plan: PlanReport): CleanCodeReport {
       issues: plan.knip.issues.length,
       ...(plan.knip.error === undefined ? {} : {error: plan.knip.error}),
     },
+    dynamicHints: plan.dynamicHints,
   };
 }
 
@@ -62,6 +65,9 @@ function renderMarkdown(report: CleanCodeReport): string {
   const rows = report.candidates.length === 0
     ? '| _none_ | — | — | — |\n'
     : report.candidates.map((candidate) => `| ${markdown(candidate.path)} | ${markdown(candidate.kind)} | ${candidate.confidence.toFixed(2)} | ${candidate.allowed ? 'eligible' : 'blocked'} |`).join('\n') + '\n';
+  const hintRows = report.dynamicHints.length === 0
+    ? '_No documented dynamic-usage hints found._'
+    : ['| Path | Line | Hint | Marker |', '| --- | ---: | --- | --- |', ...report.dynamicHints.map((hint) => `| ${markdown(hint.path)} | ${hint.line} | ${markdown(hint.kind)} | \`${markdown(hint.marker)}\` |`)].join('\n');
   return [
     '# CleanCode report',
     '',
@@ -77,6 +83,12 @@ function renderMarkdown(report: CleanCodeReport): string {
     '| --- | --- | ---: | --- |',
     rows.trimEnd(),
     '',
+    '## Dynamic-usage hints',
+    '',
+    hintRows,
+    '',
+    'Hints are review signals, not proof of use or proof of non-use. Their confidence is intentionally capped at 0.50.',
+    '',
     'This report is read-only. A candidate is never applied without explicit positive proof and guarded verification.',
     '',
   ].join('\n');
@@ -86,11 +98,16 @@ function renderHtml(report: CleanCodeReport): string {
   const rows = report.candidates.length === 0
     ? '<tr><td colspan="4">none</td></tr>'
     : report.candidates.map((candidate) => `<tr><td>${html(candidate.path)}</td><td>${html(candidate.kind)}</td><td>${candidate.confidence.toFixed(2)}</td><td>${candidate.allowed ? 'eligible' : 'blocked'}</td></tr>`).join('');
+  const hintRows = report.dynamicHints.length === 0
+    ? '<tr><td colspan="4">No documented dynamic-usage hints found.</td></tr>'
+    : report.dynamicHints.map((hint) => `<tr><td>${html(hint.path)}</td><td>${hint.line}</td><td>${html(hint.kind)}</td><td><code>${html(hint.marker)}</code></td></tr>`).join('');
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>CleanCode report</title></head>
 <body><main><h1>CleanCode report</h1>
 <dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd></dl>
 <h2>Candidates</h2><table><thead><tr><th>Path</th><th>Kind</th><th>Confidence</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>
+<h2>Dynamic-usage hints</h2><table><thead><tr><th>Path</th><th>Line</th><th>Hint</th><th>Marker</th></tr></thead><tbody>${hintRows}</tbody></table>
+<p>Hints are review signals, not proof of use or proof of non-use. Their confidence is intentionally capped at 0.50.</p>
 <p>This report is read-only. A candidate is never applied without explicit positive proof and guarded verification.</p></main></body></html>
 `;
 }

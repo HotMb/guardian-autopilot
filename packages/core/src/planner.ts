@@ -5,6 +5,7 @@ import {buildReferenceGraph, type ReferenceGraph} from './reference-graph.js';
 import {findExactDuplicates, type ExactDuplicateGroup} from './duplicates.js';
 import {evaluateCandidate, type PolicyConfig, type PolicyDecision} from './policy.js';
 import {runKnip, type KnipResult} from './knip.js';
+import {scanDynamicHints, type DynamicHint} from './dynamic-hints.js';
 
 export type PlannedCandidate = Candidate & {
   action: 'review-only';
@@ -26,6 +27,7 @@ export type PlanReport = {
   graph: ReferenceGraph;
   duplicates: ExactDuplicateGroup[];
   knip: KnipResult;
+  dynamicHints: DynamicHint[];
   mode: 'read-only';
 };
 
@@ -71,6 +73,7 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
   const graph = await buildReferenceGraph(manifest.root);
   const duplicates = findExactDuplicates(manifest);
   const knip = await runKnip(manifest.root, options.knipExecutable === undefined ? {} : {executable: options.knipExecutable});
+  const dynamicHints = await scanDynamicHints(manifest.root);
   const incoming = incomingFiles(graph);
   const entryFiles = new Set(options.entryFiles ?? manifest.files.filter((file) => /(^|\/)index\.[cm]?[jt]sx?$/.test(file.path)).map((file) => file.path));
   const candidates: PlannedCandidate[] = [];
@@ -93,5 +96,5 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
   }
 
   candidates.sort((left, right) => left.path.localeCompare(right.path) || left.kind.localeCompare(right.kind));
-  return {schemaVersion: 1, root: manifest.root, candidates, manifest, graph, duplicates, knip, mode: 'read-only'};
+  return {schemaVersion: 1, root: manifest.root, candidates, manifest, graph, duplicates, knip, dynamicHints, mode: 'read-only'};
 }

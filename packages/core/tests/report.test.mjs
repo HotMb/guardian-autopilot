@@ -9,9 +9,10 @@ import {renderReport} from '../dist/report.js';
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'cleancode-report-'));
   await mkdir(join(root, 'src'), {recursive: true});
-  await writeFile(join(root, 'src', 'index.ts'), "import {used} from './used'; void used;\n");
+  await writeFile(join(root, 'src', 'index.ts'), "import {used} from './used'; import './runtime'; void used;\n");
   await writeFile(join(root, 'src', 'used.ts'), 'export const used = true;\n');
   await writeFile(join(root, 'src', 'unused.ts'), 'export const unused = true;\n');
+  await writeFile(join(root, 'src', 'runtime.ts'), "export const handler = require(`./handlers/${name}`);\n");
   return root;
 }
 
@@ -20,9 +21,12 @@ test('renders a stable JSON report summary', async () => {
   const report = JSON.parse(renderReport(plan, 'json'));
 
   assert.equal(report.schemaVersion, 1);
-  assert.equal(report.filesScanned, 3);
+  assert.equal(report.filesScanned, 4);
   assert.equal(report.candidates[0].path, 'src/unused.ts');
   assert.equal(report.candidates[0].allowed, false);
+  assert.deepEqual(report.dynamicHints.map(({path, line, kind}) => ({path, line, kind})), [
+    {path: 'src/runtime.ts', line: 1, kind: 'dynamic-require'},
+  ]);
 });
 
 test('renders escaped Markdown and HTML reports', async () => {
@@ -32,7 +36,10 @@ test('renders escaped Markdown and HTML reports', async () => {
 
   assert.match(markdown, /# CleanCode report/);
   assert.match(markdown, /src\/unused\.ts/);
+  assert.match(markdown, /Dynamic-usage hints/);
+  assert.match(markdown, /confidence is intentionally capped at 0\.50/);
   assert.match(html, /<main>/);
   assert.match(html, /src\/unused\.ts/);
+  assert.match(html, /Dynamic-usage hints/);
   assert.doesNotMatch(html, /<script>/i);
 });
