@@ -26,6 +26,16 @@ test('runs build, typecheck and tests without a shell and reports every result',
   assert.match(result.details.typecheck, /typecheck failed/);
 });
 
+test('runs the npm executable on Windows without invoking a command shell', async () => {
+  const command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const result = await runVerification(process.cwd(), {
+    build: {command, args: ['--version']},
+    requireAll: false,
+  });
+
+  assert.equal(result.build, true, result.details.build);
+});
+
 test('fails closed when required verification commands are not configured', async () => {
   const result = await runVerification('C:/worktree', {requireAll: true}, {
     runner: async () => ({stdout: '', stderr: ''}),

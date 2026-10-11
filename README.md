@@ -109,7 +109,18 @@ source code. The CleanCode CLI is not yet published as a package.
 
 `apply --dry-run` never creates a worktree or writes the target repository. Caller-supplied `positive_proof` JSON is not trusted: only evidence objects issued in-process by a verified engine analyzer can authorize a real cleanup. No production analyzer currently issues such proof, so `apply` remains blocked for real CleanCode deletion.
 
-`experiment` is the safe alternative while that proof analyzer is unavailable. Pass each reviewed path with a repeated `--path` option, or provide a JSON file outside the target repository containing `{"paths":["src/unused-module.ts"]}`. A separate verification JSON file with build, typecheck, and test commands is still required; Guardian intentionally does not guess which project commands are safe or correct. Guardian requires the target Git repository to be clean, checks that the paths are tracked regular files and not protected, enforces change limits, removes them only in a new isolated local branch, runs all three configured checks, and keeps a local commit/branch for review only if all checks pass. On failure it rolls back the experiment. The target branch is never changed, and Guardian never pushes or merges this experiment. Review the branch diff yourself before integrating it; passing checks are evidence, not proof that no external or untested use exists. Verification commands run as your user, with the worktree as their working directory; inspect them before running experiments on untrusted repositories because project scripts can have side effects beyond the worktree. More than 10 files also requires `--approve-large-change`. No source code is uploaded.
+`experiment` is the safe alternative while that proof analyzer is unavailable. Pass each reviewed path with a repeated `--path` option, or provide a JSON file outside the target repository containing `{"paths":["src/unused-module.ts"]}`. A separate verification JSON file with build, typecheck, and test commands is still required; Guardian intentionally does not guess which project commands are safe or correct. For an npm project, save a file such as `checks.json` outside the target repository, changing the script names to ones that actually exist in that project:
+
+```json
+{
+  "build": {"command": "npm.cmd", "args": ["run", "build"]},
+  "typecheck": {"command": "npm.cmd", "args": ["run", "typecheck"]},
+  "test": {"command": "npm.cmd", "args": ["test"]},
+  "requireAll": true
+}
+```
+
+On Windows, Guardian invokes npm's JavaScript CLI through Node rather than a command shell. Guardian requires the target Git repository to be clean, checks that the paths are tracked regular files and not protected, enforces change limits, removes them only in a new isolated local branch, runs all three configured checks, and keeps a local commit/branch for review only if all checks pass. On failure it rolls back the experiment. The target branch is never changed, and Guardian never pushes or merges this experiment. Review the branch diff yourself before integrating it; passing checks are evidence, not proof that no external or untested use exists. Verification commands run as your user, with the worktree as their working directory; inspect them before running experiments on untrusted repositories because project scripts can have side effects beyond the worktree. More than 10 files also requires `--approve-large-change`. No source code is uploaded.
 
 `report` produces a compact read-only summary in JSON, Markdown (`md`) or HTML. It writes a file only when `--output` is explicitly provided.
 
