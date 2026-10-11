@@ -138,21 +138,56 @@ function experimentLimit(args: string[]): number {
   return limit;
 }
 
-function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>): {candidates: typeof plan.candidates; skippedReason?: string} {
-  if (plan.dynamicHints.length > 0) return {candidates: [], skippedReason: 'Dynamic runtime-use hints were found; automatic candidate selection was skipped'};
-  if (plan.knip.status === 'failed') return {candidates: [], skippedReason: 'The optional Knip analysis failed; automatic candidate selection was skipped'};
-  const candidates = plan.candidates.filter((candidate) =>
-    candidate.kind === 'unreferenced-file'
-    && candidate.evidence.length === 1
-    && candidate.evidence[0]?.type === 'no_import_references'
-    && candidate.evidence[0].confidence >= 0.95
-    && candidate.decision.reasons.some((reason) => /lacks engine-verified positive proof/i.test(reason))
-    && candidate.decision.reasons.every((reason) =>
-      /lacks engine-verified positive proof/i.test(reason)
-      || /^Candidate confidence [\d.]+ is below 0\.95$/.test(reason),
-    ),
-  );
-  return {candidates, ...(candidates.length === 0 ? {skippedReason: 'No conservative, unreferenced source files are eligible for an isolated experiment'} : {})};
+function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>): {
+  candidates: typeof plan.candidates;
+  skippedCandidates: Array<{candidateId: string; path: string; reason: string}>;
+  skippedReason?: string;
+} {
+  const globalSkipReason = plan.dynamicHints.length > 0
+    ? 'Dynamic runtime-use hints were found; automatic candidate selection was skipped'
+    : plan.knip.status === 'failed'
+      ? 'The optional Knip analysis failed; automatic candidate selection was skipped'
+      : undefined;
+  if (globalSkipReason !== undefined) {
+    return {
+      candidates: [],
+      skippedCandidates: plan.candidates.map((candidate) => ({candidateId: candidate.id, path: candidate.path, reason: globalSkipReason})),
+      skippedReason: globalSkipReason,
+    };
+  }
+
+  const candidates: typeof plan.candidates = [];
+  const skippedCandidates: Array<{candidateId: string; path: string; reason: string}> = [];
+  for (const candidate of plan.candidates) {
+    let reason: string | undefined;
+    if (candidate.kind !== 'unreferenced-file') reason = `Candidate kind "${candidate.kind}" is not eligible for automatic experiments`;
+    else if (candidate.evidence.length !== 1 || candidate.evidence[0]?.type !== 'no_import_references') reason = 'Evidence is not limited to the no-import-references signal';
+    else if (candidate.evidence[0].confidence < 0.95) reason = 'Static no-import-references confidence is below 0.95';
+    else if (!candidate.decision.reasons.some((item) => /lacks engine-verified positive proof/i.test(item))) reason = 'Candidate does not have the expected missing-positive-proof policy blocker';
+    else if (!candidate.decision.reasons.every((item) =>
+      /lacks engine-verified positive proof/i.test(item)
+      || /^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
+    )) {
+      const blockers = candidate.decision.reasons.filter((item) =>
+        !/lacks engine-verified positive proof/i.test(item)
+        && !/^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
+      );
+      reason = `Additional policy safeguards: ${blockers.join('; ')}`;
+    }
+
+    if (reason === undefined) candidates.push(candidate);
+    else skippedCandidates.push({candidateId: candidate.id, path: candidate.path, reason});
+  }
+  return {
+    candidates,
+    skippedCandidates,
+    ...(candidates.length === 0 ? {skippedReason: 'No conservative, unreferenced source files are eligible for an isolated experiment'} : {}),
+  };
+}
+
+function failedVerificationChecks(verification: Awaited<ReturnType<typeof executeCleanupExperiment>>['verification']): string[] {
+  if (verification === undefined) return [];
+  return (['build', 'typecheck', 'tests'] as const).filter((check) => !verification[check]);
 }
 
 async function loadVerification(args: string[]): Promise<VerificationConfig> {
@@ -278,21 +313,53 @@ export async function runCli(args: readonly string[]): Promise<number> {
       const plan = await planRepository(root, {knipExecutable: optionValue(values, '--knip')});
       const selection = autonomousCandidates(plan);
       const selected = selection.candidates.slice(0, limit);
+      const skippedCandidates = [
+        ...selection.skippedCandidates,
+        ...selection.candidates.slice(limit).map((candidate) => ({
+          candidateId: candidate.id,
+          path: candidate.path,
+          reason: `Outside the configured batch limit of ${limit}`,
+        })),
+      ];
       const experiments = [];
       for (const candidate of selected) {
         const result = await executeCleanupExperiment({rootDir: root, paths: [candidate.path], verification, receiptDirectory: optionValue(values, '--receipt-directory')});
-        experiments.push({candidateId: candidate.id, path: candidate.path, result});
+        experiments.push({
+          candidateId: candidate.id,
+          path: candidate.path,
+          kind: candidate.kind,
+          selectionReason: 'No static import/export reference was found; this remains an isolated review experiment because the engine has not supplied positive proof.',
+          policyReasons: candidate.decision.reasons,
+          failedChecks: result.state === 'REVERTED' ? failedVerificationChecks(result.verification) : [],
+          result,
+        });
       }
-      const batch = {mode: 'experiment-batch', availableCandidates: selection.candidates.length, attempted: experiments.length, ...(selection.skippedReason === undefined ? {} : {skippedReason: selection.skippedReason}), experiments};
+      const verified = experiments.filter((experiment) => experiment.result.state === 'COMMITTED').length;
+      const rolledBack = experiments.length - verified;
+      const batch = {
+        mode: 'experiment-batch',
+        availableCandidates: selection.candidates.length,
+        attempted: experiments.length,
+        verified,
+        rolledBack,
+        skipped: skippedCandidates.length,
+        ...(selection.skippedReason === undefined ? {} : {skippedReason: selection.skippedReason}),
+        skippedCandidates,
+        experiments,
+      };
       if (outputFormat === 'json') console.log(JSON.stringify(batch, null, 2));
-      else if (experiments.length === 0) console.log(`ℹ No automatic experiment started: ${selection.skippedReason ?? 'no eligible candidates'}`);
       else {
-        console.log(`✓ ${experiments.length} of ${selection.candidates.length} conservative candidate(s) tested independently`);
-        for (const experiment of experiments) {
-          if (experiment.result.state === 'COMMITTED') console.log(`✓ ${experiment.path} → local review branch ${experiment.result.reviewBranchName}`);
-          else console.log(`↩ ${experiment.path} → checks failed; experiment rolled back`);
+        if (experiments.length === 0) console.log(`ℹ No automatic experiment started: ${selection.skippedReason ?? 'no eligible candidates'}`);
+        else {
+          console.log(`✓ ${verified} verified locally; ${rolledBack} rolled back; ${skippedCandidates.length} skipped`);
+          for (const experiment of experiments) {
+            if (experiment.result.state === 'COMMITTED') console.log(`✓ ${experiment.path} → build, typecheck, and tests passed; local review branch ${experiment.result.reviewBranchName}`);
+            else console.log(`↩ ${experiment.path} → ${experiment.failedChecks.length > 0 ? `failed: ${experiment.failedChecks.join(', ')}` : 'experiment could not be verified'}; rolled back`);
+          }
         }
-        console.log('! Review successful branches manually. Guardian did not push or merge.');
+        for (const skipped of skippedCandidates.slice(0, 10)) console.log(`· skipped ${skipped.path}: ${skipped.reason}`);
+        if (skippedCandidates.length > 10) console.log(`· ${skippedCandidates.length - 10} additional skipped candidate(s) are listed in JSON output`);
+        if (experiments.length > 0) console.log('! Review successful branches manually. Guardian did not push or merge.');
       }
       return experiments.every((experiment) => experiment.result.state === 'COMMITTED') ? 0 : experiments.length === 0 ? 0 : 5;
     }

@@ -152,8 +152,12 @@ test('plan experiment tries candidates independently and keeps only verified loc
   assert.equal(batch.mode, 'experiment-batch');
   assert.equal(batch.availableCandidates, 2);
   assert.equal(batch.attempted, 2);
+  assert.equal(batch.skippedCandidates.length, 0);
   assert.equal(outcomes.get('src/unused.ts'), 'REVERTED');
   assert.equal(outcomes.get('src/unused-two.ts'), 'COMMITTED');
+  const reverted = batch.experiments.find((entry) => entry.path === 'src/unused.ts');
+  assert.deepEqual(reverted.failedChecks, ['tests']);
+  assert.match(reverted.selectionReason, /no static import\/export reference/i);
   assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), original);
   assert.equal(await readFile(secondCandidate, 'utf8'), 'export const unusedTwo = true;\n');
   const committed = batch.experiments.find((entry) => entry.path === 'src/unused-two.ts');
@@ -161,6 +165,30 @@ test('plan experiment tries candidates independently and keeps only verified loc
   assert.equal((await git(root, 'branch', '--show-current')).stdout.trim(), sourceBranch);
   assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
   assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim().split(/\r?\n/).length, 1);
+});
+
+test('plan experiment explains candidates omitted by the configured batch limit', async () => {
+  const root = await fixture();
+  const secondCandidate = join(root, 'src', 'unused-two.ts');
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-plan-batch-limit-')), 'verification.json');
+  await writeFile(secondCandidate, 'export const unusedTwo = true;\n');
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-qm', 'add another unreferenced source file');
+  await writeFile(verificationFile, JSON.stringify({
+    build: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+  }));
+
+  const result = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--max-candidates', '1', '--verification-file', verificationFile, '--format=json']);
+  const batch = JSON.parse(result.stdout);
+
+  assert.equal(batch.availableCandidates, 2);
+  assert.equal(batch.attempted, 1);
+  assert.equal(batch.skipped, 1);
+  assert.equal(batch.skippedCandidates.length, 1);
+  assert.match(batch.skippedCandidates[0].reason, /batch limit/i);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
 });
 
 test('plan experiment skips automatic selection when dynamic runtime-use hints exist', async () => {
@@ -181,9 +209,13 @@ test('plan experiment skips automatic selection when dynamic runtime-use hints e
 
   assert.equal(batch.attempted, 0);
   assert.match(batch.skippedReason, /dynamic runtime-use hints/i);
+  assert.equal(batch.skipped, batch.skippedCandidates.length);
   assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), 'export const unused = true;\n');
   assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
   assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+
+  const textResult = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--verification-file', verificationFile]);
+  assert.match(textResult.stdout, /No automatic experiment started: Dynamic runtime-use hints were found/i);
 });
 
 test('plan experiment enforces the three-candidate batch ceiling before scanning', async () => {
