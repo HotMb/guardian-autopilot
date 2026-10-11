@@ -50,6 +50,8 @@ node packages/cli/dist/index.js report /path/to/project --format=html --output r
 
 Plans are review-only. Guardian does not treat a missing import, a duplicate hash, or a passing test suite as proof that a file is unused. Real CleanCode deletion remains blocked until the engine can produce its own verified positive-use evidence.
 
+The conservative string-reference scan reads PHP and PHTML files for literal references such as WordPress enqueue and include paths. This does not parse PHP or prove framework behavior; dynamic paths and external plugins still require review. Common WordPress template-hierarchy files are protected from cleanup.
+
 Before Guardian automatically selects candidates for a batch experiment, create a human-review checklist outside the project repository:
 
 ```bash

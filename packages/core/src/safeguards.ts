@@ -20,6 +20,8 @@ const protectedPatterns = [
   /(^|\/)(?:[^/]+\.)?(?:config|configuration)\.[^/]+$/i,
   /(^|\/)(?:package|tsconfig|jsconfig|knip)\.json$/i,
   /(^|\/)\.(?:eslintrc|prettierrc|babelrc|npmrc|nvmrc)(?:\.[^/]+)?$/i,
+  // WordPress can load these theme templates by hierarchy without literal references.
+  /(^|\/)(?:404|archive(?:-[^/]+)?|attachment(?:-[^/]+)?|author(?:-[^/]+)?|category(?:-[^/]+)?|comments|date|footer|front-page|header|home|index|page(?:-[^/]+)?|search|sidebar|single(?:-[^/]+)?|singular|tag(?:-[^/]+)?|taxonomy(?:-[^/]+)?)\.php$/i,
 ];
 
 function normalizedPath(value: string): string {

@@ -16,7 +16,7 @@ export type StringReferenceReport = {
 
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs']);
 const textExtensions = new Set([
-  ...sourceExtensions, '.json', '.jsonc', '.md', '.mdx', '.txt', '.html', '.htm', '.css', '.scss', '.less',
+  ...sourceExtensions, '.php', '.phtml', '.json', '.jsonc', '.md', '.mdx', '.txt', '.html', '.htm', '.css', '.scss', '.less',
   '.yaml', '.yml', '.toml', '.xml', '.svg', '.sql', '.sh', '.ps1', '.py', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp',
 ]);
 
@@ -45,10 +45,15 @@ function tokenOccurs(line: string, token: string): boolean {
   return new RegExp(`(^|[^\\p{L}\\p{N}_$])${escaped}($|[^\\p{L}\\p{N}_$])`, 'u').test(line);
 }
 
-export async function scanStringReferences(rootDir: string, knownFiles: readonly string[]): Promise<StringReferenceReport> {
+export async function scanStringReferences(
+  rootDir: string,
+  knownFiles: readonly string[],
+  additionalTargets: readonly string[] = [],
+): Promise<StringReferenceReport> {
   const insensitive = process.platform === 'win32';
   const files = [...new Set(knownFiles.map(portable))].sort();
-  const targets = files.filter((path) => sourceExtensions.has(extname(path).toLowerCase()));
+  const additionalTargetSet = new Set(additionalTargets.map(portable));
+  const targets = files.filter((path) => sourceExtensions.has(extname(path).toLowerCase()) || additionalTargetSet.has(path));
   const contents = new Map<string, string>();
   const unreadableFiles: string[] = [];
 
@@ -61,12 +66,12 @@ export async function scanStringReferences(rootDir: string, knownFiles: readonly
     }
   }
 
+  const linesBySource = new Map([...contents].map(([path, content]) => [path, content.split(/\r?\n/)]));
   const references: StringReference[] = [];
   for (const target of targets) {
     const tokens = referenceTokens(target).map((token) => insensitive ? token.toLowerCase() : token);
-    for (const [source, content] of contents) {
+    for (const [source, lines] of linesBySource) {
       if (source === target) continue;
-      const lines = content.split(/\r?\n/);
       for (let index = 0; index < lines.length; index += 1) {
         const line = insensitive ? lines[index]!.toLowerCase() : lines[index]!;
         const matchedIndex = tokens.findIndex((token) => tokenOccurs(line, token));

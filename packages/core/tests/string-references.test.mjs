@@ -23,6 +23,27 @@ test('finds file paths and module names in other text files without treating no 
   assert.deepEqual(report.unreadableFiles, []);
 });
 
+test('finds WordPress PHP enqueue and include references to JavaScript and PHP files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-php-refs-'));
+  await mkdir(join(root, 'js'), {recursive: true});
+  await mkdir(join(root, 'inc', 'functions', 'metaboxes'), {recursive: true});
+  await writeFile(join(root, 'functions.php'), [
+    "wp_enqueue_script('isotope', get_template_directory_uri() . '/js/isotope.pkgd.min.js');",
+    "require_once APR_METABOXES . '/user-profile.php';",
+  ].join('\n'));
+  await writeFile(join(root, 'js', 'isotope.pkgd.min.js'), '/* vendor script */\n');
+  await writeFile(join(root, 'inc', 'functions', 'metaboxes', 'user-profile.php'), '<?php // user profile hooks\n');
+
+  const report = await scanStringReferences(root, [
+    'functions.php',
+    'js/isotope.pkgd.min.js',
+    'inc/functions/metaboxes/user-profile.php',
+  ], ['inc/functions/metaboxes/user-profile.php']);
+
+  assert.equal(report.references.some((reference) => reference.target === 'js/isotope.pkgd.min.js' && reference.source === 'functions.php'), true);
+  assert.equal(report.references.some((reference) => reference.target === 'inc/functions/metaboxes/user-profile.php' && reference.source === 'functions.php'), true);
+});
+
 test('ignores a candidate’s own contents and reports unreadable scan inputs', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cleancode-string-refs-unreadable-'));
   await writeFile(join(root, 'src-self.ts'), "const self = 'src-self.ts';\n");

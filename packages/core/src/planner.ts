@@ -1,4 +1,4 @@
-import {relative} from 'node:path';
+import {extname, relative} from 'node:path';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
 import {buildManifest, DEFAULT_IGNORE_PATTERNS, type RepositoryManifest} from './manifest.js';
 import {buildReferenceGraph, type ReferenceGraph} from './reference-graph.js';
@@ -90,7 +90,9 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
   const dynamicHints = await scanDynamicHints(manifest.root);
   const coverage = await scanCoverage(manifest.root, manifest.files.map((file) => file.path));
   const packageEntrypoints = await scanPackageEntrypoints(manifest.root, manifest.files.map((file) => file.path));
-  const stringReferences = await scanStringReferences(manifest.root, manifest.files.map((file) => file.path));
+  const phpDuplicateTargets = duplicates.flatMap((group) => group.duplicates)
+    .filter((path) => ['.php', '.phtml'].includes(extname(path).toLowerCase()));
+  const stringReferences = await scanStringReferences(manifest.root, manifest.files.map((file) => file.path), phpDuplicateTargets);
   const incoming = incomingFiles(graph);
   const observedAtRuntime = new Set(coverage.executedFiles);
   const publicFiles = new Set(packageEntrypoints.files);

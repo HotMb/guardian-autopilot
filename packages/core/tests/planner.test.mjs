@@ -77,6 +77,18 @@ test('excludes candidates mentioned by literal string references and exposes the
   assert.equal(report.stringReferences.noMatchIsProof, false);
 });
 
+test('excludes WordPress-enqueued JavaScript assets referenced from PHP', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-wordpress-enqueue-'));
+  await mkdir(join(root, 'js'), {recursive: true});
+  await writeFile(join(root, 'index.php'), "wp_enqueue_script('isotope', get_template_directory_uri() . '/js/isotope.pkgd.min.js');\n");
+  await writeFile(join(root, 'js', 'isotope.pkgd.min.js'), '/* vendor script */\n');
+
+  const report = await planRepository(root, {entryFiles: [], knipExecutable: 'not-installed'});
+
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'js/isotope.pkgd.min.js'), false);
+  assert.equal(report.stringReferences.references.some((reference) => reference.target === 'js/isotope.pkgd.min.js' && reference.source === 'index.php'), true);
+});
+
 test('plan applies custom protected and ignored paths from .guardian/config.json', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cleancode-configured-policy-'));
   await mkdir(join(root, '.guardian'), {recursive: true});

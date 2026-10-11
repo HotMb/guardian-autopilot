@@ -45,6 +45,8 @@ test('never deletes test files, test directories, or recognized project configur
     'packages/app/vite.config.ts',
     '.guardian/config.json',
     'packages/app/package.json',
+    'tag.php',
+    'templates/tag.php',
   ]) {
     assert.equal(isProtectedPath(path), true, `${path} should be protected`);
   }
