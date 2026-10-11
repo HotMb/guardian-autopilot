@@ -10,3 +10,4 @@
 - Added a separately namespaced CleanCode MCP stdio adapter with root containment and read-only tool annotations.
 - Made the shared, core, license, and CLI packages npm-workspace aware with publishable metadata and package-boundary imports.
 - Hardened the local webhook HTTP boundary with security headers, bounded rate limiting, and exact-origin CORS validation.
+- Required a user-reviewed candidates file before any real CleanCode CLI cleanup; dry-run remains read-only.

@@ -78,6 +78,24 @@ test('apply --dry-run reports the guarded change without writing the target', as
   assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), before);
 });
 
+test('real apply refuses to infer destructive candidates without an explicit approved candidates file', async () => {
+  const root = await fixture();
+  const target = join(root, 'src', 'unused.ts');
+  const before = await readFile(target, 'utf8');
+
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'apply', root]),
+    (error) => {
+      assert.notEqual(error.code, 0);
+      assert.match(error.stderr, /explicit.*candidates file/i);
+      return true;
+    },
+  );
+
+  assert.equal(await readFile(target, 'utf8'), before);
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/*')).stdout.trim(), '');
+});
+
 test('report emits Markdown from a read-only plan', async () => {
   const root = await fixture();
   const result = await exec(process.execPath, [cli, 'report', root, '--format=md']);

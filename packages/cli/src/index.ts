@@ -189,8 +189,11 @@ export async function runCli(args: readonly string[]): Promise<number> {
     return 0;
   }
   if (command === 'apply') {
-    const candidates = await loadCandidates(values, root);
     const dryRun = values.includes('--dry-run');
+    if (!dryRun && optionValue(values, '--candidates-file') === undefined) {
+      throw new CleanCodeError('POLICY_VIOLATION', 'Real cleanup requires an explicit candidates file reviewed by the user');
+    }
+    const candidates = await loadCandidates(values, root);
     const result = await executeCleanup({
       rootDir: root,
       candidates,
