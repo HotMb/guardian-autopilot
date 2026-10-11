@@ -1,211 +1,111 @@
-# Guardian Autopilot (starter)
+# Guardian Autopilot
 
-An agent-agnostic, local-first foundation for safe cleanup of AI-generated codebases and assets.
+Guardian is a local-first toolkit for inspecting repositories and testing bounded cleanup changes with explicit verification and human review.
 
-## Repository
+## Capabilities
 
-The canonical public repository is [HotMb/guardian-autopilot](https://github.com/HotMb/guardian-autopilot). Clone it with:
+- Scan common image and video assets, calculate SHA-256 hashes, and report exact duplicates without modifying files.
+- Build an asset inventory and resolve local references in JavaScript/TypeScript, CSS, HTML, Markdown, and public asset paths.
+- Analyze JavaScript/TypeScript repositories, explain possible unused-file candidates, and produce read-only plans.
+- Test selected cleanup candidates in an isolated local Git worktree. Required checks run before a successful experiment is kept for review.
+- Analyze a GitHub checkout locally through GitHub CLI credentials; source files are not uploaded to Guardian.
+- Expose read-only analysis through the MCP adapter and the optional Claude Code plugin.
+
+## Requirements
+
+- Node.js 20 or later
+- npm
+- Git for worktree-based cleanup and GitHub checkout analysis
+
+## Quick start
 
 ```bash
 git clone https://github.com/HotMb/guardian-autopilot.git
-```
-
-## Product landing page
-
-The static product page lives in [`site/`](site/). It is intentionally dependency-
-free, does not load third-party scripts or fonts, and describes the current beta
-limits as well as the local-first workflow. Preview it locally from the repository
-root with `python -m http.server 8080 --directory site`, then open
-`http://localhost:8080`. Hosting and a custom domain are not required to use the
-CLI. The hosted Docker service serves this page at `/` and its stylesheet at
-`/styles.css` when the latest deployment is live.
-
-## Current working scope
-
-- Read-only scanning of files in a selected local directory.
-- SHA-256 exact duplicate detection for common image/video formats.
-- Ignores `.git`, `node_modules`, common build folders, and symlinks.
-- Hashes assets as a stream, so large files are not loaded entirely into memory.
-- Stable JSON report to stdout with schema version, relative POSIX paths, and non-fatal read errors.
-- The original `guardian` CLI remains conservative and asset-focused.
-- The CleanCode CLI under `packages/` discovers source files, resolves local code references, prepares review-only plans and reports, and can test a proposed cleanup in a verified, local-only Git worktree branch for human review.
-- `cleancode github analyze OWNER/REPOSITORY` clones with the user's local GitHub CLI credentials and analyzes the checkout on-device; source code is not sent to the hosted service.
-- The hosted GitHub App connection validates the installation and reads configured repository metadata. Its webhook only verifies and acknowledges deliveries; it does not schedule or run audits.
-- Stripe Checkout, signed subscription webhooks, and PostgreSQL persistence have been tested in sandbox/free-beta configuration only.
-
-## Run
-
-```bash
-npm install
+cd guardian-autopilot
+npm ci
 npm run build
-node dist/cli.js scan /path/to/project
-node dist/cli.js inventory /path/to/project
-node dist/cli.js references /path/to/project
-node dist/cli.js plan /path/to/project
-npm exec guardian -- cleanup /path/to/project path/to/tracked-file.png
-npm exec guardian -- cleanup /path/to/project --apply --check-json '{"command":"npm","args":["test"]}' path/to/tracked-file.png
-npm exec guardian -- mcp
-npm exec guardian -- preflight
-npm exec guardian -- preflight --production
-npm install --global guardian-autopilot
 npm test
 ```
 
-`npm test` compiles the project before running the tests. The scan remains read-only and returns exit code 1 for an invalid root or an unrecoverable root-level error.
-
-`inventory` builds or updates `.guardian/index.json`. Asset hashes are reused when file size and modification time are unchanged; the regular `scan` command never writes this index.
-
-`references` reports local asset references found in JS/TS literals, CSS `url(...)`, HTML/JSON/Markdown strings and local `public/` URLs. Dynamic template values and external URLs are intentionally not treated as certain references.
-
-`plan` combines duplicate detection and reference evidence into explainable `review-only` candidates. It never deletes or changes files.
-
-`plan` also runs Knip when the target project provides a `knip` executable. The adapter requests only JSON analysis of dependency, unlisted and unresolved issues; it never invokes Knip's fix mode. If Knip is unavailable, the report returns `status: "unavailable"` and the rest of the plan still works.
-
-Plans and reports also surface documented JavaScript/TypeScript runtime-usage hints (dynamic imports/requires, DI and reflective-container markers, and serialization annotations). These are review signals only, capped at 0.50 confidence; they are not proof of use or non-use and never authorize cleanup.
-
-When `coverage/lcov.info` is present, planning cross-references it and excludes files with executed lines from cleanup candidates. Files with measured zero coverage remain candidates for review only: missing execution is not proof that a file is unused.
-
-The planner also protects files declared by `package.json` entrypoints, including `exports`, `bin`, `main`, `module`, `browser`, and type entrypoints. If a package manifest is invalid, candidates within that package are suppressed rather than guessed.
-
-### CleanCode packages
-
-Build and test the CleanCode implementation with:
+Run the original asset scanner and read-only planners against a local project:
 
 ```bash
-npm run build:shared
-npm run test:core
-npm run test:cli
+node dist/cli.js scan /path/to/project
+node dist/cli.js references /path/to/project
+node dist/cli.js plan /path/to/project
 ```
 
-The package CLI is available after building `packages/cli`:
+The scan command does not change the target project. The inventory command is the exception: it writes or updates `.guardian/index.json` to cache asset hashes.
+
+## CleanCode CLI
+
+Build the CleanCode workspace CLI:
 
 ```bash
-node packages/cli/dist/index.js discover /path/to/project
+npm run build:cli
 node packages/cli/dist/index.js analyze /path/to/project --format=json
 node packages/cli/dist/index.js plan /path/to/project --format=json
-node packages/cli/dist/index.js report /path/to/project --format=html --output cleancode-report.html
-node packages/cli/dist/index.js experiment /path/to/project --path src/unused-module.ts --verification-file checks.json
-node packages/cli/dist/index.js experiment /path/to/project --from-plan --max-candidates 3 --verification-file checks.json
-node packages/cli/dist/index.js apply /path/to/project --dry-run --candidates-file approved-candidates.json
-node packages/cli/dist/index.js license activate --license-file license.key --public-key-file cleancode-public-key.pem --output .cleancode-license.key
-node packages/cli/dist/index.js license status --license-file .cleancode-license.key --public-key-file cleancode-public-key.pem
-node packages/cli/dist/index.js mcp
+node packages/cli/dist/index.js report /path/to/project --format=html --output report.html
 ```
 
-To analyze a GitHub repository without sending its files to Guardian's hosted
-service, install [GitHub CLI](https://cli.github.com/) and sign in (`gh auth
-login`; required for private repositories). From a Guardian checkout, build the
-CleanCode CLI once and run:
+Plans are review-only. Guardian does not treat a missing import, a duplicate hash, or a passing test suite as proof that a file is unused. Real CleanCode deletion remains blocked until the engine can produce its own verified positive-use evidence.
 
-```powershell
-npm install
-npm run build:cli
-node packages/cli/dist/index.js github analyze OWNER/REPOSITORY --destination C:\Users\you\source\REPOSITORY
-```
-
-Choose a destination that does not already exist. Guardian uses `gh repo clone`
-to make a local checkout, then performs a read-only source/reference scan on
-that computer. It does not run project scripts, modify the checkout, or upload
-source code. The CleanCode CLI is not yet published as a package.
-
-`apply --dry-run` never creates a worktree or writes the target repository. Caller-supplied `positive_proof` JSON is not trusted: only evidence objects issued in-process by a verified engine analyzer can authorize a real cleanup. No production analyzer currently issues such proof, so `apply` remains blocked for real CleanCode deletion.
-
-`experiment` is the safe alternative while that proof analyzer is unavailable. Pass each reviewed path with a repeated `--path` option, or provide a JSON file outside the target repository containing `{"paths":["src/unused-module.ts"]}`. A separate verification JSON file with build, typecheck, and test commands is still required; Guardian intentionally does not guess which project commands are safe or correct. For an npm project, save a file such as `checks.json` outside the target repository, changing the script names to ones that actually exist in that project:
-
-```json
-{
-  "build": {"command": "npm.cmd", "args": ["run", "build"]},
-  "typecheck": {"command": "npm.cmd", "args": ["run", "typecheck"]},
-  "test": {"command": "npm.cmd", "args": ["test"]},
-  "requireAll": true
-}
-```
-
-On Windows, Guardian invokes npm's JavaScript CLI through Node rather than a command shell. Guardian requires the target Git repository to be clean, checks that the paths are tracked regular files and not protected, enforces change limits, removes them only in a new isolated local branch, runs all three configured checks, and keeps a local commit/branch for review only if all checks pass. On failure it rolls back the experiment. The target branch is never changed, and Guardian never pushes or merges this experiment. Review the branch diff yourself before integrating it; passing checks are evidence, not proof that no external or untested use exists. Verification commands run as your user, with the worktree as their working directory; inspect them before running experiments on untrusted repositories because project scripts can have side effects beyond the worktree. More than 10 files also requires `--approve-large-change`. No source code is uploaded.
-
-For a bounded autopilot trial, use `--from-plan`. Guardian selects only unreferenced source files whose remaining policy blocker is the absence of engine-verified positive proof; it will not auto-select exact duplicates. It skips automatic selection if dynamic runtime-use hints exist or Knip analysis fails. One candidate is tried by default; `--max-candidates` can raise this to at most three, and each file gets its own isolated branch and full verification run. The result report explains why each file was selected or skipped, names failed checks for rolled-back candidates, and summarizes verified, reverted, and skipped counts. Failed candidates are rolled back independently while successful ones remain as local review branches. No candidate is pushed, merged, or deleted from the source branch.
-
-`report` produces a compact read-only summary in JSON, Markdown (`md`) or HTML. It writes a file only when `--output` is explicitly provided.
-
-The four packages are workspace-linked for development and have publishable package metadata. Publishing is still an explicit owner-controlled release action; no package is published automatically by the test or CI workflow.
-
-Licences are Ed25519-signed and checked offline. `license activate` refuses an invalid or expired key and uses an exclusive output write when storage is requested; `license status` only reads the key and public key.
-
-The CleanCode MCP adapter is read-only and exposes only `discover`, `analyze`, `plan` and `report`. Set `CLEANCODE_MCP_ROOT` to the permitted project root; destructive operations remain CLI-only.
-
-`cleanup` accepts an explicit list of tracked files and produces a worktree diff by default. Passing `--apply` is required to apply the verified diff to the source repository. Use repeated `--check <executable>` or `--check-json '{"command":"npm","args":["test"]}'` to add checks; commands are executed without a shell, and post-apply checks and rollback remain enforced by the transaction API.
-
-`mcp` starts a newline-delimited stdio adapter with the read-only tools `guardian_scan`, `guardian_references`, and `guardian_plan`. It restricts requested roots to `GUARDIAN_MCP_ROOT`, `CLAUDE_PROJECT_DIR`, or the current directory, in that order. Cleanup is intentionally not exposed through MCP yet.
-
-### Stripe test billing
-
-The local webhook server and Checkout route are opt-in. Copy `.env.example` to `.env`, fill in test-mode price ids and the signing secret from `stripe listen`, then run:
+To evaluate a reviewed candidate safely, use `experiment` with an explicit verification file containing the target project's build, typecheck, and test commands:
 
 ```bash
-npm run start:webhook
+node packages/cli/dist/index.js experiment /path/to/project --path src/unused-module.ts --verification-file checks.json
 ```
 
-It exposes `GET /healthz`, `POST /webhooks/stripe`, optional `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured, and — only when the Checkout variables plus `STRIPE_CHECKOUT_ACCESS_TOKEN` are configured — `POST /billing/checkout`. Checkout requests require `Authorization: Bearer <token>`; live keys are rejected by the local Checkout configuration. The HTTP boundary emits restrictive security headers, limits request bodies, and applies a bounded per-process rate limit. Browser calls require exact origins in `CORS_ORIGINS`; wildcard origins are rejected. By default the development server uses in-memory subscription state; set `STRIPE_SUBSCRIPTION_STORE_PATH` to an absolute path to persist subscriptions and webhook de-duplication across restarts.
+An experiment requires a clean Git checkout and operates in a new local review branch. It never changes the source branch or pushes to GitHub. Verification commands run with your user permissions; inspect them before running an experiment on an unfamiliar project. Passing checks are useful evidence, not a guarantee that no external or untested use exists.
 
-For a provider-neutral container deployment, build the included `Dockerfile`. It binds to `0.0.0.0`, runs as the unprivileged `node` user, exposes `/healthz`, and can store single-instance local state in the mounted `/var/lib/guardian` volume. For horizontal scaling, set `DATABASE_URL` and use PostgreSQL instead. See [the deployment checklist](docs/DEPLOYMENT.md); public hosting and Stripe endpoint registration remain owner-controlled steps.
+The separate `guardian cleanup` command accepts explicitly named tracked files and previews a worktree diff by default. Its `--apply` option is required to apply a verified diff to the source repository.
 
-The final recommended topology is documented in [the production deployment runbook](docs/PRODUCTION-DEPLOYMENT.md), with a non-secret reference configuration in [`deploy/production.env.example`](deploy/production.env.example).
+## Safety and privacy
 
-For a no-capital test deployment, follow the [free beta runbook](docs/FREE-BETA-DEPLOYMENT.md) using Render Free, Supabase Free and Stripe sandbox only. This path is intentionally not production-ready.
+- Analysis and cleanup run on the user's computer. Guardian's hosted GitHub integration reads configured repository metadata only; it does not scan source code or create commits, pushes, or pull requests.
+- Cleanup paths must be tracked regular files in a clean repository. Built-in and repository-configured protected paths are refused at the execution boundary.
+- Cleanup experiments are bounded, isolated, verified, and rolled back on failure.
+- The MCP adapter is read-only. Destructive operations are not exposed through MCP.
+- The optional hosted billing service is test-mode only; real payments and customer fulfillment are not enabled.
 
-Before any public deployment, run `npm exec guardian -- preflight --production` and read the [security and launch gate](docs/SECURITY.md). The preflight is local-only and returns a non-zero status when it finds a blocking configuration. The recommended zero-cost test path is local execution plus Stripe CLI; a Cloudflare Quick Tunnel is acceptable only as a temporary development callback and is not production hosting.
+Read the [security and launch checklist](docs/SECURITY.md) before connecting services or deploying publicly.
 
-To enable it in a target JavaScript/TypeScript project, install Knip there with `npm install --save-dev knip`. Guardian consumes Knip's machine-readable JSON reporter and uses `--no-exit-code`; it does not install packages or modify the target project.
+## Repository configuration
 
-The transactional cleanup API in `src/transaction.ts` requires a clean Git repository, accepts tracked regular files only, creates an isolated worktree, generates a binary-safe diff, runs optional checks without a shell, and removes the worktree afterward. Its default mode is dry-run; `dryRun: false` applies only the verified diff and rolls back the source repository if post-apply checks fail. Protected paths and failed checks are rolled back automatically.
-
-Every push to `main` and every pull request runs the test suite on Node.js 20 and 22 through GitHub Actions.
-
-### Optional configuration
-
-Create `.guardian/config.json` inside the scanned project:
+An optional `.guardian/config.json` can define `protectedPaths` and `ignoredPaths` relative to the project root. Protected files remain visible in plans but are ineligible for cleanup; ignored paths are excluded from the manifest. Invalid or unsafe configuration blocks planning and execution.
 
 ```json
 {
   "version": 1,
   "protectedPaths": ["migrations", "src/secrets"],
-  "ignoredPaths": ["fixtures"],
-  "maxAssetBytes": 52428800
+  "ignoredPaths": ["fixtures"]
 }
 ```
 
-All configured paths must be relative to the project root. `.env*` files and common certificate/key extensions are protected by default. `ignoredPaths` are excluded from the manifest; `protectedPaths` remain visible in plans but are marked ineligible, and the cleanup executor checks them again immediately before any change. Invalid or unsafe configuration blocks planning and execution rather than being ignored. `maxAssetBytes` applies to the legacy binary-asset scanner.
-
-### Claude Code plugin
-
-The repository includes an optional Claude Code plugin under `integrations/claude-plugin`. It follows the current plugin layout with `.claude-plugin/plugin.json`, `hooks/hooks.json`, and a namespaced read-only audit skill. Validate and load it for one session with:
+## Development
 
 ```bash
-claude plugin validate ./integrations/claude-plugin
-claude --plugin-dir ./integrations/claude-plugin
+npm run build
+npm test
+npm run verify:package
 ```
 
-The `Stop` hook is debounced for five minutes per project, runs `guardian plan` only, and never performs cleanup. It does not create a permanent background process. The explicit skill is `/guardian-autopilot:audit`.
+The test suite covers the root CLI and the shared, license, core, and CLI packages. CI runs the project tests on supported Node.js versions. Package publication is a separate, owner-controlled release action.
 
-## Not yet shipped / beta limitations
+## Project status
 
-- The CleanCode CLI is built from this repository but has not been published as an installable package.
-- GitHub push and pull-request deliveries do not trigger scans; hosted source analysis, scheduled audits and automated pull requests are not implemented.
-- There is no customer web dashboard, account/organization management, team reporting, or self-serve entitlement API.
-- Stripe is sandbox-only. Real payments, customer fulfillment, refunds and live billing are not enabled.
-- The free Render/Supabase deployment is for beta validation, not a production availability, backup, or DDoS-protection guarantee.
-- Public launch still requires the security, privacy, support, retention, cost-control and operational gates in [SECURITY.md](docs/SECURITY.md) and [PRODUCTION-DEPLOYMENT.md](docs/PRODUCTION-DEPLOYMENT.md).
+Guardian is in beta. Hosted source audits, scheduled GitHub scans, automated pull requests, a customer dashboard, and live Stripe billing are not implemented. The free deployment configuration is for testing and does not provide production availability or DDoS protection.
 
-The current implementation remains local-first: analysis and cleanup run on the user's computer, while hosted endpoints are limited to test billing and GitHub installation metadata/webhook acknowledgement.
+## Documentation
 
-## Start here
+- [Security and launch checklist](docs/SECURITY.md)
+- [Development backlog](docs/BACKLOG.md)
+- [Deployment guide](docs/DEPLOYMENT.md)
+- [Free beta deployment](docs/FREE-BETA-DEPLOYMENT.md)
+- [Production deployment requirements](docs/PRODUCTION-DEPLOYMENT.md)
+- [Test billing setup](docs/BILLING.md)
+- [GitHub App setup](docs/GITHUB_APP.md)
+- [Telemetry and retention](docs/TELEMETRY.md)
+- [Release process](docs/RELEASING.md)
 
-- [Project brief](docs/PROJECT_BRIEF.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [MVP backlog](docs/BACKLOG.md)
-- [Agent briefs](docs/agents/)
-- [Monetization plan](docs/MONETIZATION.md)
-
-## Safety
-
-Never remove or rewrite assets from duplicate hashes alone. Do not run destructive actions on untracked or user-modified files. Future autonomous actions must be reversible, confined to the permitted repository, and verified in an isolated worktree.
+The optional [Claude Code integration](integrations/claude-plugin/README.md) provides a debounced, read-only audit hook.

@@ -1,6 +1,6 @@
 # GitHub App permission contract
 
-`integrations/github-app/permissions.json` is the least-privilege contract for a future Guardian GitHub App. It is intentionally a permission specification, not an installed App or a credential.
+`integrations/github-app/permissions.json` documents the least-privilege permissions for Guardian's optional GitHub integration. It is a permission contract, not a credential. The hosted integration currently verifies and acknowledges signed webhook deliveries and can return configured repository metadata; it does not scan source code or trigger audits.
 
 The proposed audit-only installation requests:
 
@@ -11,7 +11,7 @@ The proposed audit-only installation requests:
 | Pull requests | Read | Correlate audits with pull-request changes without commenting or merging. |
 | Checks | Read | Observe existing CI results without creating or modifying checks. |
 
-The subscribed events are installation lifecycle, push, and pull request changes. The contract requests no write permission and does not contain an App private key, webhook secret, client secret, or callback URL. Those values must be configured only when an owner has selected a deployment endpoint and registered the App.
+The subscribed events are installation lifecycle, push, and pull request changes. The contract requests no write permission and does not contain an App private key, webhook secret, client secret, or callback URL. For a self-hosted instance, configure those values only after selecting an endpoint and registering the App.
 
 ## Free beta registration checklist
 

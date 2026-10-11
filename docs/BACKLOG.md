@@ -1,4 +1,4 @@
-# Initial backlog
+# Project backlog and implementation status
 
 ## P0
 - [x] Starter CLI: read-only exact duplicate scan
