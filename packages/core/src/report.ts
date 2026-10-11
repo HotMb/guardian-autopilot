@@ -34,10 +34,41 @@ export type CleanCodeReport = {
   deletionReadiness: {
     status: 'blocked';
     reason: string;
+    automatedBlockers: string[];
+    humanChecks: string[];
   };
 };
 
 const deletionBlockedReason = 'No supported analyzer can currently issue engine-verified positive proof.';
+const humanChecks = ['confirm-entrypoints', 'confirm-external-usage'];
+
+function automatedBlockers(plan: PlanReport): string[] {
+  const blockers = ['engine-proof-unavailable'];
+  if (plan.dynamicHints.length > 0) blockers.push('dynamic-usage-hints');
+  if (plan.graph.unresolved.length > 0) blockers.push('unresolved-local-references');
+  if (plan.packageEntrypoints.invalidManifests.length > 0) blockers.push('invalid-package-manifest');
+  if (plan.stringReferences.unreadableFiles.length > 0) blockers.push('unreadable-reference-scan');
+  return blockers;
+}
+
+function blockerDescription(id: string): string {
+  switch (id) {
+    case 'engine-proof-unavailable': return 'No supported analyzer can currently issue engine-verified positive proof.';
+    case 'dynamic-usage-hints': return 'Dynamic-loading patterns were detected; the scan is not exhaustive and each hint needs review.';
+    case 'unresolved-local-references': return 'One or more local references could not be resolved; candidates cannot be evaluated safely until they are resolved.';
+    case 'invalid-package-manifest': return 'One or more package manifests could not be analyzed; package entrypoints may be missing from the scan.';
+    case 'unreadable-reference-scan': return 'One or more files could not be scanned for literal references; the scan cannot establish absence of references.';
+    default: return id;
+  }
+}
+
+function humanCheckDescription(id: string): string {
+  switch (id) {
+    case 'confirm-entrypoints': return 'Confirm every runtime, package, framework, CLI, plugin, and deployment entrypoint is represented.';
+    case 'confirm-external-usage': return 'Confirm no external consumer, deployment script, or runtime configuration loads the candidate.';
+    default: return id;
+  }
+}
 
 function summary(plan: PlanReport): CleanCodeReport {
   return {
@@ -65,7 +96,12 @@ function summary(plan: PlanReport): CleanCodeReport {
     coverage: plan.coverage,
     packageEntrypoints: plan.packageEntrypoints,
     stringReferences: plan.stringReferences,
-    deletionReadiness: {status: 'blocked', reason: deletionBlockedReason},
+    deletionReadiness: {
+      status: 'blocked',
+      reason: deletionBlockedReason,
+      automatedBlockers: automatedBlockers(plan),
+      humanChecks: [...humanChecks],
+    },
   };
 }
 
@@ -96,6 +132,14 @@ function renderMarkdown(report: CleanCodeReport): string {
     `- Package entrypoints: ${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)`,
     `- Literal string references: ${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)`,
     `- Deletion readiness: ${report.deletionReadiness.status} — ${report.deletionReadiness.reason}`,
+    '',
+    '## Automated blockers',
+    '',
+    ...report.deletionReadiness.automatedBlockers.map((id) => `- \`${markdown(id)}\`: ${markdown(blockerDescription(id))}`),
+    '',
+    '## Human validation required',
+    '',
+    ...report.deletionReadiness.humanChecks.map((id) => `- \`${markdown(id)}\`: ${markdown(humanCheckDescription(id))}`),
     '',
     '## Candidates',
     '',
@@ -133,6 +177,8 @@ function renderHtml(report: CleanCodeReport): string {
 <html lang="en"><head><meta charset="utf-8"><title>CleanCode report</title></head>
 <body><main><h1>CleanCode report</h1>
 <dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd><dt>Literal string references</dt><dd>${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)</dd><dt>Deletion readiness</dt><dd>${html(report.deletionReadiness.status)} — ${html(report.deletionReadiness.reason)}</dd></dl>
+<h2>Automated blockers</h2><ul>${report.deletionReadiness.automatedBlockers.map((id) => `<li><code>${html(id)}</code>: ${html(blockerDescription(id))}</li>`).join('')}</ul>
+<h2>Human validation required</h2><ul>${report.deletionReadiness.humanChecks.map((id) => `<li><code>${html(id)}</code>: ${html(humanCheckDescription(id))}</li>`).join('')}</ul>
 <h2>Candidates</h2><table><thead><tr><th>Path</th><th>Kind</th><th>Confidence</th><th>Decision</th><th>Reason</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Dynamic-usage hints</h2><table><thead><tr><th>Path</th><th>Line</th><th>Hint</th><th>Marker</th></tr></thead><tbody>${hintRows}</tbody></table>
 <p>Hints are review signals, not proof of use or proof of non-use. Their confidence is intentionally capped at 0.50.</p>
