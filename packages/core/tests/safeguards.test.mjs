@@ -43,6 +43,7 @@ test('never deletes test files, test directories, or recognized project configur
     '__tests__/legacy.ts',
     'tsconfig.json',
     'packages/app/vite.config.ts',
+    'postcss.config.js',
     '.guardian/config.json',
     'packages/app/package.json',
     'tag.php',
