@@ -46,8 +46,7 @@ function printUsage(): void {
   console.error('Usage: cleancode <discover|analyze|plan|apply|report> [root] [options]');
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
-  console.error('  apply --candidates-file file [--verification-file file] [--format=json]');
-  console.error('  apply --approve-large-change  (required when applying more than 10 files)');
+  console.error('  real CleanCode cleanup is disabled until a verified proof generator is available');
   console.error('  report [--format=json|md|html] [--output file]');
   console.error('  license <activate|status> --license-file file --public-key-file file [--output file]');
   console.error('  mcp');
@@ -78,6 +77,9 @@ function parseCandidates(value: unknown): Array<Pick<Candidate, 'path' | 'eviden
       }
       if (!evidenceTypes.has(item.type as Evidence['type']) || !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1 || (item.details !== undefined && typeof item.details !== 'string')) {
         throw new Error(`Invalid candidate evidence at candidate ${index}, item ${evidenceIndex}`);
+      }
+      if (item.type === 'positive_proof') {
+        throw new Error('Candidate files cannot assert positive_proof; only engine-verified positive proof is accepted');
       }
       return {type: item.type as Evidence['type'], confidence: item.confidence, details: typeof item.details === 'string' ? item.details : undefined};
     });

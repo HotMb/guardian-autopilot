@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {WorktreeExecutor} from '../dist/executor.js';
+import {createVerifiedPositiveProofEvidence} from '../dist/proof-evidence.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -30,7 +31,7 @@ const allowedCandidate = {
   path: 'remove.ts',
   kind: 'unused-file',
   confidence: 0.99,
-  evidence: [{type: 'positive_proof', confidence: 0.99}],
+  evidence: [createVerifiedPositiveProofEvidence('test-only engine proof', 0.99)],
 };
 
 test('creates an isolated worktree and commits only inside its branch', async () => {
@@ -61,6 +62,19 @@ test('rejects unsafe candidates before changing the isolated worktree', async ()
 
   await assert.rejects(() => executor.applyDeletions([{...allowedCandidate, evidence: [{type: 'no_import_references', confidence: 1}]}]), /positive proof/i);
   await assert.rejects(() => executor.applyDeletions([{...allowedCandidate, path: '.env.local'}]), /protected/i);
+});
+
+test('rejects serialized or caller-asserted positive proof at the deletion boundary', async () => {
+  const root = await repository();
+  const executor = new WorktreeExecutor({rootDir: root});
+  await executor.createIsolatedWorktree();
+
+  await assert.rejects(
+    () => executor.applyDeletions([{...allowedCandidate, evidence: [{type: 'positive_proof', confidence: 1, details: 'I assert this is unused'}]}]),
+    /engine-verified positive proof/i,
+  );
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  await executor.rollback();
 });
 
 test('rollback removes the execution branch while retaining the backup branch', async () => {

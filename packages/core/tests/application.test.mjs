@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {AuditLog} from '../dist/audit-log.js';
 import {executeCleanup} from '../dist/application.js';
+import {createVerifiedPositiveProofEvidence} from '../dist/proof-evidence.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -31,7 +32,7 @@ const candidate = {
   path: 'remove.ts',
   kind: 'unused-file',
   confidence: 0.99,
-  evidence: [{type: 'positive_proof', confidence: 0.99}],
+  evidence: [createVerifiedPositiveProofEvidence('test-only engine proof', 0.99)],
 };
 
 const passingVerification = {
@@ -61,7 +62,7 @@ test('requires explicit human approval before applying more than ten files', asy
   for (let index = 0; index < 11; index += 1) {
     const path = `remove-${index}.ts`;
     await writeFile(join(root, path), `export const value${index} = true;\n`);
-    candidates.push({path, evidence: [{type: 'positive_proof', confidence: 0.99}]});
+    candidates.push({path, evidence: [createVerifiedPositiveProofEvidence('test-only engine proof', 0.99)]});
   }
   await git(root, 'add', '.');
   await git(root, 'commit', '-qm', 'initial');
@@ -74,6 +75,19 @@ test('requires explicit human approval before applying more than ten files', asy
   assert.equal((await git(root, 'status', '--porcelain')).stdout, '');
   assert.equal((await git(root, 'branch', '--list', 'cleancode/*')).stdout.trim(), '');
   assert.equal(await readFile(join(root, 'remove-0.ts'), 'utf8'), 'export const value0 = true;\n');
+});
+
+test('rejects caller-asserted proof before creating a cleanup worktree', async () => {
+  const root = await repository();
+  const callerCandidate = {path: 'remove.ts', evidence: [{type: 'positive_proof', confidence: 1, details: 'asserted by caller'}]};
+
+  await assert.rejects(
+    () => executeCleanup({rootDir: root, candidates: [callerCandidate], verification: passingVerification}),
+    /engine-verified positive proof/i,
+  );
+  assert.equal((await git(root, 'status', '--porcelain')).stdout, '');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/*')).stdout.trim(), '');
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
 });
 
 test('applies, verifies, audits, and commits approved deletions in an isolated worktree', async () => {

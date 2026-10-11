@@ -18,6 +18,6 @@ export function evaluateCandidate(candidate: Candidate, config: PolicyConfig = {
   const reasons: string[] = [];
   if (isProtectedPath(candidate.path)) reasons.push('Candidate path is protected');
   if (calculatedConfidence < minConfidence) reasons.push(`Candidate confidence ${calculatedConfidence} is below ${minConfidence}`);
-  if (!canDelete(candidate, minConfidence)) reasons.push('Candidate lacks positive proof at the required confidence');
+  if (!canDelete(candidate, minConfidence)) reasons.push('Candidate lacks engine-verified positive proof at the required confidence');
   return {allowed: reasons.length === 0, reasons, confidence: calculatedConfidence};
 }

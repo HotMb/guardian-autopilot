@@ -4,6 +4,7 @@ import {mkdtemp, writeFile, symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {canDelete, isProtectedPath, isSafePath, enforceChangeLimits} from '../dist/safeguards.js';
+import {createVerifiedPositiveProofEvidence} from '../dist/proof-evidence.js';
 
 test('requires positive proof and high confidence before deletion', () => {
   const base = {
@@ -14,9 +15,14 @@ test('requires positive proof and high confidence before deletion', () => {
 
   assert.equal(canDelete({...base, evidence: [{type: 'no_import_references', confidence: 1}]}), false);
   assert.equal(canDelete({...base, evidence: [{type: 'positive_proof', confidence: 0.94}]}), false);
+  const forgedEvidence = {type: 'positive_proof', confidence: 0.95};
   assert.equal(canDelete({...base, evidence: [
     {type: 'no_import_references', confidence: 0.99},
-    {type: 'positive_proof', confidence: 0.95},
+    forgedEvidence,
+  ]}), false);
+  assert.equal(canDelete({...base, evidence: [
+    {type: 'no_import_references', confidence: 0.99},
+    createVerifiedPositiveProofEvidence('test-only engine proof', 0.95),
   ]}), true);
 });
 

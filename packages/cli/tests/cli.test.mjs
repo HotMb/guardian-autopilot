@@ -61,7 +61,7 @@ test('rejects unknown commands with a non-zero exit code', async () => {
   });
 });
 
-test('apply --dry-run reports the guarded change without writing the target', async () => {
+test('apply --dry-run refuses positive proof asserted only in a candidates JSON file', async () => {
   const root = await fixture();
   const candidateFile = join(root, 'approved-candidates.json');
   await writeFile(candidateFile, JSON.stringify({candidates: [{
@@ -69,12 +69,10 @@ test('apply --dry-run reports the guarded change without writing the target', as
     evidence: [{type: 'positive_proof', confidence: 0.99}],
   }]}, null, 2));
   const before = await readFile(join(root, 'src', 'unused.ts'), 'utf8');
-  const result = await exec(process.execPath, [cli, 'apply', root, '--dry-run', '--candidates-file', candidateFile, '--format=json']);
-  const report = JSON.parse(result.stdout);
-
-  assert.equal(report.mode, 'dry-run');
-  assert.equal(report.state, 'PLANNED');
-  assert.deepEqual(report.changedPaths, ['src/unused.ts']);
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'apply', root, '--dry-run', '--candidates-file', candidateFile, '--format=json']),
+    /engine-verified positive proof/i,
+  );
   assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), before);
 });
 

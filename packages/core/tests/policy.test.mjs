@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {evaluateCandidate} from '../dist/policy.js';
+import {createVerifiedPositiveProofEvidence} from '../dist/proof-evidence.js';
 
 const candidate = {
   id: 'candidate-1',
@@ -8,7 +9,7 @@ const candidate = {
   kind: 'unused-export',
   confidence: 0.98,
   evidence: [
-    {type: 'positive_proof', confidence: 0.98},
+    createVerifiedPositiveProofEvidence('test-only engine proof', 0.98),
     {type: 'no_import_references', confidence: 0.99},
   ],
 };

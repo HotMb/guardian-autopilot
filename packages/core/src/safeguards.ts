@@ -1,6 +1,7 @@
 import {realpathSync} from 'node:fs';
 import {relative, resolve} from 'node:path';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
+import {isEngineVerifiedPositiveProof} from './proof-evidence.js';
 
 export const DEFAULT_CHANGE_LIMITS = {
   maxFiles: 50,
@@ -45,7 +46,7 @@ export function canDelete(candidate: Pick<Candidate, 'evidence'>, minConfidence 
   const evidence: readonly Evidence[] = candidate.evidence;
   return evidence.length > 0
     && evidence.every((item) => Number.isFinite(item.confidence) && item.confidence >= minConfidence)
-    && evidence.some((item) => item.type === 'positive_proof');
+    && evidence.some(isEngineVerifiedPositiveProof);
 }
 
 export type ChangeCounts = {

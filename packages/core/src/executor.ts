@@ -158,7 +158,7 @@ export class WorktreeExecutor {
     let lines = 0;
     let bytes = 0;
     for (const candidate of candidates) {
-      if (!canDelete(candidate)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate lacks positive proof: ${candidate.path}`);
+      if (!canDelete(candidate)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate lacks engine-verified positive proof: ${candidate.path}`);
       const path = safeRelativePath(root, candidate.path);
       if (paths.has(path)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate is duplicated: ${path}`);
       if (isProtectedPath(path)) throw new CleanCodeError('POLICY_VIOLATION', `Protected path cannot be changed: ${path}`);
