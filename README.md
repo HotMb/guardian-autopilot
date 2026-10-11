@@ -28,7 +28,7 @@ CLI. The hosted Docker service serves this page at `/` and its stylesheet at
 - Hashes assets as a stream, so large files are not loaded entirely into memory.
 - Stable JSON report to stdout with schema version, relative POSIX paths, and non-fatal read errors.
 - The original `guardian` CLI remains conservative and asset-focused.
-- The CleanCode CLI under `packages/` discovers source files, resolves local code references, prepares review-only plans and reports, and applies only explicitly approved cleanup through an isolated, verified Git worktree transaction.
+- The CleanCode CLI under `packages/` discovers source files, resolves local code references, prepares review-only plans and reports, and can test a proposed cleanup in a verified, local-only Git worktree branch for human review.
 - `cleancode github analyze OWNER/REPOSITORY` clones with the user's local GitHub CLI credentials and analyzes the checkout on-device; source code is not sent to the hosted service.
 - The hosted GitHub App connection validates the installation and reads configured repository metadata. Its webhook only verifies and acknowledges deliveries; it does not schedule or run audits.
 - Stripe Checkout, signed subscription webhooks, and PostgreSQL persistence have been tested in sandbox/free-beta configuration only.
@@ -84,6 +84,7 @@ node packages/cli/dist/index.js discover /path/to/project
 node packages/cli/dist/index.js analyze /path/to/project --format=json
 node packages/cli/dist/index.js plan /path/to/project --format=json
 node packages/cli/dist/index.js report /path/to/project --format=html --output cleancode-report.html
+node packages/cli/dist/index.js experiment /path/to/project --candidates-file experiment.json --verification-file checks.json
 node packages/cli/dist/index.js apply /path/to/project --dry-run --candidates-file approved-candidates.json
 node packages/cli/dist/index.js license activate --license-file license.key --public-key-file cleancode-public-key.pem --output .cleancode-license.key
 node packages/cli/dist/index.js license status --license-file .cleancode-license.key --public-key-file cleancode-public-key.pem
@@ -106,7 +107,9 @@ to make a local checkout, then performs a read-only source/reference scan on
 that computer. It does not run project scripts, modify the checkout, or upload
 source code. The CleanCode CLI is not yet published as a package.
 
-`apply --dry-run` never creates a worktree or writes the target repository. Caller-supplied `positive_proof` JSON is not trusted: only evidence objects issued in-process by a verified engine analyzer can authorize a deletion. No production analyzer currently issues such proof, so real CleanCode deletion is intentionally blocked; use `plan` and `report` for review. Applying more than 10 files will additionally require `--approve-large-change` once verified proof generation is implemented. No source code is uploaded.
+`apply --dry-run` never creates a worktree or writes the target repository. Caller-supplied `positive_proof` JSON is not trusted: only evidence objects issued in-process by a verified engine analyzer can authorize a real cleanup. No production analyzer currently issues such proof, so `apply` remains blocked for real CleanCode deletion.
+
+`experiment` is the safe alternative while that proof analyzer is unavailable. Create a JSON file outside the target repository containing only the paths you want to test, for example `{"paths":["src/unused-module.ts"]}`, and a separate verification JSON file containing build, typecheck, and test commands. Then run the command shown above. Guardian requires the target Git repository to be clean, checks that the paths are tracked regular files and not protected, enforces change limits, removes them only in a new isolated local branch, runs all three configured checks, and keeps a local commit/branch for review only if all checks pass. On failure it rolls back the experiment. The target branch is never changed, and Guardian never pushes or merges this experiment. Review the branch diff yourself before integrating it; passing checks are evidence, not proof that no external or untested use exists. Verification commands run as your user, with the worktree as their working directory; inspect them before running experiments on untrusted repositories because project scripts can have side effects beyond the worktree. More than 10 files also requires `--approve-large-change`. No source code is uploaded.
 
 `report` produces a compact read-only summary in JSON, Markdown (`md`) or HTML. It writes a file only when `--output` is explicitly provided.
 

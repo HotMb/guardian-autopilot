@@ -80,6 +80,11 @@ export class WorktreeExecutor {
     return this.inspectDeletions(this.root, candidates);
   }
 
+  async previewDeletionExperiment(paths: readonly string[]): Promise<DeletionPreview> {
+    if (paths.length === 0) throw new CleanCodeError('POLICY_VIOLATION', 'At least one experiment path is required');
+    return this.inspectDeletions(this.root, paths.map((path) => ({path, evidence: []})), false);
+  }
+
   async createIsolatedWorktree(): Promise<IsolatedWorktree> {
     if (this.isolated !== undefined) throw new CleanCodeError('WORKTREE_ERROR', 'An isolated worktree already exists');
     try {
@@ -108,6 +113,12 @@ export class WorktreeExecutor {
   async applyDeletions(candidates: readonly Pick<Candidate, 'path' | 'evidence'>[]): Promise<void> {
     if (this.isolated === undefined) throw new CleanCodeError('WORKTREE_ERROR', 'Create an isolated worktree first');
     const preview = await this.inspectDeletions(this.isolated.worktreePath, candidates);
+    for (const path of preview.paths) await rm(join(this.isolated.worktreePath, path), {force: true});
+  }
+
+  async applyDeletionExperiment(paths: readonly string[]): Promise<void> {
+    if (this.isolated === undefined) throw new CleanCodeError('WORKTREE_ERROR', 'Create an isolated worktree first');
+    const preview = await this.inspectDeletions(this.isolated.worktreePath, paths.map((path) => ({path, evidence: []})), false);
     for (const path of preview.paths) await rm(join(this.isolated.worktreePath, path), {force: true});
   }
 
@@ -153,12 +164,13 @@ export class WorktreeExecutor {
   private async inspectDeletions(
     root: string,
     candidates: readonly Pick<Candidate, 'path' | 'evidence'>[],
+    requireProof = true,
   ): Promise<DeletionPreview> {
     const paths = new Set<string>();
     let lines = 0;
     let bytes = 0;
     for (const candidate of candidates) {
-      if (!canDelete(candidate)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate lacks engine-verified positive proof: ${candidate.path}`);
+      if (requireProof && !canDelete(candidate)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate lacks engine-verified positive proof: ${candidate.path}`);
       const path = safeRelativePath(root, candidate.path);
       if (paths.has(path)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate is duplicated: ${path}`);
       if (isProtectedPath(path)) throw new CleanCodeError('POLICY_VIOLATION', `Protected path cannot be changed: ${path}`);

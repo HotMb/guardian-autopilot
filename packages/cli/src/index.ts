@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
-import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
+import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
 import {verifyLicense} from '@cleancode/license';
 import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
@@ -43,10 +43,12 @@ function targetRoot(args: string[]): string {
 }
 
 function printUsage(): void {
-  console.error('Usage: cleancode <discover|analyze|plan|apply|report> [root] [options]');
+  console.error('Usage: cleancode <discover|analyze|plan|experiment|apply|report> [root] [options]');
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
+  console.error('  experiment <root> --candidates-file paths.json --verification-file checks.json');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
-  console.error('  real CleanCode cleanup is disabled until a verified proof generator is available');
+  console.error('  experiment creates only a local review branch; it never pushes or merges');
+  console.error('  real CleanCode apply still requires engine-verified positive proof');
   console.error('  report [--format=json|md|html] [--output file]');
   console.error('  license <activate|status> --license-file file --public-key-file file [--output file]');
   console.error('  mcp');
@@ -92,6 +94,16 @@ async function loadCandidates(args: string[], root: string): Promise<Array<Pick<
   if (file !== undefined) return parseCandidates(JSON.parse(await readFile(file, 'utf8')));
   const plan = await planRepository(root, {knipExecutable: optionValue(args, '--knip')});
   return plan.candidates.filter((candidate) => candidate.decision.allowed).map((candidate) => ({path: candidate.path, evidence: candidate.evidence}));
+}
+
+async function loadExperimentPaths(args: string[]): Promise<string[]> {
+  const file = optionValue(args, '--candidates-file');
+  if (file === undefined) throw new CleanCodeError('POLICY_VIOLATION', 'Experiment requires an explicit candidates file with a paths array');
+  const value: unknown = JSON.parse(await readFile(file, 'utf8'));
+  if (!isRecord(value) || !Array.isArray(value.paths) || value.paths.length === 0 || value.paths.some((path) => typeof path !== 'string' || path.trim() === '')) {
+    throw new CleanCodeError('POLICY_VIOLATION', 'Experiment candidates file must contain a non-empty paths array of relative file paths');
+  }
+  return value.paths as string[];
 }
 
 async function loadVerification(args: string[]): Promise<VerificationConfig> {
@@ -166,7 +178,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
     }
     return 0;
   }
-  if (!['discover', 'analyze', 'plan', 'apply', 'report'].includes(command)) {
+  if (!['discover', 'analyze', 'plan', 'experiment', 'apply', 'report'].includes(command)) {
     console.error(`Unknown command: ${command}`);
     printUsage();
     return 1;
@@ -201,6 +213,27 @@ export async function runCli(args: readonly string[]): Promise<number> {
     if (output === undefined) process.stdout.write(report);
     else await writeFile(output, report, 'utf8');
     return 0;
+  }
+  if (command === 'experiment') {
+    const paths = await loadExperimentPaths(values);
+    const verificationFile = optionValue(values, '--verification-file');
+    if (verificationFile === undefined) throw new CleanCodeError('POLICY_VIOLATION', 'Experiment requires --verification-file with build, typecheck, and test commands');
+    const result = await executeCleanupExperiment({
+      rootDir: root,
+      paths,
+      approveLargeChange: values.includes('--approve-large-change'),
+      verification: await loadVerification(values),
+      receiptDirectory: optionValue(values, '--receipt-directory'),
+    });
+    if (outputFormat === 'json') console.log(JSON.stringify(result, null, 2));
+    else if (result.state === 'COMMITTED') {
+      console.log(`✓ experiment verified; local review branch: ${result.reviewBranchName}`);
+      console.log(`→ ${result.changedPaths.length} file(s) changed in the experiment; source branch was not modified`);
+      console.log('! Review the branch diff before merging manually. Guardian did not push or merge.');
+    } else {
+      console.error(`! experiment rolled back: ${result.error ?? 'verification failed'}`);
+    }
+    return result.state === 'COMMITTED' ? 0 : 5;
   }
   if (command === 'apply') {
     const dryRun = values.includes('--dry-run');

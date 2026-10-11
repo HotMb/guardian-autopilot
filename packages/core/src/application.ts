@@ -23,7 +23,7 @@ export type CleanupExecutionOptions = {
 };
 
 export type CleanupExecutionResult = {
-  mode: 'dry-run' | 'apply';
+  mode: 'dry-run' | 'apply' | 'experiment';
   state: State;
   changedPaths: string[];
   files: number;
@@ -31,6 +31,7 @@ export type CleanupExecutionResult = {
   bytes: number;
   commit?: string;
   backupBranchName?: string;
+  reviewBranchName?: string;
   receiptId?: string;
   verification?: VerificationResult;
   auditPath?: string;
@@ -51,6 +52,23 @@ async function audit(log: AuditLog, id: string, state: State, action: string, de
 }
 
 export async function executeCleanup(options: CleanupExecutionOptions): Promise<CleanupExecutionResult> {
+  return runCleanup(options, false);
+}
+
+export type CleanupExperimentOptions = Omit<CleanupExecutionOptions, 'candidates' | 'dryRun' | 'commitMessage'> & {
+  paths: readonly string[];
+};
+
+/** Creates a reversible local branch experiment, never changes the source branch, and never pushes or merges. */
+export async function executeCleanupExperiment(options: CleanupExperimentOptions): Promise<CleanupExecutionResult> {
+  return runCleanup({
+    ...options,
+    candidates: options.paths.map((path) => ({path, evidence: []})),
+    commitMessage: 'chore: CleanCode review experiment',
+  }, true);
+}
+
+async function runCleanup(options: CleanupExecutionOptions, experiment: boolean): Promise<CleanupExecutionResult> {
   const executor = new WorktreeExecutor({rootDir: options.rootDir, worktreeRoot: options.worktreeRoot});
 
   if (options.dryRun) {
@@ -61,8 +79,10 @@ export async function executeCleanup(options: CleanupExecutionOptions): Promise<
     return {mode: 'dry-run', state: 'PLANNED', changedPaths: preview.paths, files: preview.files, lines: preview.lines, bytes: preview.bytes};
   }
 
-  if (options.candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', 'At least one approved candidate is required');
-  const preview = await executor.previewDeletions(options.candidates);
+  if (options.candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', `At least one ${experiment ? 'experiment path' : 'approved candidate'} is required`);
+  const preview = experiment
+    ? await executor.previewDeletionExperiment(options.candidates.map((candidate) => candidate.path))
+    : await executor.previewDeletions(options.candidates);
   if (preview.files > 10 && options.approveLargeChange !== true) {
     throw new CleanCodeError('POLICY_VIOLATION', `Cleanup affects more than 10 files (${preview.files}); explicit human approval is required`);
   }
@@ -84,22 +104,26 @@ export async function executeCleanup(options: CleanupExecutionOptions): Promise<
     receiptStore = new ReceiptStore(options.receiptDirectory ?? join(tmpdir(), 'cleancode-receipts'), worktree.worktreePath);
     const receipt = await receiptStore.begin(changedPaths);
     receiptId = receipt.id;
-    await executor.applyDeletions(options.candidates);
+    if (experiment) await executor.applyDeletionExperiment(changedPaths);
+    else await executor.applyDeletions(options.candidates);
     await receiptStore.finalize(receipt.id);
     machine.transitionTo('APPLIED');
-    await audit(auditLog, id, 'APPLIED', 'apply-deletions', {paths: changedPaths, receiptId});
+    await audit(auditLog, id, 'APPLIED', experiment ? 'experiment-deletions' : 'apply-deletions', {paths: changedPaths, receiptId});
 
-    verification = await runVerification(worktree.worktreePath, options.verification ?? {});
+    verification = await runVerification(worktree.worktreePath, experiment
+      ? {...options.verification, requireAll: true}
+      : options.verification ?? {});
     if (!verification.allPassed) {
       await rollbackExecution(executor, receiptStore, receiptId, machine, auditLog, id, verification.details);
-      return {mode: 'apply', state: 'REVERTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, receiptId, verification, error: 'Verification failed'};
+      return {mode: experiment ? 'experiment' : 'apply', state: 'REVERTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, receiptId, verification, error: 'Verification failed'};
     }
     machine.transitionTo('VERIFIED');
     await audit(auditLog, id, 'VERIFIED', 'verification-passed', verification.details);
+    const reviewBranchName = executor.worktree?.branchName;
     const commit = await executor.commit(options.commitMessage ?? 'chore: safe cleanup');
     machine.transitionTo('COMMITTED');
     await audit(auditLog, id, 'COMMITTED', 'commit', {commit, receiptId});
-    return {mode: 'apply', state: 'COMMITTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, commit, backupBranchName: worktree.backupBranchName, receiptId, verification};
+    return {mode: experiment ? 'experiment' : 'apply', state: 'COMMITTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, commit, backupBranchName: worktree.backupBranchName, ...(experiment && reviewBranchName !== undefined ? {reviewBranchName} : {}), receiptId, verification};
   } catch (error) {
     if (isolated && executor.worktree !== undefined) {
       try { await rollbackExecution(executor, receiptStore, receiptId, machine, auditLog, id, {error: errorMessage(error)}); }

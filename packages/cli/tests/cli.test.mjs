@@ -94,6 +94,31 @@ test('real apply refuses to infer destructive candidates without an explicit app
   assert.equal((await git(root, 'branch', '--list', 'cleancode/*')).stdout.trim(), '');
 });
 
+test('experiment creates a verified local review branch without requiring forged positive proof', async () => {
+  const root = await fixture();
+  const configRoot = await mkdtemp(join(tmpdir(), 'cleancode-experiment-config-'));
+  const candidateFile = join(configRoot, 'experiment.json');
+  const verificationFile = join(configRoot, 'verification.json');
+  const original = await readFile(join(root, 'src', 'unused.ts'), 'utf8');
+  await writeFile(candidateFile, JSON.stringify({paths: ['src/unused.ts']}));
+  await writeFile(verificationFile, JSON.stringify({
+    build: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+  }));
+
+  const result = await exec(process.execPath, [cli, 'experiment', root, '--candidates-file', candidateFile, '--verification-file', verificationFile, '--format=json']);
+  const experiment = JSON.parse(result.stdout);
+
+  assert.equal(experiment.mode, 'experiment');
+  assert.equal(experiment.state, 'COMMITTED');
+  assert.equal(experiment.verification.allPassed, true);
+  assert.match(experiment.reviewBranchName, /^cleancode\/auto-/);
+  assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), original);
+  assert.match((await git(root, 'show', '--format=', '--name-status', experiment.reviewBranchName)).stdout, /D\s+src\/unused\.ts/);
+  assert.equal((await git(root, 'remote', '-v')).stdout, '');
+});
+
 test('candidate files reject unknown evidence types and confidence outside zero to one', async () => {
   const root = await fixture();
   const candidateFile = join(root, 'candidate.json');

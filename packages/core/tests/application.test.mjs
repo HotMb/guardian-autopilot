@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {AuditLog} from '../dist/audit-log.js';
-import {executeCleanup} from '../dist/application.js';
+import {executeCleanup, executeCleanupExperiment} from '../dist/application.js';
 import {createVerifiedPositiveProofEvidence} from '../dist/proof-evidence.js';
 
 const execFile = promisify(execFileCallback);
@@ -51,6 +51,71 @@ test('dry-run previews approved deletions without changing the repository', asyn
   assert.deepEqual(result.changedPaths, ['remove.ts']);
   assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), before);
   assert.deepEqual((await git(root, 'status', '--porcelain')).stdout, '');
+});
+
+test('runs an unproven candidate only as a local review experiment and keeps the source branch unchanged', async () => {
+  const root = await repository();
+  const sourceBranch = (await git(root, 'branch', '--show-current')).stdout.trim();
+  const result = await executeCleanupExperiment({
+    rootDir: root,
+    paths: ['remove.ts'],
+    verification: passingVerification,
+  });
+
+  assert.equal(result.mode, 'experiment');
+  assert.equal(result.state, 'COMMITTED');
+  assert.equal(result.verification?.allPassed, true);
+  assert.match(result.reviewBranchName ?? '', /^cleancode\/auto-/);
+  assert.match(result.commit ?? '', /^[0-9a-f]{40}$/);
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  assert.equal((await git(root, 'branch', '--show-current')).stdout.trim(), sourceBranch);
+  assert.match((await git(root, 'show', '--format=', '--name-status', result.reviewBranchName)).stdout, /D\s+remove\.ts/);
+  assert.equal((await git(root, 'remote', '-v')).stdout, '');
+});
+
+test('refuses an experiment when the source repository is dirty', async () => {
+  const root = await repository();
+  await writeFile(join(root, 'safe.ts'), 'local edit\n');
+
+  await assert.rejects(() => executeCleanupExperiment({
+    rootDir: root,
+    paths: ['remove.ts'],
+    verification: passingVerification,
+  }), /repository must be clean/i);
+
+  assert.equal(await readFile(join(root, 'safe.ts'), 'utf8'), 'local edit\n');
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+});
+
+test('rolls back an unproven review experiment when verification fails', async () => {
+  const root = await repository();
+  const result = await executeCleanupExperiment({
+    rootDir: root,
+    paths: ['remove.ts'],
+    verification: {...passingVerification, test: {command: process.execPath, args: ['-e', 'process.exit(1)']}},
+  });
+
+  assert.equal(result.state, 'REVERTED');
+  assert.equal(result.reviewBranchName, undefined);
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+});
+
+test('experiments cannot bypass required build, typecheck, and test checks', async () => {
+  const root = await repository();
+  const result = await executeCleanupExperiment({
+    rootDir: root,
+    paths: ['remove.ts'],
+    verification: {requireAll: false},
+  });
+
+  assert.equal(result.state, 'REVERTED');
+  assert.equal(result.verification?.allPassed, false);
+  assert.equal(result.verification?.build, false);
+  assert.equal(result.verification?.typecheck, false);
+  assert.equal(result.verification?.tests, false);
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
 });
 
 test('requires explicit human approval before applying more than ten files', async () => {
