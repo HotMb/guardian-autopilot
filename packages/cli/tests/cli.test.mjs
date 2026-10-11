@@ -264,6 +264,19 @@ test('review refuses to write its checklist inside the repository', async () => 
   assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
 });
 
+test('review refuses candidates protected by built-in safeguards', async () => {
+  const root = await fixture();
+  await writeFile(join(root, 'src', 'unused.test.ts'), 'export const testHelper = true;\n');
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-qm', 'add a protected test file');
+
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'review', root, '--path', 'src/unused.test.ts']),
+    /protected candidate cannot receive a human review/i,
+  );
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+});
+
 test('from-plan requires both human confirmations before starting an experiment', async () => {
   const root = await fixture();
   const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-plan-review-gate-')), 'verification.json');

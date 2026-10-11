@@ -42,10 +42,14 @@ export async function createHumanReviewTemplate(plan: PlanReport, paths: readonl
   const status = await git(plan.root, ['status', '--porcelain=v1', '--untracked-files=all']);
   if (status !== '') throw new Error('Human review template requires a clean Git checkout');
   const repositoryHead = await git(plan.root, ['rev-parse', 'HEAD']);
-  const candidates = new Set(plan.candidates.map((candidate) => candidate.path));
+  const candidates = new Map(plan.candidates.map((candidate) => [candidate.path, candidate]));
   const files = new Map(plan.manifest.files.map((file) => [file.path, file.sha256]));
   const candidateReviews = paths.map((path) => {
-    if (!candidates.has(path)) throw new Error(`Not a current review-only candidate: ${path}`);
+    const candidate = candidates.get(path);
+    if (candidate === undefined) throw new Error(`Not a current review-only candidate: ${path}`);
+    if (candidate.decision.reasons.some((reason) => /candidate path is protected/i.test(reason))) {
+      throw new Error(`Protected candidate cannot receive a human review: ${path}`);
+    }
     const sha256 = files.get(path);
     if (sha256 === undefined) throw new Error(`Candidate is missing from the current repository manifest: ${path}`);
     return {path, sha256, allEntrypointsReviewed: false, noExternalUsageConfirmed: false};

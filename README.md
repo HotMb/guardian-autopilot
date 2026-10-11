@@ -56,6 +56,8 @@ Before Guardian automatically selects candidates for a batch experiment, create 
 node packages/cli/dist/index.js review /path/to/project --path src/unused-module.ts --output /tmp/guardian-review.json
 ```
 
+The plan may display blocked paths for transparency, but Guardian refuses to create a human-review checklist for paths protected by built-in or repository-defined safeguards (including tests and project configuration).
+
 Inspect the project’s runtime, package, framework, CLI, plugin, and deployment entrypoints, and check for external consumers or runtime configuration that may load the candidate. Only then set `allEntrypointsReviewed` and `noExternalUsageConfirmed` to `true` for that candidate in the JSON file. The checklist is tied to the current Git commit and candidate file hash; edits make it stale. Keep it outside the repository so the checkout stays clean.
 
 Run a batch experiment only with the completed checklist and a verification file:
