@@ -29,6 +29,24 @@ test('protects secrets, migrations, databases and lock files', () => {
   assert.equal(isProtectedPath('src/feature.ts'), false);
 });
 
+test('never deletes test files, test directories, or recognized project configuration', () => {
+  for (const path of [
+    'src/feature.test.ts',
+    'src/feature.spec.tsx',
+    'tests/helpers/fixture.ts',
+    '__tests__/legacy.ts',
+    'tsconfig.json',
+    'packages/app/vite.config.ts',
+    '.guardian/config.json',
+    'packages/app/package.json',
+  ]) {
+    assert.equal(isProtectedPath(path), true, `${path} should be protected`);
+  }
+
+  assert.equal(isProtectedPath('src/features.ts'), false);
+  assert.equal(isProtectedPath('src/configuration-guide.md'), false);
+});
+
 test('never treats paths outside the root or symlink escapes as safe', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cleancode-safeguards-'));
   const outside = await mkdtemp(join(tmpdir(), 'cleancode-outside-'));

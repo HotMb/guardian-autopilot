@@ -12,3 +12,4 @@
 - Hardened the local webhook HTTP boundary with security headers, bounded rate limiting, and exact-origin CORS validation.
 - Required a user-reviewed candidates file before any real CleanCode CLI cleanup; dry-run remains read-only.
 - Validated candidate evidence types and confidence bounds before the cleanup policy runs.
+- Protected tests, test directories and recognized project configuration from cleanup, as required by the verification policy.

@@ -14,6 +14,11 @@ const protectedPatterns = [
   /(^|\/)(?:migrations?|secrets?|db)(?:\/|$)/i,
   /(?:^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/i,
   /\.lock$/i,
+  /(^|\/)(?:__tests__|tests?|specs?)(?:\/|$)/i,
+  /\.(?:test|spec)\.[cm]?[jt]sx?$/i,
+  /(^|\/)(?:[^/]+\.)?(?:config|configuration)\.[^/]+$/i,
+  /(^|\/)(?:package|tsconfig|jsconfig|knip)\.json$/i,
+  /(^|\/)\.(?:eslintrc|prettierrc|babelrc|npmrc|nvmrc)(?:\.[^/]+)?$/i,
 ];
 
 function normalizedPath(value: string): string {
