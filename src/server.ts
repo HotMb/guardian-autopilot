@@ -96,7 +96,7 @@ async function sendLandingAsset(response: ServerResponse, fileName: 'index.html'
   response.end(body);
 }
 
-const checkoutSuccessPage = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Payment received</title></head><body><main><h1>Payment received</h1><p>Your checkout was completed. Subscription activation is confirmed by the Stripe webhook.</p></main></body></html>';
+const checkoutSuccessPage = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Payment received</title></head><body><main><h1>Payment received</h1><p>Your checkout was completed. Subscription status is updated only after the signed Stripe event is processed. This page itself does not confirm activation.</p></main></body></html>';
 const checkoutCancelPage = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Payment cancelled</title></head><body><main><h1>Payment cancelled</h1><p>No subscription was activated. You can safely close this page.</p></main></body></html>';
 
 function setSecurityHeaders(response: ServerResponse): void {

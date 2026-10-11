@@ -102,6 +102,8 @@ test('billing server serves hosted Checkout return pages', async () => {
     assert.equal(success.statusCode, 200);
     assert.equal(success.headers['content-type'], 'text/html; charset=utf-8');
     assert.match(success.body, /Payment received/i);
+    assert.match(success.body, /subscription status is updated only after the signed Stripe event is processed/i);
+    assert.match(success.body, /This page itself does not confirm activation/i);
     assert.equal(success.headers['cache-control'], 'no-store');
 
     const cancel = await callWithHeaders(server, '/billing/cancel', 'GET');
