@@ -101,10 +101,14 @@ test('experiment creates a verified local review branch without requiring forged
   const verificationFile = join(configRoot, 'verification.json');
   const original = await readFile(join(root, 'src', 'unused.ts'), 'utf8');
   await writeFile(candidateFile, JSON.stringify({paths: ['src/unused.ts']}));
+  const assertRemovedInWorktree = [
+    '-e',
+    "const fs=require('node:fs'); if (fs.existsSync('src/unused.ts')) process.exit(1)",
+  ];
   await writeFile(verificationFile, JSON.stringify({
-    build: {command: process.execPath, args: ['-e', 'process.exit(0)']},
-    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
-    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    build: {command: process.execPath, args: assertRemovedInWorktree},
+    typecheck: {command: process.execPath, args: assertRemovedInWorktree},
+    test: {command: process.execPath, args: assertRemovedInWorktree},
   }));
 
   const result = await exec(process.execPath, [cli, 'experiment', root, '--candidates-file', candidateFile, '--verification-file', verificationFile, '--format=json']);
@@ -116,6 +120,46 @@ test('experiment creates a verified local review branch without requiring forged
   assert.match(experiment.reviewBranchName, /^cleancode\/auto-/);
   assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), original);
   assert.match((await git(root, 'show', '--format=', '--name-status', experiment.reviewBranchName)).stdout, /D\s+src\/unused\.ts/);
+  assert.equal((await git(root, 'remote', '-v')).stdout, '');
+});
+
+test('CLI experiment rolls back a real candidate when its test command fails', async () => {
+  const root = await fixture();
+  const configRoot = await mkdtemp(join(tmpdir(), 'cleancode-experiment-failure-'));
+  const candidateFile = join(configRoot, 'experiment.json');
+  const verificationFile = join(configRoot, 'verification.json');
+  const original = await readFile(join(root, 'src', 'unused.ts'), 'utf8');
+  const originalHead = (await git(root, 'rev-parse', 'HEAD')).stdout.trim();
+  await writeFile(candidateFile, JSON.stringify({paths: ['src/unused.ts']}));
+  const assertRemovedInWorktree = [
+    '-e',
+    "const fs=require('node:fs'); if (fs.existsSync('src/unused.ts')) process.exit(1)",
+  ];
+  await writeFile(verificationFile, JSON.stringify({
+    build: {command: process.execPath, args: assertRemovedInWorktree},
+    typecheck: {command: process.execPath, args: assertRemovedInWorktree},
+    test: {command: process.execPath, args: ['-e', 'process.exit(1)']},
+  }));
+
+  let experiment;
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'experiment', root, '--candidates-file', candidateFile, '--verification-file', verificationFile, '--format=json']),
+    (error) => {
+      assert.notEqual(error.code, 0);
+      experiment = JSON.parse(error.stdout);
+      return true;
+    },
+  );
+
+  assert.equal(experiment.state, 'REVERTED');
+  assert.equal(experiment.verification.allPassed, false);
+  assert.equal(experiment.verification.build, true);
+  assert.equal(experiment.verification.typecheck, true);
+  assert.equal(experiment.verification.tests, false);
+  assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), original);
+  assert.equal((await git(root, 'rev-parse', 'HEAD')).stdout.trim(), originalHead);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
   assert.equal((await git(root, 'remote', '-v')).stdout, '');
 });
 
