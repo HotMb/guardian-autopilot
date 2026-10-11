@@ -97,10 +97,8 @@ test('real apply refuses to infer destructive candidates without an explicit app
 test('experiment creates a verified local review branch without requiring forged positive proof', async () => {
   const root = await fixture();
   const configRoot = await mkdtemp(join(tmpdir(), 'cleancode-experiment-config-'));
-  const candidateFile = join(configRoot, 'experiment.json');
   const verificationFile = join(configRoot, 'verification.json');
   const original = await readFile(join(root, 'src', 'unused.ts'), 'utf8');
-  await writeFile(candidateFile, JSON.stringify({paths: ['src/unused.ts']}));
   const assertRemovedInWorktree = [
     '-e',
     "const fs=require('node:fs'); if (fs.existsSync('src/unused.ts')) process.exit(1)",
@@ -111,7 +109,7 @@ test('experiment creates a verified local review branch without requiring forged
     test: {command: process.execPath, args: assertRemovedInWorktree},
   }));
 
-  const result = await exec(process.execPath, [cli, 'experiment', root, '--candidates-file', candidateFile, '--verification-file', verificationFile, '--format=json']);
+  const result = await exec(process.execPath, [cli, 'experiment', root, '--path', 'src/unused.ts', '--verification-file', verificationFile, '--format=json']);
   const experiment = JSON.parse(result.stdout);
 
   assert.equal(experiment.mode, 'experiment');
@@ -126,11 +124,9 @@ test('experiment creates a verified local review branch without requiring forged
 test('CLI experiment rolls back a real candidate when its test command fails', async () => {
   const root = await fixture();
   const configRoot = await mkdtemp(join(tmpdir(), 'cleancode-experiment-failure-'));
-  const candidateFile = join(configRoot, 'experiment.json');
   const verificationFile = join(configRoot, 'verification.json');
   const original = await readFile(join(root, 'src', 'unused.ts'), 'utf8');
   const originalHead = (await git(root, 'rev-parse', 'HEAD')).stdout.trim();
-  await writeFile(candidateFile, JSON.stringify({paths: ['src/unused.ts']}));
   const assertRemovedInWorktree = [
     '-e',
     "const fs=require('node:fs'); if (fs.existsSync('src/unused.ts')) process.exit(1)",
@@ -143,7 +139,7 @@ test('CLI experiment rolls back a real candidate when its test command fails', a
 
   let experiment;
   await assert.rejects(
-    () => exec(process.execPath, [cli, 'experiment', root, '--candidates-file', candidateFile, '--verification-file', verificationFile, '--format=json']),
+    () => exec(process.execPath, [cli, 'experiment', root, '--path', 'src/unused.ts', '--verification-file', verificationFile, '--format=json']),
     (error) => {
       assert.notEqual(error.code, 0);
       experiment = JSON.parse(error.stdout);

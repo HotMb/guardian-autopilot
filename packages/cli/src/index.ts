@@ -24,13 +24,27 @@ function optionValue(args: string[], option: string): string | undefined {
   return index < 0 ? undefined : args[index + 1];
 }
 
+function optionValues(args: string[], option: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value.startsWith(`${option}=`)) values.push(value.slice(option.length + 1));
+    else if (value === option) {
+      const next = args[index + 1];
+      values.push(next === undefined || next.startsWith('--') ? '' : next);
+      if (next !== undefined && !next.startsWith('--')) index += 1;
+    }
+  }
+  return values;
+}
+
 function format(args: string[]): OutputFormat {
   const inline = args.find((value) => value.startsWith('--format='));
   return (inline?.slice('--format='.length) ?? optionValue(args, '--format')) === 'json' ? 'json' : 'text';
 }
 
 function targetRoot(args: string[]): string {
-  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output']);
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path']);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--dry-run' || value.startsWith('--')) {
@@ -45,6 +59,7 @@ function targetRoot(args: string[]): string {
 function printUsage(): void {
   console.error('Usage: cleancode <discover|analyze|plan|experiment|apply|report> [root] [options]');
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
+  console.error('  experiment <root> --path <relative-path> [--path <relative-path> ...] --verification-file checks.json');
   console.error('  experiment <root> --candidates-file paths.json --verification-file checks.json');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
   console.error('  experiment creates only a local review branch; it never pushes or merges');
@@ -98,7 +113,13 @@ async function loadCandidates(args: string[], root: string): Promise<Array<Pick<
 
 async function loadExperimentPaths(args: string[]): Promise<string[]> {
   const file = optionValue(args, '--candidates-file');
-  if (file === undefined) throw new CleanCodeError('POLICY_VIOLATION', 'Experiment requires an explicit candidates file with a paths array');
+  const paths = optionValues(args, '--path');
+  if (file !== undefined && paths.length > 0) throw new CleanCodeError('POLICY_VIOLATION', 'Use either repeated --path options or --candidates-file, not both');
+  if (paths.length > 0) {
+    if (paths.some((path) => path.trim() === '')) throw new CleanCodeError('POLICY_VIOLATION', '--path requires a non-empty relative file path');
+    return paths;
+  }
+  if (file === undefined) throw new CleanCodeError('POLICY_VIOLATION', 'Experiment requires at least one --path or a candidates file with a paths array');
   const value: unknown = JSON.parse(await readFile(file, 'utf8'));
   if (!isRecord(value) || !Array.isArray(value.paths) || value.paths.length === 0 || value.paths.some((path) => typeof path !== 'string' || path.trim() === '')) {
     throw new CleanCodeError('POLICY_VIOLATION', 'Experiment candidates file must contain a non-empty paths array of relative file paths');
