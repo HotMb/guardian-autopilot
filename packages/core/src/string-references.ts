@@ -30,7 +30,8 @@ function referenceTokens(target: string): string[] {
   const withoutExtension = extension ? normalized.slice(0, -extension.length) : normalized;
   const basename = withoutExtension.slice(withoutExtension.lastIndexOf('/') + 1);
   const camel = basename.replace(/[-_]+([a-z\d])/gi, (_match, character: string) => character.toUpperCase());
-  const tokens = [normalized, withoutExtension, basename, camel];
+  const pascal = camel.length === 0 ? camel : `${camel[0]!.toUpperCase()}${camel.slice(1)}`;
+  const tokens = [normalized, withoutExtension, basename, camel, pascal];
   if (extension) {
     tokens.push(`./${normalized.slice(normalized.lastIndexOf('/') + 1)}`);
     tokens.push(`./${basename}`);
