@@ -1,6 +1,6 @@
 import {relative} from 'node:path';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
-import {buildManifest, type RepositoryManifest} from './manifest.js';
+import {buildManifest, DEFAULT_IGNORE_PATTERNS, type RepositoryManifest} from './manifest.js';
 import {buildReferenceGraph, type ReferenceGraph} from './reference-graph.js';
 import {findExactDuplicates, type ExactDuplicateGroup} from './duplicates.js';
 import {evaluateCandidate, type PolicyConfig, type PolicyDecision} from './policy.js';
@@ -9,6 +9,7 @@ import {scanDynamicHints, type DynamicHint} from './dynamic-hints.js';
 import {scanCoverage, type CoverageReport} from './coverage.js';
 import {belongsToInvalidPackage, scanPackageEntrypoints, type PackageEntrypointReport} from './package-exports.js';
 import {scanStringReferences, type StringReferenceReport} from './string-references.js';
+import {loadRepositoryConfig} from './repository-config.js';
 
 export type PlannedCandidate = Candidate & {
   action: 'review-only';
@@ -75,7 +76,14 @@ function makeCandidate(
 }
 
 export async function planRepository(rootDir: string, options: PlanOptions = {}): Promise<PlanReport> {
-  const manifest = await buildManifest(rootDir);
+  const repositoryConfig = await loadRepositoryConfig(rootDir);
+  const manifest = await buildManifest(rootDir, {
+    ignore: [...DEFAULT_IGNORE_PATTERNS, ...repositoryConfig.ignoredPaths],
+  });
+  const policy = {
+    ...options,
+    protectedPaths: [...repositoryConfig.protectedPaths, ...(options.protectedPaths ?? [])],
+  };
   const graph = await buildReferenceGraph(manifest.root);
   const duplicates = findExactDuplicates(manifest);
   const knip = await runKnip(manifest.root, options.knipExecutable === undefined ? {} : {executable: options.knipExecutable});
@@ -94,7 +102,7 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
     if (stringReferences.unreadableFiles.length > 0 || !sourceFile(file.path) || entryFiles.has(file.path) || incoming.has(file.path) || observedAtRuntime.has(file.path) || publicFiles.has(file.path) || stringReferenced.has(file.path) || belongsToInvalidPackage(file.path, packageEntrypoints.invalidManifests)) continue;
     candidates.push(makeCandidate('unreferenced-file', file.path, [
       {type: 'no_import_references', confidence: 0.99, details: 'No local static import or export targets this file'},
-    ], options));
+    ], policy));
   }
 
   for (const group of duplicates) {
@@ -105,7 +113,7 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
         {type: 'no_import_references', confidence: incoming.has(path) ? 0.2 : 0.99},
         {type: 'no_dynamic_references', confidence: 0.5, details: 'Exact hashing cannot prove runtime usage'},
       ];
-      candidates.push(makeCandidate('exact-duplicate', path, evidence, options, {sameAs: group.canonical}));
+      candidates.push(makeCandidate('exact-duplicate', path, evidence, policy, {sameAs: group.canonical}));
     }
   }
 

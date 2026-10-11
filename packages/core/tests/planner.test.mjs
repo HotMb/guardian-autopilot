@@ -77,3 +77,52 @@ test('excludes candidates mentioned by literal string references and exposes the
   assert.equal(report.stringReferences.noMatchIsProof, false);
 });
 
+test('plan applies custom protected and ignored paths from .guardian/config.json', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-configured-policy-'));
+  await mkdir(join(root, '.guardian'), {recursive: true});
+  await mkdir(join(root, 'src', 'private-data'), {recursive: true});
+  await mkdir(join(root, 'src', 'ignored'), {recursive: true});
+  await mkdir(join(root, 'src', 'other', 'ignored'), {recursive: true});
+  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({
+    version: 1,
+    protectedPaths: ['src/private-data'],
+    ignoredPaths: ['src/ignored'],
+  }));
+  await writeFile(join(root, 'src', 'index.ts'), 'export {}\n');
+  await writeFile(join(root, 'src', 'private-data', 'record.ts'), 'export const record = true;\n');
+  await writeFile(join(root, 'src', 'ignored', 'unused.ts'), 'export const ignored = true;\n');
+  await writeFile(join(root, 'src', 'other', 'ignored', 'keep.ts'), 'export const keep = true;\n');
+  await writeFile(join(root, 'src', 'unused.ts'), 'export const unused = true;\n');
+
+  const report = await planRepository(root, {entryFiles: ['src/index.ts'], knipExecutable: 'not-installed'});
+  const protectedCandidate = report.candidates.find((candidate) => candidate.path === 'src/private-data/record.ts');
+
+  assert.ok(report.manifest.files.some((file) => file.path === 'src/private-data/record.ts'));
+  assert.ok(protectedCandidate);
+  assert.equal(protectedCandidate.decision.allowed, false);
+  assert.match(protectedCandidate.decision.reasons.join(' '), /protected/i);
+  assert.equal(report.manifest.files.some((file) => file.path === 'src/ignored/unused.ts'), false);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/ignored/unused.ts'), false);
+  assert.equal(report.manifest.files.some((file) => file.path === 'src/other/ignored/keep.ts'), true);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/unused.ts'), true);
+});
+
+test('plan fails closed when the repository policy configuration is invalid', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-invalid-policy-'));
+  await mkdir(join(root, '.guardian'), {recursive: true});
+  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({version: 2, protectedPaths: ['src/secrets']}));
+
+  await assert.rejects(
+    () => planRepository(root, {knipExecutable: 'not-installed'}),
+    /Guardian config version must be 1/i,
+  );
+
+  for (const path of ['../outside', 'C:\\outside', './', 'src/**/outside']) {
+    await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({version: 1, protectedPaths: [path]}));
+    await assert.rejects(
+      () => planRepository(root, {knipExecutable: 'not-installed'}),
+      /must stay inside the scanned root/i,
+    );
+  }
+});
+

@@ -33,6 +33,16 @@ export type RepositoryManifest = {
   files: ManifestFile[];
 };
 
+export const DEFAULT_IGNORE_PATTERNS = [
+  '**/node_modules/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/out/**',
+  '**/.next/**',
+  '**/coverage/**',
+  '**/.git/**',
+] as const;
+
 const defaultIgnoredDirectories = new Set(['.git', 'node_modules', 'dist', 'build', 'out', '.next', 'coverage']);
 
 function reportPath(value: string): string {
@@ -41,17 +51,24 @@ function reportPath(value: string): string {
 
 function ignored(relativePath: string, patterns: readonly string[]): boolean {
   const normalized = reportPath(relativePath);
-  const segments = normalized.split('/');
   return patterns.some((pattern) => {
     const clean = reportPath(pattern).replace(/^\.\//, '');
-    const marker = clean.replace(/^\*\*\//, '').replace(/\/\*\*$/, '');
-    return marker !== '' && (segments.includes(marker) || normalized === marker || normalized.startsWith(`${marker}/`));
+    if (clean.includes('*')) {
+      const insensitivePath = normalized.toLowerCase();
+      const insensitivePattern = clean.toLowerCase();
+      const segments = insensitivePath.split('/');
+      const marker = insensitivePattern.replace(/^\*\*\//, '').replace(/\/\*\*$/, '');
+      return marker !== '' && (segments.includes(marker) || insensitivePath === marker || insensitivePath.startsWith(`${marker}/`));
+    }
+    const comparedPath = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+    const comparedPattern = process.platform === 'win32' ? clean.toLowerCase() : clean;
+    return comparedPath === comparedPattern || comparedPath.startsWith(`${comparedPattern}/`);
   });
 }
 
 function discoveryOptions(options: DiscoveryOptions): Required<DiscoveryOptions> {
   return {
-    ignore: options.ignore ?? ['**/node_modules/**', '**/dist/**', '**/build/**', '**/out/**', '**/.next/**', '**/coverage/**', '**/.git/**'],
+    ignore: options.ignore ?? DEFAULT_IGNORE_PATTERNS,
     symlinks: options.symlinks ?? 'skip',
   };
 }

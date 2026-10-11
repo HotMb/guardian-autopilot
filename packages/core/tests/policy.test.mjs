@@ -34,6 +34,15 @@ test('rejects protected paths and weak evidence', () => {
   assert.match(weakDecision.reasons.join(' '), /positive proof|confidence/i);
 });
 
+test('honours repository-defined protected paths in addition to built-in safeguards', () => {
+  const decision = evaluateCandidate({...candidate, path: 'src/private-data/private.ts'}, {
+    protectedPaths: ['src/private-data'],
+  });
+
+  assert.equal(decision.allowed, false);
+  assert.match(decision.reasons.join(' '), /protected/i);
+});
+
 test('honours stricter configured confidence thresholds', () => {
   const decision = evaluateCandidate(candidate, {minConfidence: 0.99});
   assert.equal(decision.allowed, false);

@@ -7,6 +7,7 @@ import {promisify} from 'node:util';
 import type {Candidate} from '@cleancode/shared/types';
 import {CleanCodeError} from '@cleancode/shared/errors';
 import {canDelete, enforceChangeLimits, isProtectedPath, isSafePath} from './safeguards.js';
+import {loadRepositoryConfig, matchesConfiguredRepositoryPath} from './repository-config.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -166,6 +167,7 @@ export class WorktreeExecutor {
     candidates: readonly Pick<Candidate, 'path' | 'evidence'>[],
     requireProof = true,
   ): Promise<DeletionPreview> {
+    const repositoryConfig = await loadRepositoryConfig(root);
     const paths = new Set<string>();
     let lines = 0;
     let bytes = 0;
@@ -173,7 +175,9 @@ export class WorktreeExecutor {
       if (requireProof && !canDelete(candidate)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate lacks engine-verified positive proof: ${candidate.path}`);
       const path = safeRelativePath(root, candidate.path);
       if (paths.has(path)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate is duplicated: ${path}`);
-      if (isProtectedPath(path)) throw new CleanCodeError('POLICY_VIOLATION', `Protected path cannot be changed: ${path}`);
+      if (isProtectedPath(path) || matchesConfiguredRepositoryPath(path, repositoryConfig.protectedPaths)) {
+        throw new CleanCodeError('POLICY_VIOLATION', `Protected path cannot be changed: ${path}`);
+      }
       const absolute = join(root, path);
       if (!isSafePath(absolute, root)) throw new CleanCodeError('POLICY_VIOLATION', `Candidate path is unsafe: ${path}`);
       let details;

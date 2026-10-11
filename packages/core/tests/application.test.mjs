@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile as execFileCallback} from 'node:child_process';
-import {mkdtemp, readFile, readdir, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, readdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
@@ -51,6 +51,27 @@ test('dry-run previews approved deletions without changing the repository', asyn
   assert.deepEqual(result.changedPaths, ['remove.ts']);
   assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), before);
   assert.deepEqual((await git(root, 'status', '--porcelain')).stdout, '');
+});
+
+test('repository-defined protected paths block both apply and experiment before a worktree is created', async () => {
+  const root = await repository();
+  await mkdir(join(root, '.guardian'), {recursive: true});
+  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({version: 1, protectedPaths: ['remove.ts']}));
+  await git(root, 'add', '.guardian/config.json');
+  await git(root, 'commit', '-qm', 'configure a protected source path');
+
+  await assert.rejects(
+    () => executeCleanup({rootDir: root, candidates: [candidate], verification: passingVerification}),
+    /protected path cannot be changed: remove\.ts/i,
+  );
+  await assert.rejects(
+    () => executeCleanupExperiment({rootDir: root, paths: ['remove.ts'], verification: passingVerification}),
+    /protected path cannot be changed: remove\.ts/i,
+  );
+
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
 });
 
 test('runs an unproven candidate only as a local review experiment and keeps the source branch unchanged', async () => {

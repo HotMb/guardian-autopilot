@@ -174,7 +174,7 @@ Create `.guardian/config.json` inside the scanned project:
 }
 ```
 
-All configured paths must be relative to the project root. `.env*` files and common certificate/key extensions are protected by default. Protected paths are not modified by the current read-only scanner; they will be enforced by the future cleanup transaction.
+All configured paths must be relative to the project root. `.env*` files and common certificate/key extensions are protected by default. `ignoredPaths` are excluded from the manifest; `protectedPaths` remain visible in plans but are marked ineligible, and the cleanup executor checks them again immediately before any change. Invalid or unsafe configuration blocks planning and execution rather than being ignored. `maxAssetBytes` applies to the legacy binary-asset scanner.
 
 ### Claude Code plugin
 
