@@ -63,6 +63,8 @@ npm test
 
 Plans and reports also surface documented JavaScript/TypeScript runtime-usage hints (dynamic imports/requires, DI and reflective-container markers, and serialization annotations). These are review signals only, capped at 0.50 confidence; they are not proof of use or non-use and never authorize cleanup.
 
+When `coverage/lcov.info` is present, planning cross-references it and excludes files with executed lines from cleanup candidates. Files with measured zero coverage remain candidates for review only: missing execution is not proof that a file is unused.
+
 ### CleanCode packages
 
 Build and test the CleanCode implementation with:
