@@ -18,3 +18,4 @@
 - Rejected caller-asserted `positive_proof` evidence at policy and deletion boundaries; real CleanCode deletion stays fail-closed until a verified analyzer can issue in-process proof.
 - Cross-referenced standard LCOV test reports: files with positively executed lines are excluded from cleanup candidates; zero coverage is explicitly not treated as proof of non-use.
 - Excluded source files declared by package.json exports, bins, and entrypoint fields from cleanup candidates; invalid manifests conservatively suppress candidates within their package scope.
+- Added conservative literal path/name reference scanning across repository text files; hits suppress cleanup candidates, while no hit never counts as proof and unreadable inputs fail closed.

@@ -62,3 +62,18 @@ test('never proposes package-declared public entrypoints or files under an inval
   assert.equal(invalid.candidates.some((candidate) => candidate.path === 'src/internal.ts'), false);
 });
 
+test('excludes candidates mentioned by literal string references and exposes the conservative scan', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-string-plan-'));
+  await mkdir(join(root, 'src'), {recursive: true});
+  await writeFile(join(root, 'src', 'index.ts'), "const loader = require('./legacy-worker'); void loader;\n");
+  await writeFile(join(root, 'src', 'legacy-worker.ts'), 'export const worker = true;\n');
+  await writeFile(join(root, 'src', 'spare.ts'), 'export const spare = true;\n');
+
+  const report = await planRepository(root, {entryFiles: ['src/index.ts'], knipExecutable: 'not-installed'});
+
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/legacy-worker.ts'), false);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/spare.ts'), true);
+  assert.equal(report.stringReferences.references.some((reference) => reference.target === 'src/legacy-worker.ts' && reference.source === 'src/index.ts'), true);
+  assert.equal(report.stringReferences.noMatchIsProof, false);
+});
+

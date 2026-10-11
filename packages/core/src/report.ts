@@ -2,6 +2,7 @@ import type {PlanReport} from './planner.js';
 import type {DynamicHint} from './dynamic-hints.js';
 import type {CoverageReport} from './coverage.js';
 import type {PackageEntrypointReport} from './package-exports.js';
+import type {StringReferenceReport} from './string-references.js';
 
 export type ReportFormat = 'json' | 'markdown' | 'html';
 
@@ -29,6 +30,7 @@ export type CleanCodeReport = {
   dynamicHints: DynamicHint[];
   coverage: CoverageReport;
   packageEntrypoints: PackageEntrypointReport;
+  stringReferences: StringReferenceReport;
 };
 
 function summary(plan: PlanReport): CleanCodeReport {
@@ -56,6 +58,7 @@ function summary(plan: PlanReport): CleanCodeReport {
     dynamicHints: plan.dynamicHints,
     coverage: plan.coverage,
     packageEntrypoints: plan.packageEntrypoints,
+    stringReferences: plan.stringReferences,
   };
 }
 
@@ -84,6 +87,7 @@ function renderMarkdown(report: CleanCodeReport): string {
     `- Knip: ${report.knip.status} (${report.knip.issues} issues)`,
     `- Test coverage: ${report.coverage.status}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} file(s) with measured zero hits`,
     `- Package entrypoints: ${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)`,
+    `- Literal string references: ${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)`,
     '',
     '## Candidates',
     '',
@@ -101,6 +105,8 @@ function renderMarkdown(report: CleanCodeReport): string {
     '',
     'Files declared by package.json entrypoints (exports, bin, main, and related fields) are not proposed for cleanup.',
     '',
+    'Literal string matches suppress cleanup candidates; no match is not proof that a file is unused. An unreadable scan input suppresses all candidates.',
+    '',
     'This report is read-only. A candidate is never applied without explicit positive proof and guarded verification.',
     '',
   ].join('\n');
@@ -116,12 +122,13 @@ function renderHtml(report: CleanCodeReport): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>CleanCode report</title></head>
 <body><main><h1>CleanCode report</h1>
-<dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd></dl>
+<dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd><dt>Literal string references</dt><dd>${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)</dd></dl>
 <h2>Candidates</h2><table><thead><tr><th>Path</th><th>Kind</th><th>Confidence</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Dynamic-usage hints</h2><table><thead><tr><th>Path</th><th>Line</th><th>Hint</th><th>Marker</th></tr></thead><tbody>${hintRows}</tbody></table>
 <p>Hints are review signals, not proof of use or proof of non-use. Their confidence is intentionally capped at 0.50.</p>
 <p>A file with executed coverage is not proposed for cleanup. Zero coverage is not proof that a file is unused.</p>
 <p>Files declared by package.json entrypoints (exports, bin, main, and related fields) are not proposed for cleanup.</p>
+<p>Literal string matches suppress cleanup candidates; no match is not proof that a file is unused. An unreadable scan input suppresses all candidates.</p>
 <p>This report is read-only. A candidate is never applied without explicit positive proof and guarded verification.</p></main></body></html>
 `;
 }

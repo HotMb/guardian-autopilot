@@ -27,6 +27,8 @@ test('renders a stable JSON report summary', async () => {
   assert.equal(report.coverage.status, 'unavailable');
   assert.equal(report.coverage.zeroCoverageIsProof, false);
   assert.deepEqual(report.packageEntrypoints.files, []);
+  assert.deepEqual([...new Set(report.stringReferences.references.map(({target}) => target))], ['src/runtime.ts', 'src/used.ts']);
+  assert.equal(report.stringReferences.noMatchIsProof, false);
   assert.deepEqual(report.dynamicHints.map(({path, line, kind}) => ({path, line, kind})), [
     {path: 'src/runtime.ts', line: 1, kind: 'dynamic-require'},
   ]);
@@ -42,11 +44,13 @@ test('renders escaped Markdown and HTML reports', async () => {
   assert.match(markdown, /Dynamic-usage hints/);
   assert.match(markdown, /confidence is intentionally capped at 0\.50/);
   assert.match(markdown, /Zero coverage is not proof/);
+  assert.match(markdown, /Literal string matches suppress cleanup candidates/);
   assert.match(markdown, /package\.json entrypoints/);
   assert.match(html, /<main>/);
   assert.match(html, /src\/unused\.ts/);
   assert.match(html, /Dynamic-usage hints/);
   assert.match(html, /Zero coverage is not proof/);
+  assert.match(html, /Literal string matches suppress cleanup candidates/);
   assert.match(html, /package\.json entrypoints/);
   assert.doesNotMatch(html, /<script>/i);
 });
