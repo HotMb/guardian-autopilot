@@ -31,7 +31,13 @@ export type CleanCodeReport = {
   coverage: CoverageReport;
   packageEntrypoints: PackageEntrypointReport;
   stringReferences: StringReferenceReport;
+  deletionReadiness: {
+    status: 'blocked';
+    reason: string;
+  };
 };
+
+const deletionBlockedReason = 'No supported analyzer can currently issue engine-verified positive proof.';
 
 function summary(plan: PlanReport): CleanCodeReport {
   return {
@@ -59,6 +65,7 @@ function summary(plan: PlanReport): CleanCodeReport {
     coverage: plan.coverage,
     packageEntrypoints: plan.packageEntrypoints,
     stringReferences: plan.stringReferences,
+    deletionReadiness: {status: 'blocked', reason: deletionBlockedReason},
   };
 }
 
@@ -72,8 +79,8 @@ function html(value: string): string {
 
 function renderMarkdown(report: CleanCodeReport): string {
   const rows = report.candidates.length === 0
-    ? '| _none_ | — | — | — |\n'
-    : report.candidates.map((candidate) => `| ${markdown(candidate.path)} | ${markdown(candidate.kind)} | ${candidate.confidence.toFixed(2)} | ${candidate.allowed ? 'eligible' : 'blocked'} |`).join('\n') + '\n';
+    ? '| _none_ | — | — | — | — |\n'
+    : report.candidates.map((candidate) => `| ${markdown(candidate.path)} | ${markdown(candidate.kind)} | ${candidate.confidence.toFixed(2)} | ${candidate.allowed ? 'eligible' : 'blocked'} | ${markdown(candidate.reasons.join('; ') || 'No policy blockers')} |`).join('\n') + '\n';
   const hintRows = report.dynamicHints.length === 0
     ? '_No documented dynamic-usage hints found._'
     : ['| Path | Line | Hint | Marker |', '| --- | ---: | --- | --- |', ...report.dynamicHints.map((hint) => `| ${markdown(hint.path)} | ${hint.line} | ${markdown(hint.kind)} | \`${markdown(hint.marker)}\` |`)].join('\n');
@@ -88,11 +95,12 @@ function renderMarkdown(report: CleanCodeReport): string {
     `- Test coverage: ${report.coverage.status}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} file(s) with measured zero hits`,
     `- Package entrypoints: ${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)`,
     `- Literal string references: ${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)`,
+    `- Deletion readiness: ${report.deletionReadiness.status} — ${report.deletionReadiness.reason}`,
     '',
     '## Candidates',
     '',
-    '| Path | Kind | Confidence | Decision |',
-    '| --- | --- | ---: | --- |',
+    '| Path | Kind | Confidence | Decision | Reason |',
+    '| --- | --- | ---: | --- | --- |',
     rows.trimEnd(),
     '',
     '## Dynamic-usage hints',
@@ -109,26 +117,29 @@ function renderMarkdown(report: CleanCodeReport): string {
     '',
     'This report is read-only. A candidate is never applied without explicit positive proof and guarded verification.',
     '',
+    `Deletion readiness is ${report.deletionReadiness.status}: ${report.deletionReadiness.reason}`,
+    '',
   ].join('\n');
 }
 
 function renderHtml(report: CleanCodeReport): string {
   const rows = report.candidates.length === 0
-    ? '<tr><td colspan="4">none</td></tr>'
-    : report.candidates.map((candidate) => `<tr><td>${html(candidate.path)}</td><td>${html(candidate.kind)}</td><td>${candidate.confidence.toFixed(2)}</td><td>${candidate.allowed ? 'eligible' : 'blocked'}</td></tr>`).join('');
+    ? '<tr><td colspan="5">none</td></tr>'
+    : report.candidates.map((candidate) => `<tr><td>${html(candidate.path)}</td><td>${html(candidate.kind)}</td><td>${candidate.confidence.toFixed(2)}</td><td>${candidate.allowed ? 'eligible' : 'blocked'}</td><td>${html(candidate.reasons.join('; ') || 'No policy blockers')}</td></tr>`).join('');
   const hintRows = report.dynamicHints.length === 0
     ? '<tr><td colspan="4">No documented dynamic-usage hints found.</td></tr>'
     : report.dynamicHints.map((hint) => `<tr><td>${html(hint.path)}</td><td>${hint.line}</td><td>${html(hint.kind)}</td><td><code>${html(hint.marker)}</code></td></tr>`).join('');
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>CleanCode report</title></head>
 <body><main><h1>CleanCode report</h1>
-<dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd><dt>Literal string references</dt><dd>${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)</dd></dl>
-<h2>Candidates</h2><table><thead><tr><th>Path</th><th>Kind</th><th>Confidence</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>
+<dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd><dt>Literal string references</dt><dd>${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)</dd><dt>Deletion readiness</dt><dd>${html(report.deletionReadiness.status)} — ${html(report.deletionReadiness.reason)}</dd></dl>
+<h2>Candidates</h2><table><thead><tr><th>Path</th><th>Kind</th><th>Confidence</th><th>Decision</th><th>Reason</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Dynamic-usage hints</h2><table><thead><tr><th>Path</th><th>Line</th><th>Hint</th><th>Marker</th></tr></thead><tbody>${hintRows}</tbody></table>
 <p>Hints are review signals, not proof of use or proof of non-use. Their confidence is intentionally capped at 0.50.</p>
 <p>A file with executed coverage is not proposed for cleanup. Zero coverage is not proof that a file is unused.</p>
 <p>Files declared by package.json entrypoints (exports, bin, main, and related fields) are not proposed for cleanup.</p>
 <p>Literal string matches suppress cleanup candidates; no match is not proof that a file is unused. An unreadable scan input suppresses all candidates.</p>
+<p>Deletion readiness is ${html(report.deletionReadiness.status)}: ${html(report.deletionReadiness.reason)}</p>
 <p>This report is read-only. A candidate is never applied without explicit positive proof and guarded verification.</p></main></body></html>
 `;
 }

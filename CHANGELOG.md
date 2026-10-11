@@ -19,3 +19,4 @@
 - Cross-referenced standard LCOV test reports: files with positively executed lines are excluded from cleanup candidates; zero coverage is explicitly not treated as proof of non-use.
 - Excluded source files declared by package.json exports, bins, and entrypoint fields from cleanup candidates; invalid manifests conservatively suppress candidates within their package scope.
 - Added conservative literal path/name reference scanning across repository text files; hits suppress cleanup candidates, while no hit never counts as proof and unreadable inputs fail closed.
+- Made deletion readiness and each candidate's policy blockers explicit in JSON, Markdown, and HTML reports; deletion remains blocked until a supported analyzer can issue engine-verified positive proof.

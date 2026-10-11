@@ -29,6 +29,10 @@ test('renders a stable JSON report summary', async () => {
   assert.deepEqual(report.packageEntrypoints.files, []);
   assert.deepEqual([...new Set(report.stringReferences.references.map(({target}) => target))], ['src/runtime.ts', 'src/used.ts']);
   assert.equal(report.stringReferences.noMatchIsProof, false);
+  assert.deepEqual(report.deletionReadiness, {
+    status: 'blocked',
+    reason: 'No supported analyzer can currently issue engine-verified positive proof.',
+  });
   assert.deepEqual(report.dynamicHints.map(({path, line, kind}) => ({path, line, kind})), [
     {path: 'src/runtime.ts', line: 1, kind: 'dynamic-require'},
   ]);
@@ -45,12 +49,16 @@ test('renders escaped Markdown and HTML reports', async () => {
   assert.match(markdown, /confidence is intentionally capped at 0\.50/);
   assert.match(markdown, /Zero coverage is not proof/);
   assert.match(markdown, /Literal string matches suppress cleanup candidates/);
+  assert.match(markdown, /Deletion readiness: blocked/);
+  assert.match(markdown, /No supported analyzer can currently issue engine-verified positive proof/);
   assert.match(markdown, /package\.json entrypoints/);
   assert.match(html, /<main>/);
   assert.match(html, /src\/unused\.ts/);
   assert.match(html, /Dynamic-usage hints/);
   assert.match(html, /Zero coverage is not proof/);
   assert.match(html, /Literal string matches suppress cleanup candidates/);
+  assert.match(html, /Deletion readiness.*blocked/);
+  assert.match(html, /No supported analyzer can currently issue engine-verified positive proof/);
   assert.match(html, /package\.json entrypoints/);
   assert.doesNotMatch(html, /<script>/i);
 });
