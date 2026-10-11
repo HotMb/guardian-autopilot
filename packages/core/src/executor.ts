@@ -86,19 +86,27 @@ export class WorktreeExecutor {
     return this.inspectDeletions(this.root, paths.map((path) => ({path, evidence: []})), false);
   }
 
-  async createIsolatedWorktree(): Promise<IsolatedWorktree> {
+  async createIsolatedWorktree(expectedRepositoryHead?: string): Promise<IsolatedWorktree> {
     if (this.isolated !== undefined) throw new CleanCodeError('WORKTREE_ERROR', 'An isolated worktree already exists');
     try {
       const status = await runGit(this.root, ['status', '--porcelain=v1', '--untracked-files=all']);
       if (status.stdout.trim() !== '') throw new Error('Repository must be clean before creating a worktree');
+      if (expectedRepositoryHead !== undefined) {
+        if (!/^[a-f\d]{40,64}$/i.test(expectedRepositoryHead)) throw new CleanCodeError('POLICY_VIOLATION', 'Reviewed repository HEAD must be a full Git commit hash');
+        const actualHead = (await runGit(this.root, ['rev-parse', 'HEAD'])).stdout.trim();
+        if (actualHead.toLowerCase() !== expectedRepositoryHead.toLowerCase()) {
+          throw new CleanCodeError('POLICY_VIOLATION', 'Human review file refers to a different repository commit');
+        }
+      }
+      const reviewedHead = expectedRepositoryHead ?? 'HEAD';
       const suffix = `${this.now()}-${randomBytes(3).toString('hex')}`;
       const branchName = `cleancode/auto-${suffix}`;
       const backupBranchName = `cleancode/backup-${suffix}`;
-      await runGit(this.root, ['branch', backupBranchName, 'HEAD']);
+      await runGit(this.root, ['branch', backupBranchName, reviewedHead]);
       const temporaryPath = await mkdtemp(join(this.worktreeRoot, 'cleancode-wt-'));
       await rm(temporaryPath, {recursive: true, force: true});
       try {
-        await runGit(this.root, ['worktree', 'add', '-b', branchName, temporaryPath, 'HEAD']);
+        await runGit(this.root, ['worktree', 'add', '-b', branchName, temporaryPath, reviewedHead]);
       } catch (error) {
         try { await runGit(this.root, ['branch', '-D', backupBranchName]); } catch { /* best effort */ }
         throw error;

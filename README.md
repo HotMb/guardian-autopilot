@@ -50,6 +50,22 @@ node packages/cli/dist/index.js report /path/to/project --format=html --output r
 
 Plans are review-only. Guardian does not treat a missing import, a duplicate hash, or a passing test suite as proof that a file is unused. Real CleanCode deletion remains blocked until the engine can produce its own verified positive-use evidence.
 
+Before Guardian automatically selects candidates for a batch experiment, create a human-review checklist outside the project repository:
+
+```bash
+node packages/cli/dist/index.js review /path/to/project --path src/unused-module.ts --output /tmp/guardian-review.json
+```
+
+Inspect the project’s runtime, package, framework, CLI, plugin, and deployment entrypoints, and check for external consumers or runtime configuration that may load the candidate. Only then set `allEntrypointsReviewed` and `noExternalUsageConfirmed` to `true` for that candidate in the JSON file. The checklist is tied to the current Git commit and candidate file hash; edits make it stale. Keep it outside the repository so the checkout stays clean.
+
+Run a batch experiment only with the completed checklist and a verification file:
+
+```bash
+node packages/cli/dist/index.js experiment /path/to/project --from-plan --review-file /tmp/guardian-review.json --verification-file checks.json
+```
+
+These are human confirmations, not engine-verified proof. They only permit a reversible local experiment; they never authorize `apply`, push, or merge. Dynamic-loading hints and other automated safeguards still block automatic selection.
+
 To evaluate a reviewed candidate safely, use `experiment` with an explicit verification file containing the target project's build, typecheck, and test commands:
 
 ```bash

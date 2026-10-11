@@ -94,6 +94,19 @@ test('runs an unproven candidate only as a local review experiment and keeps the
   assert.equal((await git(root, 'remote', '-v')).stdout, '');
 });
 
+test('rejects a reviewed experiment when the repository HEAD no longer matches the attestation', async () => {
+  const root = await repository();
+
+  await assert.rejects(() => executeCleanupExperiment({
+    rootDir: root,
+    paths: ['remove.ts'],
+    expectedRepositoryHead: '0'.repeat(40),
+    verification: passingVerification,
+  }), /different repository commit/i);
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+});
+
 test('refuses an experiment when the source repository is dirty', async () => {
   const root = await repository();
   await writeFile(join(root, 'safe.ts'), 'local edit\n');

@@ -20,6 +20,7 @@ export type CleanupExecutionOptions = {
   auditDirectory?: string;
   receiptDirectory?: string;
   commitMessage?: string;
+  expectedRepositoryHead?: string;
 };
 
 export type CleanupExecutionResult = {
@@ -96,7 +97,7 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
   let isolated = false;
 
   try {
-    const worktree = await executor.createIsolatedWorktree();
+    const worktree = await executor.createIsolatedWorktree(experiment ? options.expectedRepositoryHead : undefined);
     isolated = true;
     machine.transitionTo('ISOLATED');
     await audit(auditLog, id, 'ISOLATED', 'create-worktree', {branch: worktree.branchName, backupBranch: worktree.backupBranchName});

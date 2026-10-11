@@ -30,6 +30,22 @@ async function fixture() {
   return root;
 }
 
+async function createReviewFile(root, paths, confirmed = true) {
+  const args = [cli, 'review', root];
+  for (const path of paths) args.push('--path', path);
+  args.push('--format=json');
+  const template = JSON.parse((await exec(process.execPath, args)).stdout);
+  if (confirmed) {
+    for (const review of template.candidateReviews) {
+      review.allEntrypointsReviewed = true;
+      review.noExternalUsageConfirmed = true;
+    }
+  }
+  const file = join(await mkdtemp(join(tmpdir(), 'cleancode-human-review-')), 'review.json');
+  await writeFile(file, JSON.stringify(template, null, 2));
+  return {file, template};
+}
+
 test('discover reports files without modifying the target', async () => {
   const root = await fixture();
   const before = await readFile(join(root, 'src', 'unused.ts'), 'utf8');
@@ -137,12 +153,13 @@ test('plan experiment tries candidates independently and keeps only verified loc
     typecheck: {command: process.execPath, args: assertOneRemovedInWorktree},
     test: {command: process.execPath, args: ['-e', "const fs=require('node:fs'); if (!fs.existsSync('src/unused.ts')) process.exit(1)"]},
   }));
+  const {file: humanReviewFile} = await createReviewFile(root, ['src/unused.ts', 'src/unused-two.ts']);
 
   let batch;
   await assert.rejects(
-    () => exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--max-candidates', '2', '--verification-file', verificationFile, '--format=json']),
+    () => exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--review-file', humanReviewFile, '--max-candidates', '2', '--verification-file', verificationFile, '--format=json']),
     (error) => {
-      assert.equal(error.code, 5);
+      assert.equal(error.code, 5, `${error.stderr}\n${error.stdout}`);
       batch = JSON.parse(error.stdout);
       return true;
     },
@@ -179,8 +196,9 @@ test('plan experiment explains candidates omitted by the configured batch limit'
     typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
     test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
   }));
+  const {file: humanReviewFile} = await createReviewFile(root, ['src/unused.ts', 'src/unused-two.ts']);
 
-  const result = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--max-candidates', '1', '--verification-file', verificationFile, '--format=json']);
+  const result = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--review-file', humanReviewFile, '--max-candidates', '1', '--verification-file', verificationFile, '--format=json']);
   const batch = JSON.parse(result.stdout);
 
   assert.equal(batch.availableCandidates, 2);
@@ -203,8 +221,9 @@ test('plan experiment skips automatic selection when dynamic runtime-use hints e
     typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
     test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
   }));
+  const {file: humanReviewFile} = await createReviewFile(root, ['src/loader.ts']);
 
-  const result = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--verification-file', verificationFile, '--format=json']);
+  const result = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--review-file', humanReviewFile, '--verification-file', verificationFile, '--format=json']);
   const batch = JSON.parse(result.stdout);
 
   assert.equal(batch.attempted, 0);
@@ -214,8 +233,87 @@ test('plan experiment skips automatic selection when dynamic runtime-use hints e
   assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
   assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
 
-  const textResult = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--verification-file', verificationFile]);
+  const textResult = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--review-file', humanReviewFile, '--verification-file', verificationFile]);
   assert.match(textResult.stdout, /No automatic experiment started: Dynamic runtime-use hints were found/i);
+});
+
+test('review creates a candidate-specific checklist bound to HEAD and file content', async () => {
+  const root = await fixture();
+  const {template} = await createReviewFile(root, ['src/unused.ts'], false);
+
+  assert.equal(template.schemaVersion, 1);
+  assert.equal(template.repositoryHead, (await git(root, 'rev-parse', 'HEAD')).stdout.trim());
+  assert.deepEqual(template.candidateReviews, [{
+    path: 'src/unused.ts',
+    sha256: template.candidateReviews[0].sha256,
+    allEntrypointsReviewed: false,
+    noExternalUsageConfirmed: false,
+  }]);
+  assert.match(template.candidateReviews[0].sha256, /^[a-f0-9]{64}$/);
+});
+
+test('review refuses to write its checklist inside the repository', async () => {
+  const root = await fixture();
+  const output = join(root, 'human-review.json');
+
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'review', root, '--path', 'src/unused.ts', '--output', output]),
+    /must be saved outside the scanned repository/i,
+  );
+  await assert.rejects(() => readFile(output));
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+});
+
+test('from-plan requires both human confirmations before starting an experiment', async () => {
+  const root = await fixture();
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-plan-review-gate-')), 'verification.json');
+  await writeFile(verificationFile, JSON.stringify({
+    build: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+  }));
+
+  const noReview = JSON.parse((await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--verification-file', verificationFile, '--format=json'])).stdout);
+  assert.equal(noReview.attempted, 0);
+  assert.match(noReview.skippedReason, /human review file is required/i);
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+
+  const {file: incompleteReviewFile} = await createReviewFile(root, ['src/unused.ts'], false);
+  const incomplete = JSON.parse((await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--review-file', incompleteReviewFile, '--verification-file', verificationFile, '--format=json'])).stdout);
+  assert.equal(incomplete.attempted, 0);
+  assert.match(incomplete.skippedCandidates[0].reason, /both human review checks/i);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+});
+
+test('from-plan rejects a human review file after the repository commit changes', async () => {
+  const root = await fixture();
+  const {file: humanReviewFile} = await createReviewFile(root, ['src/unused.ts']);
+  await writeFile(join(root, 'README.md'), 'Changed after human review.\n');
+  await git(root, 'add', 'README.md');
+  await git(root, 'commit', '-qm', 'change repository after review');
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-stale-review-')), 'verification.json');
+  await writeFile(verificationFile, JSON.stringify({build: {}, typecheck: {}, test: {}}));
+
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--review-file', humanReviewFile, '--verification-file', verificationFile, '--format=json']),
+    /review file refers to a different repository commit/i,
+  );
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+});
+
+test('from-plan rejects a human review after candidate content changes without a commit', async () => {
+  const root = await fixture();
+  const {file: humanReviewFile} = await createReviewFile(root, ['src/unused.ts']);
+  await writeFile(join(root, 'src', 'unused.ts'), 'export const editedAfterReview = true;\n');
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-stale-file-review-')), 'verification.json');
+  await writeFile(verificationFile, JSON.stringify({build: {}, typecheck: {}, test: {}}));
+
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--review-file', humanReviewFile, '--verification-file', verificationFile, '--format=json']),
+    /human review file hash is stale/i,
+  );
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
 });
 
 test('plan experiment enforces the three-candidate batch ceiling before scanning', async () => {

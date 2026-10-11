@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
+import {isAbsolute, relative, resolve} from 'node:path';
 import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
 import {verifyLicense} from '@cleancode/license';
 import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
 import {serveMcp} from './mcp.js';
 import {cloneGitHubRepository, summarizeUnresolvedReferences} from './github.js';
+import {createHumanReviewTemplate, loadHumanReviewFile, type CandidateHumanReview} from './human-review.js';
 
 type OutputFormat = 'text' | 'json';
 const evidenceTypes = new Set<Evidence['type']>([
@@ -44,7 +46,7 @@ function format(args: string[]): OutputFormat {
 }
 
 function targetRoot(args: string[]): string {
-  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates']);
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file']);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--dry-run' || value.startsWith('--')) {
@@ -57,11 +59,13 @@ function targetRoot(args: string[]): string {
 }
 
 function printUsage(): void {
-  console.error('Usage: cleancode <discover|analyze|plan|experiment|apply|report> [root] [options]');
+  console.error('Usage: cleancode <discover|analyze|plan|review|experiment|apply|report> [root] [options]');
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  experiment <root> --path <relative-path> [--path <relative-path> ...] --verification-file checks.json');
   console.error('  experiment <root> --candidates-file paths.json --verification-file checks.json');
-  console.error('  experiment <root> --from-plan [--max-candidates 1..3] --verification-file checks.json');
+  console.error('  review <root> --path <relative-path> [--path <relative-path> ...] [--output review.json]');
+  console.error('  experiment <root> --from-plan --review-file review.json [--max-candidates 1..3] --verification-file checks.json');
+  console.error('  Human confirmations never supply engine-verified proof for apply');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
   console.error('  experiment creates only a local review branch; it never pushes or merges');
   console.error('  real CleanCode apply still requires engine-verified positive proof');
@@ -138,7 +142,7 @@ function experimentLimit(args: string[]): number {
   return limit;
 }
 
-function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>): {
+function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>, reviews?: ReadonlyMap<string, CandidateHumanReview>): {
   candidates: typeof plan.candidates;
   skippedCandidates: Array<{candidateId: string; path: string; reason: string}>;
   skippedReason?: string;
@@ -155,12 +159,23 @@ function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>):
       skippedReason: globalSkipReason,
     };
   }
+  if (reviews === undefined) {
+    const reason = 'A human review file is required before automatic experiment selection';
+    return {
+      candidates: [],
+      skippedCandidates: plan.candidates.map((candidate) => ({candidateId: candidate.id, path: candidate.path, reason})),
+      skippedReason: reason,
+    };
+  }
 
   const candidates: typeof plan.candidates = [];
   const skippedCandidates: Array<{candidateId: string; path: string; reason: string}> = [];
   for (const candidate of plan.candidates) {
     let reason: string | undefined;
-    if (candidate.kind !== 'unreferenced-file') reason = `Candidate kind "${candidate.kind}" is not eligible for automatic experiments`;
+    const humanReview = reviews.get(candidate.path);
+    if (humanReview === undefined) reason = 'Candidate has no entry in the human review file';
+    else if (!humanReview.allEntrypointsReviewed || !humanReview.noExternalUsageConfirmed) reason = 'Both human review checks must be confirmed before an experiment can start';
+    else if (candidate.kind !== 'unreferenced-file') reason = `Candidate kind "${candidate.kind}" is not eligible for automatic experiments`;
     else if (candidate.evidence.length !== 1 || candidate.evidence[0]?.type !== 'no_import_references') reason = 'Evidence is not limited to the no-import-references signal';
     else if (candidate.evidence[0].confidence < 0.95) reason = 'Static no-import-references confidence is below 0.95';
     else if (!candidate.decision.reasons.some((item) => /lacks engine-verified positive proof/i.test(item))) reason = 'Candidate does not have the expected missing-positive-proof policy blocker';
@@ -262,7 +277,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
     }
     return 0;
   }
-  if (!['discover', 'analyze', 'plan', 'experiment', 'apply', 'report'].includes(command)) {
+  if (!['discover', 'analyze', 'plan', 'review', 'experiment', 'apply', 'report'].includes(command)) {
     console.error(`Unknown command: ${command}`);
     printUsage();
     return 1;
@@ -291,6 +306,23 @@ export async function runCli(args: readonly string[]): Promise<number> {
     }
     return 0;
   }
+  if (command === 'review') {
+    const plan = await planRepository(root, {knipExecutable: optionValue(values, '--knip')});
+    const review = await createHumanReviewTemplate(plan, optionValues(values, '--path'));
+    const content = `${JSON.stringify(review, null, 2)}\n`;
+    const output = optionValue(values, '--output');
+    if (output === undefined) process.stdout.write(content);
+    else {
+      const destination = resolve(output);
+      const fromRoot = relative(plan.root, destination);
+      if (fromRoot === '' || (fromRoot !== '..' && !fromRoot.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(fromRoot))) {
+        throw new CleanCodeError('POLICY_VIOLATION', 'Human review output must be saved outside the scanned repository so it does not invalidate the clean-checkout requirement');
+      }
+      await writeFile(destination, content, {encoding: 'utf8', flag: 'wx'});
+      console.log(`✓ Human review template written outside the repository: ${destination}`);
+    }
+    return 0;
+  }
   if (command === 'report') {
     const report = renderReport(await planRepository(root, {knipExecutable: optionValue(values, '--knip')}), reportFormat(values));
     const output = optionValue(values, '--output');
@@ -302,16 +334,19 @@ export async function runCli(args: readonly string[]): Promise<number> {
     const fromPlan = values.includes('--from-plan');
     const explicitPaths = optionValues(values, '--path');
     const candidatesFile = optionValue(values, '--candidates-file');
+    const reviewFile = optionValue(values, '--review-file');
     const limitOption = optionValue(values, '--max-candidates');
     if (fromPlan && (explicitPaths.length > 0 || candidatesFile !== undefined)) throw new CleanCodeError('POLICY_VIOLATION', '--from-plan cannot be combined with --path or --candidates-file');
     if (!fromPlan && limitOption !== undefined) throw new CleanCodeError('POLICY_VIOLATION', '--max-candidates is only valid with --from-plan');
+    if (!fromPlan && reviewFile !== undefined) throw new CleanCodeError('POLICY_VIOLATION', '--review-file is only valid with --from-plan');
     const verificationFile = optionValue(values, '--verification-file');
     if (verificationFile === undefined) throw new CleanCodeError('POLICY_VIOLATION', 'Experiment requires --verification-file with build, typecheck, and test commands');
     const verification = await loadVerification(values);
     if (fromPlan) {
       const limit = experimentLimit(values);
       const plan = await planRepository(root, {knipExecutable: optionValue(values, '--knip')});
-      const selection = autonomousCandidates(plan);
+      const humanReviews = reviewFile === undefined ? undefined : await loadHumanReviewFile(reviewFile, plan);
+      const selection = autonomousCandidates(plan, humanReviews);
       const selected = selection.candidates.slice(0, limit);
       const skippedCandidates = [
         ...selection.skippedCandidates,
@@ -323,7 +358,15 @@ export async function runCli(args: readonly string[]): Promise<number> {
       ];
       const experiments = [];
       for (const candidate of selected) {
-        const result = await executeCleanupExperiment({rootDir: root, paths: [candidate.path], verification, receiptDirectory: optionValue(values, '--receipt-directory')});
+        const humanReview = humanReviews?.get(candidate.path);
+        if (humanReview === undefined) throw new CleanCodeError('POLICY_VIOLATION', `Missing validated human review for ${candidate.path}`);
+        const result = await executeCleanupExperiment({
+          rootDir: root,
+          paths: [candidate.path],
+          verification,
+          receiptDirectory: optionValue(values, '--receipt-directory'),
+          expectedRepositoryHead: humanReview.repositoryHead,
+        });
         experiments.push({
           candidateId: candidate.id,
           path: candidate.path,
