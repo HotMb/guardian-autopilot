@@ -14,3 +14,4 @@
 - Validated candidate evidence types and confidence bounds before the cleanup policy runs.
 - Protected tests, test directories and recognized project configuration from cleanup, as required by the verification policy.
 - Added a JavaScript/TypeScript dynamic-usage hint scan for dynamic loading, DI markers, reflective containers and serialization annotations; hints are surfaced in plans and reports without authorizing deletion.
+- Required a separate explicit approval flag before applying cleanup to more than 10 files, enforced in the core cleanup engine as well as the CLI.

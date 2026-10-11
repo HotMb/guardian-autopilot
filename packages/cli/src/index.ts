@@ -47,6 +47,7 @@ function printUsage(): void {
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
   console.error('  apply --candidates-file file [--verification-file file] [--format=json]');
+  console.error('  apply --approve-large-change  (required when applying more than 10 files)');
   console.error('  report [--format=json|md|html] [--output file]');
   console.error('  license <activate|status> --license-file file --public-key-file file [--output file]');
   console.error('  mcp');
@@ -209,6 +210,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
       rootDir: root,
       candidates,
       dryRun,
+      approveLargeChange: values.includes('--approve-large-change'),
       verification: dryRun ? undefined : await loadVerification(values),
       auditLog: dryRun ? undefined : optionValue(values, '--audit-file') === undefined ? undefined : new AuditLog(optionValue(values, '--audit-file') as string),
       receiptDirectory: optionValue(values, '--receipt-directory'),

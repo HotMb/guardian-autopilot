@@ -13,6 +13,7 @@ export type CleanupExecutionOptions = {
   rootDir: string;
   candidates: readonly Pick<Candidate, 'path' | 'evidence'>[];
   dryRun?: boolean;
+  approveLargeChange?: boolean;
   verification?: VerificationConfig;
   worktreeRoot?: string;
   auditLog?: AuditLog;
@@ -62,6 +63,9 @@ export async function executeCleanup(options: CleanupExecutionOptions): Promise<
 
   if (options.candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', 'At least one approved candidate is required');
   const preview = await executor.previewDeletions(options.candidates);
+  if (preview.files > 10 && options.approveLargeChange !== true) {
+    throw new CleanCodeError('POLICY_VIOLATION', `Cleanup affects more than 10 files (${preview.files}); explicit human approval is required`);
+  }
   const changedPaths = preview.paths;
   const id = executionId();
   const auditLog = options.auditLog ?? new AuditLog(join(options.auditDirectory ?? join(tmpdir(), 'cleancode-audit'), `${id}.jsonl`));

@@ -52,6 +52,30 @@ test('dry-run previews approved deletions without changing the repository', asyn
   assert.deepEqual((await git(root, 'status', '--porcelain')).stdout, '');
 });
 
+test('requires explicit human approval before applying more than ten files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-large-application-'));
+  await git(root, 'init', '-q');
+  await git(root, 'config', 'user.email', 'test@example.com');
+  await git(root, 'config', 'user.name', 'CleanCode Tests');
+  const candidates = [];
+  for (let index = 0; index < 11; index += 1) {
+    const path = `remove-${index}.ts`;
+    await writeFile(join(root, path), `export const value${index} = true;\n`);
+    candidates.push({path, evidence: [{type: 'positive_proof', confidence: 0.99}]});
+  }
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-qm', 'initial');
+
+  await assert.rejects(
+    () => executeCleanup({rootDir: root, candidates, verification: passingVerification}),
+    /more than 10 files.*explicit human approval/i,
+  );
+
+  assert.equal((await git(root, 'status', '--porcelain')).stdout, '');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/*')).stdout.trim(), '');
+  assert.equal(await readFile(join(root, 'remove-0.ts'), 'utf8'), 'export const value0 = true;\n');
+});
+
 test('applies, verifies, audits, and commits approved deletions in an isolated worktree', async () => {
   const root = await repository();
   const auditPath = join(await mkdtemp(join(tmpdir(), 'cleancode-audit-')), 'audit.jsonl');

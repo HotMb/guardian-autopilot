@@ -102,7 +102,7 @@ to make a local checkout, then performs a read-only source/reference scan on
 that computer. It does not run project scripts, modify the checkout, or upload
 source code. The CleanCode CLI is not yet published as a package.
 
-`apply --dry-run` never creates a worktree or writes the target repository; without `--candidates-file` it previews only candidates that already pass policy. A real `apply` refuses to infer candidates: provide a reviewed `--candidates-file` whose evidence contains positive proof. It then creates a backup branch and isolated worktree, runs build/typecheck/tests, writes an audit log, and commits only after every verification passes. Failed verification rolls back the isolated change. Verification commands can be supplied with `--verification-file`; no source code is uploaded.
+`apply --dry-run` never creates a worktree or writes the target repository; without `--candidates-file` it previews only candidates that already pass policy. A real `apply` refuses to infer candidates: provide a reviewed `--candidates-file` whose evidence contains positive proof. Applying more than 10 files additionally requires the explicit `--approve-large-change` flag. The operation then creates a backup branch and isolated worktree, runs build/typecheck/tests, writes an audit log, and commits only after every verification passes. Failed verification rolls back the isolated change. Verification commands can be supplied with `--verification-file`; no source code is uploaded.
 
 `report` produces a compact read-only summary in JSON, Markdown (`md`) or HTML. It writes a file only when `--output` is explicitly provided.
 
