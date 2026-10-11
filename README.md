@@ -85,6 +85,7 @@ node packages/cli/dist/index.js analyze /path/to/project --format=json
 node packages/cli/dist/index.js plan /path/to/project --format=json
 node packages/cli/dist/index.js report /path/to/project --format=html --output cleancode-report.html
 node packages/cli/dist/index.js experiment /path/to/project --path src/unused-module.ts --verification-file checks.json
+node packages/cli/dist/index.js experiment /path/to/project --from-plan --max-candidates 3 --verification-file checks.json
 node packages/cli/dist/index.js apply /path/to/project --dry-run --candidates-file approved-candidates.json
 node packages/cli/dist/index.js license activate --license-file license.key --public-key-file cleancode-public-key.pem --output .cleancode-license.key
 node packages/cli/dist/index.js license status --license-file .cleancode-license.key --public-key-file cleancode-public-key.pem
@@ -121,6 +122,8 @@ source code. The CleanCode CLI is not yet published as a package.
 ```
 
 On Windows, Guardian invokes npm's JavaScript CLI through Node rather than a command shell. Guardian requires the target Git repository to be clean, checks that the paths are tracked regular files and not protected, enforces change limits, removes them only in a new isolated local branch, runs all three configured checks, and keeps a local commit/branch for review only if all checks pass. On failure it rolls back the experiment. The target branch is never changed, and Guardian never pushes or merges this experiment. Review the branch diff yourself before integrating it; passing checks are evidence, not proof that no external or untested use exists. Verification commands run as your user, with the worktree as their working directory; inspect them before running experiments on untrusted repositories because project scripts can have side effects beyond the worktree. More than 10 files also requires `--approve-large-change`. No source code is uploaded.
+
+For a bounded autopilot trial, use `--from-plan`. Guardian selects only unreferenced source files whose remaining policy blocker is the absence of engine-verified positive proof; it will not auto-select exact duplicates. It skips automatic selection if dynamic runtime-use hints exist or Knip analysis fails. One candidate is tried by default; `--max-candidates` can raise this to at most three, and each file gets its own isolated branch and full verification run. Failed candidates are rolled back independently while successful ones remain as local review branches. No candidate is pushed, merged, or deleted from the source branch.
 
 `report` produces a compact read-only summary in JSON, Markdown (`md`) or HTML. It writes a file only when `--output` is explicitly provided.
 

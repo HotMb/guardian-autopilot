@@ -121,6 +121,88 @@ test('experiment creates a verified local review branch without requiring forged
   assert.equal((await git(root, 'remote', '-v')).stdout, '');
 });
 
+test('plan experiment tries candidates independently and keeps only verified local review branches', async () => {
+  const root = await fixture();
+  const configRoot = await mkdtemp(join(tmpdir(), 'cleancode-plan-experiment-'));
+  const verificationFile = join(configRoot, 'verification.json');
+  const original = await readFile(join(root, 'src', 'unused.ts'), 'utf8');
+  const sourceBranch = (await git(root, 'branch', '--show-current')).stdout.trim();
+  const secondCandidate = join(root, 'src', 'unused-two.ts');
+  await writeFile(secondCandidate, 'export const unusedTwo = true;\n');
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-qm', 'add another unreferenced source file');
+  const assertOneRemovedInWorktree = ['-e', "const fs=require('node:fs'); if (fs.existsSync('src/unused.ts') && fs.existsSync('src/unused-two.ts')) process.exit(1)"];
+  await writeFile(verificationFile, JSON.stringify({
+    build: {command: process.execPath, args: assertOneRemovedInWorktree},
+    typecheck: {command: process.execPath, args: assertOneRemovedInWorktree},
+    test: {command: process.execPath, args: ['-e', "const fs=require('node:fs'); if (!fs.existsSync('src/unused.ts')) process.exit(1)"]},
+  }));
+
+  let batch;
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--max-candidates', '2', '--verification-file', verificationFile, '--format=json']),
+    (error) => {
+      assert.equal(error.code, 5);
+      batch = JSON.parse(error.stdout);
+      return true;
+    },
+  );
+  const outcomes = new Map(batch.experiments.map((entry) => [entry.path, entry.result.state]));
+
+  assert.equal(batch.mode, 'experiment-batch');
+  assert.equal(batch.availableCandidates, 2);
+  assert.equal(batch.attempted, 2);
+  assert.equal(outcomes.get('src/unused.ts'), 'REVERTED');
+  assert.equal(outcomes.get('src/unused-two.ts'), 'COMMITTED');
+  assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), original);
+  assert.equal(await readFile(secondCandidate, 'utf8'), 'export const unusedTwo = true;\n');
+  const committed = batch.experiments.find((entry) => entry.path === 'src/unused-two.ts');
+  assert.match((await git(root, 'show', '--format=', '--name-status', committed.result.reviewBranchName)).stdout, /D\s+src\/unused-two\.ts/);
+  assert.equal((await git(root, 'branch', '--show-current')).stdout.trim(), sourceBranch);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim().split(/\r?\n/).length, 1);
+});
+
+test('plan experiment skips automatic selection when dynamic runtime-use hints exist', async () => {
+  const root = await fixture();
+  const dynamicLoader = join(root, 'src', 'loader.ts');
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-plan-blocked-')), 'verification.json');
+  await writeFile(dynamicLoader, "const moduleName = 'unused'; require(`./${moduleName}`);\n");
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-qm', 'add dynamic runtime loader');
+  await writeFile(verificationFile, JSON.stringify({
+    build: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+  }));
+
+  const result = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--verification-file', verificationFile, '--format=json']);
+  const batch = JSON.parse(result.stdout);
+
+  assert.equal(batch.attempted, 0);
+  assert.match(batch.skippedReason, /dynamic runtime-use hints/i);
+  assert.equal(await readFile(join(root, 'src', 'unused.ts'), 'utf8'), 'export const unused = true;\n');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+});
+
+test('plan experiment enforces the three-candidate batch ceiling before scanning', async () => {
+  const root = await fixture();
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-plan-limit-')), 'verification.json');
+  await writeFile(verificationFile, JSON.stringify({build: {}, typecheck: {}, test: {}}));
+
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--max-candidates', '4', '--verification-file', verificationFile]),
+    (error) => {
+      assert.notEqual(error.code, 0);
+      assert.match(error.stderr, /from 1 to 3/i);
+      return true;
+    },
+  );
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+});
+
 test('CLI experiment rolls back a real candidate when its test command fails', async () => {
   const root = await fixture();
   const configRoot = await mkdtemp(join(tmpdir(), 'cleancode-experiment-failure-'));

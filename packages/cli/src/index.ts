@@ -44,7 +44,7 @@ function format(args: string[]): OutputFormat {
 }
 
 function targetRoot(args: string[]): string {
-  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path']);
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates']);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--dry-run' || value.startsWith('--')) {
@@ -61,6 +61,7 @@ function printUsage(): void {
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  experiment <root> --path <relative-path> [--path <relative-path> ...] --verification-file checks.json');
   console.error('  experiment <root> --candidates-file paths.json --verification-file checks.json');
+  console.error('  experiment <root> --from-plan [--max-candidates 1..3] --verification-file checks.json');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
   console.error('  experiment creates only a local review branch; it never pushes or merges');
   console.error('  real CleanCode apply still requires engine-verified positive proof');
@@ -125,6 +126,33 @@ async function loadExperimentPaths(args: string[]): Promise<string[]> {
     throw new CleanCodeError('POLICY_VIOLATION', 'Experiment candidates file must contain a non-empty paths array of relative file paths');
   }
   return value.paths as string[];
+}
+
+function experimentLimit(args: string[]): number {
+  const value = optionValue(args, '--max-candidates');
+  if (value === undefined) return 1;
+  const limit = Number(value);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 3) {
+    throw new CleanCodeError('POLICY_VIOLATION', '--max-candidates must be an integer from 1 to 3');
+  }
+  return limit;
+}
+
+function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>): {candidates: typeof plan.candidates; skippedReason?: string} {
+  if (plan.dynamicHints.length > 0) return {candidates: [], skippedReason: 'Dynamic runtime-use hints were found; automatic candidate selection was skipped'};
+  if (plan.knip.status === 'failed') return {candidates: [], skippedReason: 'The optional Knip analysis failed; automatic candidate selection was skipped'};
+  const candidates = plan.candidates.filter((candidate) =>
+    candidate.kind === 'unreferenced-file'
+    && candidate.evidence.length === 1
+    && candidate.evidence[0]?.type === 'no_import_references'
+    && candidate.evidence[0].confidence >= 0.95
+    && candidate.decision.reasons.some((reason) => /lacks engine-verified positive proof/i.test(reason))
+    && candidate.decision.reasons.every((reason) =>
+      /lacks engine-verified positive proof/i.test(reason)
+      || /^Candidate confidence [\d.]+ is below 0\.95$/.test(reason),
+    ),
+  );
+  return {candidates, ...(candidates.length === 0 ? {skippedReason: 'No conservative, unreferenced source files are eligible for an isolated experiment'} : {})};
 }
 
 async function loadVerification(args: string[]): Promise<VerificationConfig> {
@@ -236,14 +264,44 @@ export async function runCli(args: readonly string[]): Promise<number> {
     return 0;
   }
   if (command === 'experiment') {
-    const paths = await loadExperimentPaths(values);
+    const fromPlan = values.includes('--from-plan');
+    const explicitPaths = optionValues(values, '--path');
+    const candidatesFile = optionValue(values, '--candidates-file');
+    const limitOption = optionValue(values, '--max-candidates');
+    if (fromPlan && (explicitPaths.length > 0 || candidatesFile !== undefined)) throw new CleanCodeError('POLICY_VIOLATION', '--from-plan cannot be combined with --path or --candidates-file');
+    if (!fromPlan && limitOption !== undefined) throw new CleanCodeError('POLICY_VIOLATION', '--max-candidates is only valid with --from-plan');
     const verificationFile = optionValue(values, '--verification-file');
     if (verificationFile === undefined) throw new CleanCodeError('POLICY_VIOLATION', 'Experiment requires --verification-file with build, typecheck, and test commands');
+    const verification = await loadVerification(values);
+    if (fromPlan) {
+      const limit = experimentLimit(values);
+      const plan = await planRepository(root, {knipExecutable: optionValue(values, '--knip')});
+      const selection = autonomousCandidates(plan);
+      const selected = selection.candidates.slice(0, limit);
+      const experiments = [];
+      for (const candidate of selected) {
+        const result = await executeCleanupExperiment({rootDir: root, paths: [candidate.path], verification, receiptDirectory: optionValue(values, '--receipt-directory')});
+        experiments.push({candidateId: candidate.id, path: candidate.path, result});
+      }
+      const batch = {mode: 'experiment-batch', availableCandidates: selection.candidates.length, attempted: experiments.length, ...(selection.skippedReason === undefined ? {} : {skippedReason: selection.skippedReason}), experiments};
+      if (outputFormat === 'json') console.log(JSON.stringify(batch, null, 2));
+      else if (experiments.length === 0) console.log(`ℹ No automatic experiment started: ${selection.skippedReason ?? 'no eligible candidates'}`);
+      else {
+        console.log(`✓ ${experiments.length} of ${selection.candidates.length} conservative candidate(s) tested independently`);
+        for (const experiment of experiments) {
+          if (experiment.result.state === 'COMMITTED') console.log(`✓ ${experiment.path} → local review branch ${experiment.result.reviewBranchName}`);
+          else console.log(`↩ ${experiment.path} → checks failed; experiment rolled back`);
+        }
+        console.log('! Review successful branches manually. Guardian did not push or merge.');
+      }
+      return experiments.every((experiment) => experiment.result.state === 'COMMITTED') ? 0 : experiments.length === 0 ? 0 : 5;
+    }
+    const paths = await loadExperimentPaths(values);
     const result = await executeCleanupExperiment({
       rootDir: root,
       paths,
       approveLargeChange: values.includes('--approve-large-change'),
-      verification: await loadVerification(values),
+      verification,
       receiptDirectory: optionValue(values, '--receipt-directory'),
     });
     if (outputFormat === 'json') console.log(JSON.stringify(result, null, 2));
