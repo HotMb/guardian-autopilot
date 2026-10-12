@@ -68,6 +68,7 @@ function printUsage(): void {
   console.error('  Human confirmations never supply engine-verified proof for apply');
   console.error('  apply --dry-run [--candidates-file file] [--format=json]');
   console.error('  experiment creates only a local review branch; it never pushes or merges');
+  console.error('  dependency setup in an isolated worktree requires --allow-preparation');
   console.error('  real CleanCode apply still requires engine-verified positive proof');
   console.error('  report [--format=json|md|html] [--output file]');
   console.error('  license <activate|status> --license-file file --public-key-file file [--output file]');
@@ -210,7 +211,27 @@ async function loadVerification(args: string[]): Promise<VerificationConfig> {
   if (file !== undefined) {
     const value = JSON.parse(await readFile(file, 'utf8'));
     if (!isRecord(value)) throw new Error('Verification file must contain an object');
-    return value as VerificationConfig;
+    if (value.prepare !== undefined) {
+      if (!Array.isArray(value.prepare) || value.prepare.length === 0 || value.prepare.length > 3) {
+        throw new CleanCodeError('POLICY_VIOLATION', 'Verification prepare must be a non-empty array of at most 3 commands');
+      }
+      let totalTimeoutMs = 0;
+      for (const [index, command] of value.prepare.entries()) {
+        if (!isRecord(command) || typeof command.command !== 'string' || command.command.trim() === '') {
+          throw new CleanCodeError('POLICY_VIOLATION', `Preparation command ${index + 1} must include a non-empty command`);
+        }
+        if (command.args !== undefined && (!Array.isArray(command.args) || command.args.some((arg) => typeof arg !== 'string'))) {
+          throw new CleanCodeError('POLICY_VIOLATION', `Preparation command ${index + 1} args must be an array of strings`);
+        }
+        const timeoutMs = command.timeoutMs ?? 120_000;
+        if (!Number.isSafeInteger(timeoutMs) || (timeoutMs as number) < 1_000 || (timeoutMs as number) > 600_000) {
+          throw new CleanCodeError('POLICY_VIOLATION', `Preparation command ${index + 1} timeout must be between 1000 and 600000 milliseconds`);
+        }
+        totalTimeoutMs += timeoutMs as number;
+      }
+      if (totalTimeoutMs > 600_000) throw new CleanCodeError('POLICY_VIOLATION', 'Total preparation timeout cannot exceed 600000 milliseconds');
+    }
+    return value as unknown as VerificationConfig;
   }
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   return {
@@ -342,6 +363,12 @@ export async function runCli(args: readonly string[]): Promise<number> {
     const verificationFile = optionValue(values, '--verification-file');
     if (verificationFile === undefined) throw new CleanCodeError('POLICY_VIOLATION', 'Experiment requires --verification-file with build, typecheck, and test commands');
     const verification = await loadVerification(values);
+    if ((verification.prepare?.length ?? 0) > 0 && !values.includes('--allow-preparation')) {
+      throw new CleanCodeError('POLICY_VIOLATION', 'Verification config requests dependency setup; inspect its commands and pass --allow-preparation to approve them in the isolated worktree');
+    }
+    if ((verification.prepare?.length ?? 0) > 0) {
+      console.error('! Preparation executes project commands with your user permissions; they are not OS-sandboxed. Review them before proceeding.');
+    }
     if (fromPlan) {
       const limit = experimentLimit(values);
       const plan = await planRepository(root, {knipExecutable: optionValue(values, '--knip')});
@@ -364,6 +391,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
           rootDir: root,
           paths: [candidate.path],
           verification,
+          allowPreparation: values.includes('--allow-preparation'),
           receiptDirectory: optionValue(values, '--receipt-directory'),
           expectedRepositoryHead: humanReview.repositoryHead,
         });
@@ -412,6 +440,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
       paths,
       approveLargeChange: values.includes('--approve-large-change'),
       verification,
+      allowPreparation: values.includes('--allow-preparation'),
       receiptDirectory: optionValue(values, '--receipt-directory'),
     });
     if (outputFormat === 'json') console.log(JSON.stringify(result, null, 2));
@@ -430,12 +459,20 @@ export async function runCli(args: readonly string[]): Promise<number> {
       throw new CleanCodeError('POLICY_VIOLATION', 'Real cleanup requires an explicit candidates file reviewed by the user');
     }
     const candidates = await loadCandidates(values, root);
+    const verification = dryRun ? undefined : await loadVerification(values);
+    if ((verification?.prepare?.length ?? 0) > 0 && !values.includes('--allow-preparation')) {
+      throw new CleanCodeError('POLICY_VIOLATION', 'Verification config requests dependency setup; inspect its commands and pass --allow-preparation to approve them in the isolated worktree');
+    }
+    if ((verification?.prepare?.length ?? 0) > 0) {
+      console.error('! Preparation executes project commands with your user permissions; they are not OS-sandboxed. Review them before proceeding.');
+    }
     const result = await executeCleanup({
       rootDir: root,
       candidates,
       dryRun,
       approveLargeChange: values.includes('--approve-large-change'),
-      verification: dryRun ? undefined : await loadVerification(values),
+      verification,
+      allowPreparation: values.includes('--allow-preparation'),
       auditLog: dryRun ? undefined : optionValue(values, '--audit-file') === undefined ? undefined : new AuditLog(optionValue(values, '--audit-file') as string),
       receiptDirectory: optionValue(values, '--receipt-directory'),
     });

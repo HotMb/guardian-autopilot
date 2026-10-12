@@ -136,6 +136,48 @@ test('rolls back an unproven review experiment when verification fails', async (
   assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
 });
 
+test('runs dependency setup only in the isolated worktree and does not commit setup artifacts', async () => {
+  const root = await repository();
+  await writeFile(join(root, '.gitignore'), 'node_modules/\n');
+  await git(root, 'add', '.gitignore');
+  await git(root, 'commit', '-qm', 'ignore local dependencies');
+  const setup = {command: process.execPath, args: ['-e', "require('node:fs').mkdirSync('node_modules'); require('node:fs').writeFileSync('node_modules/setup-marker', 'ready')"], timeoutMs: 30000};
+  const checks = {
+    prepare: [setup],
+    build: {command: process.execPath, args: ['-e', "if (require('node:fs').readFileSync('node_modules/setup-marker', 'utf8') !== 'ready' || require('node:fs').existsSync('remove.ts')) process.exit(1)"]},
+    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+  };
+  const result = await executeCleanupExperiment({
+    rootDir: root,
+    paths: ['remove.ts'],
+    verification: checks,
+    allowPreparation: true,
+  });
+
+  assert.equal(result.state, 'COMMITTED');
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  assert.doesNotMatch((await git(root, 'show', '--format=', '--name-only', result.reviewBranchName)).stdout, /node_modules/);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout, '');
+});
+
+test('rolls back the experiment when approved preparation modifies a tracked source file', async () => {
+  const root = await repository();
+  await assert.rejects(() => executeCleanupExperiment({
+      rootDir: root,
+      paths: ['remove.ts'],
+      verification: {
+        prepare: [{command: process.execPath, args: ['-e', "require('node:fs').writeFileSync('safe.ts', 'setup changed this\\n')"]}],
+        ...passingVerification,
+      },
+      allowPreparation: true,
+    }), /unexpected.*change/i);
+
+  assert.equal(await readFile(join(root, 'safe.ts'), 'utf8'), 'export const safe = true;\n');
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+});
+
 test('experiments cannot bypass required build, typecheck, and test checks', async () => {
   const root = await repository();
   const result = await executeCleanupExperiment({

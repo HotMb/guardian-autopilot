@@ -9,9 +9,11 @@ const execFile = promisify(execFileCallback);
 export type VerificationCommand = {
   command: string;
   args?: readonly string[];
+  timeoutMs?: number;
 };
 
 export type VerificationConfig = {
+  prepare?: readonly VerificationCommand[];
   build?: VerificationCommand;
   typecheck?: VerificationCommand;
   test?: VerificationCommand;
@@ -28,7 +30,13 @@ export type AcceptanceCheck = () => Promise<{passed: boolean; details?: string}>
 export type VerificationOptions = {
   runner?: VerificationRunner;
   acceptanceCheck?: AcceptanceCheck;
+  allowPreparation?: boolean;
 };
+
+const DEFAULT_PREPARATION_TIMEOUT_MS = 120_000;
+const MAX_PREPARATION_TIMEOUT_MS = 600_000;
+const MAX_PREPARATION_COMMANDS = 3;
+const MIN_PREPARATION_TIMEOUT_MS = 1_000;
 
 function resolveWindowsNpmInvocation(command: VerificationCommand): VerificationCommand {
   if (process.platform !== 'win32' || !/(^|[\\/])npm(?:\.cmd)?$/i.test(command.command)) return command;
@@ -57,6 +65,7 @@ function defaultRunner(command: VerificationCommand, cwd: string): Promise<{stdo
   return execFile(invocation.command, [...(invocation.args ?? [])], {
     cwd,
     maxBuffer: 20 * 1024 * 1024,
+    ...(command.timeoutMs === undefined ? {} : {timeout: command.timeoutMs}),
     windowsHide: true,
   });
 }
@@ -85,6 +94,58 @@ export async function runVerification(
     allPassed: false,
     details,
   };
+
+  const preparation = configuration.prepare ?? [];
+  if (preparation.length > 0) {
+    let preparationFailure: string | undefined;
+    if (preparation.length > MAX_PREPARATION_COMMANDS) {
+      preparationFailure = `Preparation is limited to a maximum of ${MAX_PREPARATION_COMMANDS} commands`;
+    } else if (options.allowPreparation !== true) {
+      preparationFailure = 'Preparation commands require explicit approval (--allow-preparation)';
+    } else {
+      let totalTimeout = 0;
+      for (const [index, command] of preparation.entries()) {
+        const timeoutMs = command.timeoutMs ?? DEFAULT_PREPARATION_TIMEOUT_MS;
+        if (typeof command.command !== 'string' || command.command.trim() === '') {
+          preparationFailure = `Preparation command ${index + 1} must have a non-empty executable`;
+          break;
+        }
+        if (command.args !== undefined && (!Array.isArray(command.args) || command.args.some((arg) => typeof arg !== 'string'))) {
+          preparationFailure = `Preparation command ${index + 1} arguments must be strings`;
+          break;
+        }
+        if (!Number.isSafeInteger(timeoutMs) || timeoutMs < MIN_PREPARATION_TIMEOUT_MS || timeoutMs > MAX_PREPARATION_TIMEOUT_MS) {
+          preparationFailure = `Preparation command ${index + 1} timeout must be between ${MIN_PREPARATION_TIMEOUT_MS} and ${MAX_PREPARATION_TIMEOUT_MS} milliseconds`;
+          break;
+        }
+        totalTimeout += timeoutMs;
+      }
+      if (preparationFailure === undefined && totalTimeout > MAX_PREPARATION_TIMEOUT_MS) {
+        preparationFailure = `Total preparation timeout cannot exceed ${MAX_PREPARATION_TIMEOUT_MS} milliseconds`;
+      }
+      if (preparationFailure === undefined) {
+        for (const [index, command] of preparation.entries()) {
+          try {
+            await runner({...command, timeoutMs: command.timeoutMs ?? DEFAULT_PREPARATION_TIMEOUT_MS}, worktreePath);
+          } catch (error) {
+            preparationFailure = `Preparation command ${index + 1} failed: ${errorMessage(error)}`;
+            break;
+          }
+        }
+      }
+    }
+    if (preparationFailure !== undefined) {
+      details.preparation = preparationFailure;
+      for (const name of ['build', 'typecheck', 'tests'] as const) {
+        result[name] = false;
+        details[name] = 'Skipped because dependency preparation did not complete';
+      }
+      result.acceptance = false;
+      details.acceptance = 'Skipped because dependency preparation did not complete';
+      return result;
+    }
+    details.preparation = `${preparation.length} preparation command(s) completed in the isolated worktree`;
+  }
 
   const checks: Array<{name: 'build' | 'typecheck' | 'tests'; command?: VerificationCommand}> = [
     {name: 'build', command: configuration.build},

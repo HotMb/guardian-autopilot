@@ -11,6 +11,7 @@
 - [x] Reference resolver for JS/TS, CSS, public URL paths, Next.js conventions
 - [x] Knip integration, candidate confidence and explainable evidence
 - [x] Git worktree transaction with dry-run diff, checks, and rollback
+  - [x] Explicit, bounded dependency preparation in disposable worktrees; reject unexpected setup/build changes before commit
 
 ## P1
 - [x] Claude Code plugin manifest and hooks matching currently documented format

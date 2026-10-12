@@ -137,6 +137,64 @@ test('experiment creates a verified local review branch without requiring forged
   assert.equal((await git(root, 'remote', '-v')).stdout, '');
 });
 
+test('CLI requires an explicit preparation approval before creating an experiment worktree', async () => {
+  const root = await fixture();
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-prepare-gate-')), 'verification.json');
+  await writeFile(verificationFile, JSON.stringify({
+    prepare: [{command: process.execPath, args: ['-e', 'process.exit(0)']}],
+    build: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+  }));
+
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'experiment', root, '--path', 'src/unused.ts', '--verification-file', verificationFile]),
+    /--allow-preparation/i,
+  );
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+});
+
+test('CLI permits preparation only after explicit approval and keeps ignored install output out of the review commit', async () => {
+  const root = await fixture();
+  await writeFile(join(root, '.gitignore'), 'node_modules/\n');
+  await git(root, 'add', '.gitignore');
+  await git(root, 'commit', '-qm', 'ignore local dependency output');
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-prepare-allowed-')), 'verification.json');
+  const assertSetupAndDeletion = [
+    '-e',
+    "const fs=require('node:fs'); if (!fs.existsSync('node_modules/setup-marker') || fs.existsSync('src/unused.ts')) process.exit(1)",
+  ];
+  await writeFile(verificationFile, JSON.stringify({
+    prepare: [{command: process.execPath, args: ['-e', "require('node:fs').mkdirSync('node_modules'); require('node:fs').writeFileSync('node_modules/setup-marker', 'ready')"], timeoutMs: 30000}],
+    build: {command: process.execPath, args: assertSetupAndDeletion},
+    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+  }));
+
+  const result = await exec(process.execPath, [cli, 'experiment', root, '--path', 'src/unused.ts', '--verification-file', verificationFile, '--allow-preparation', '--format=json']);
+  const experiment = JSON.parse(result.stdout);
+
+  assert.equal(experiment.state, 'COMMITTED');
+  assert.deepEqual((await git(root, 'show', '--format=', '--name-only', experiment.reviewBranchName)).stdout.trim().split(/\r?\n/), ['src/unused.ts']);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+});
+
+test('CLI rejects malformed or overlong preparation configuration before creating a worktree', async () => {
+  const root = await fixture();
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-prepare-invalid-')), 'verification.json');
+  await writeFile(verificationFile, JSON.stringify({
+    prepare: [{command: process.execPath, args: ['-e', 'process.exit(0)'], timeoutMs: 900000}],
+    build: {}, typecheck: {}, test: {},
+  }));
+
+  await assert.rejects(
+    () => exec(process.execPath, [cli, 'experiment', root, '--path', 'src/unused.ts', '--verification-file', verificationFile, '--allow-preparation']),
+    /timeout/i,
+  );
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+});
+
 test('plan experiment tries candidates independently and keeps only verified local review branches', async () => {
   const root = await fixture();
   const configRoot = await mkdtemp(join(tmpdir(), 'cleancode-plan-experiment-'));

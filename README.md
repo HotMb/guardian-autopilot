@@ -76,7 +76,20 @@ To evaluate a reviewed candidate safely, use `experiment` with an explicit verif
 node packages/cli/dist/index.js experiment /path/to/project --path src/unused-module.ts --verification-file checks.json
 ```
 
-An experiment requires a clean Git checkout and operates in a new local review branch. It never changes the source branch or pushes to GitHub. Verification commands run with your user permissions; inspect them before running an experiment on an unfamiliar project. Passing checks are useful evidence, not a guarantee that no external or untested use exists.
+If dependencies are not installed, a verification file may declare an optional preparation phase:
+
+```json
+{
+  "prepare": [{"command": "npm", "args": ["ci"], "timeoutMs": 600000}],
+  "build": {"command": "npm", "args": ["run", "build"]},
+  "typecheck": {"command": "npm", "args": ["run", "typecheck"]},
+  "test": {"command": "npm", "args": ["test"]}
+}
+```
+
+Review every preparation command, then explicitly enable it with `--allow-preparation`. Guardian runs it in the disposable worktree, with no command shell and a maximum total timeout of ten minutes, before the configured checks. This is not an OS security sandbox: package lifecycle scripts and other project commands can use your account permissions, access the network, or affect files outside the worktree. Only enable setup for a project you trust. A successful review branch can contain only the requested deletions; any other tracked or untracked changes cause rollback. Ignored dependency/build output stays in the temporary worktree and is removed afterward.
+
+An experiment requires a clean Git checkout and operates in a new local review branch. It never changes the source branch or pushes to GitHub. Build and test commands also run with your user permissions; inspect them before running an experiment on an unfamiliar project. Passing checks are useful evidence, not a guarantee that no external or untested use exists.
 
 The separate `guardian cleanup` command accepts explicitly named tracked files and previews a worktree diff by default. Its `--apply` option is required to apply a verified diff to the source repository.
 

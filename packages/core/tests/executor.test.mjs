@@ -46,13 +46,27 @@ test('creates an isolated worktree and commits only inside its branch', async ()
 
   await executor.applyDeletions([allowedCandidate]);
   assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
-  await executor.commit('chore: safe cleanup');
+  await executor.commit('chore: safe cleanup', ['remove.ts']);
 
   await assert.rejects(() => readFile(join(isolated.worktreePath, 'remove.ts'), 'utf8'));
   const branchDiff = await git(root, 'show', '--format=', '--name-status', isolated.branchName);
   assert.match(branchDiff.stdout, /D\s+remove\.ts/);
   const mainStatus = await git(root, 'status', '--porcelain');
   assert.equal(mainStatus.stdout, '');
+});
+
+test('refuses to commit verification or setup side effects outside the requested deletions', async () => {
+  const root = await repository();
+  const executor = new WorktreeExecutor({rootDir: root});
+  const isolated = await executor.createIsolatedWorktree();
+  await executor.applyDeletionExperiment(['remove.ts']);
+  await writeFile(join(isolated.worktreePath, 'safe.ts'), 'modified by setup\n');
+
+  await assert.rejects(() => executor.commit('chore: unsafe cleanup', ['remove.ts']), /unexpected.*change|only.*requested deletions/i);
+  await executor.rollback();
+
+  assert.equal(await readFile(join(root, 'safe.ts'), 'utf8'), 'export const safe = true;\n');
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
 });
 
 test('rejects unsafe candidates before changing the isolated worktree', async () => {

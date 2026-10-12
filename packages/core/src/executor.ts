@@ -131,11 +131,27 @@ export class WorktreeExecutor {
     for (const path of preview.paths) await rm(join(this.isolated.worktreePath, path), {force: true});
   }
 
-  async commit(message: string): Promise<string> {
+  async commit(message: string, expectedDeletionPaths: readonly string[]): Promise<string> {
     if (this.isolated === undefined) throw new CleanCodeError('WORKTREE_ERROR', 'Create an isolated worktree first');
     if (this.committed) throw new CleanCodeError('WORKTREE_ERROR', 'Worktree has already been committed');
     if (message.trim() === '') throw new CleanCodeError('WORKTREE_ERROR', 'Commit message is required');
+    if (expectedDeletionPaths.length === 0) throw new CleanCodeError('WORKTREE_ERROR', 'Expected deletion paths are required');
     try {
+      const diff = (await runGit(this.isolated.worktreePath, ['diff', '--name-status', '-z', 'HEAD', '--'])).stdout.split('\0').filter(Boolean);
+      const deletionPaths: string[] = [];
+      for (let index = 0; index < diff.length;) {
+        const status = diff[index++];
+        const path = diff[index++];
+        if (status !== 'D' || path === undefined) throw new Error(`Unexpected worktree change; only requested deletions can be committed (${status ?? 'unknown'})`);
+        deletionPaths.push(path.replaceAll('\\', '/'));
+      }
+      const untracked = (await runGit(this.isolated.worktreePath, ['ls-files', '--others', '--exclude-standard', '-z'])).stdout.split('\0').filter(Boolean);
+      if (untracked.length > 0) throw new Error(`Unexpected untracked worktree change; only requested deletions can be committed (${untracked[0]})`);
+      const actual = deletionPaths.sort();
+      const expected = expectedDeletionPaths.map((path) => path.replaceAll('\\', '/')).sort();
+      if (actual.length !== expected.length || actual.some((path, index) => path !== expected[index])) {
+        throw new Error('Worktree changes do not match the requested deletions');
+      }
       await runGit(this.isolated.worktreePath, ['add', '-A', '--']);
       const staged = await runGit(this.isolated.worktreePath, ['diff', '--cached', '--quiet']).then(() => false).catch(() => true);
       if (!staged) throw new Error('No changes to commit');

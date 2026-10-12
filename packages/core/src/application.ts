@@ -15,6 +15,7 @@ export type CleanupExecutionOptions = {
   dryRun?: boolean;
   approveLargeChange?: boolean;
   verification?: VerificationConfig;
+  allowPreparation?: boolean;
   worktreeRoot?: string;
   auditLog?: AuditLog;
   auditDirectory?: string;
@@ -113,7 +114,7 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
 
     verification = await runVerification(worktree.worktreePath, experiment
       ? {...options.verification, requireAll: true}
-      : options.verification ?? {});
+      : options.verification ?? {}, {allowPreparation: options.allowPreparation});
     if (!verification.allPassed) {
       await rollbackExecution(executor, receiptStore, receiptId, machine, auditLog, id, verification.details);
       return {mode: experiment ? 'experiment' : 'apply', state: 'REVERTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, receiptId, verification, error: 'Verification failed'};
@@ -121,7 +122,7 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
     machine.transitionTo('VERIFIED');
     await audit(auditLog, id, 'VERIFIED', 'verification-passed', verification.details);
     const reviewBranchName = executor.worktree?.branchName;
-    const commit = await executor.commit(options.commitMessage ?? 'chore: safe cleanup');
+    const commit = await executor.commit(options.commitMessage ?? 'chore: safe cleanup', changedPaths);
     machine.transitionTo('COMMITTED');
     await audit(auditLog, id, 'COMMITTED', 'commit', {commit, receiptId});
     return {mode: experiment ? 'experiment' : 'apply', state: 'COMMITTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, commit, backupBranchName: worktree.backupBranchName, ...(experiment && reviewBranchName !== undefined ? {reviewBranchName} : {}), receiptId, verification};

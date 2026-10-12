@@ -66,3 +66,91 @@ test('supports an explicit acceptance check after technical checks', async () =>
   assert.equal(result.details.acceptance, 'diff modifies a protected config');
 });
 
+test('runs explicitly approved preparation commands before build, typecheck and tests', async () => {
+  const calls = [];
+  const result = await runVerification('C:/worktree', {
+    prepare: [{command: 'npm', args: ['ci'], timeoutMs: 30000}],
+    build: {command: 'npm', args: ['run', 'build']},
+    typecheck: {command: 'npm', args: ['run', 'typecheck']},
+    test: {command: 'npm', args: ['test']},
+  }, {
+    allowPreparation: true,
+    runner: async (command, cwd) => {
+      calls.push({command, cwd});
+      return {stdout: '', stderr: ''};
+    },
+  });
+
+  assert.equal(result.allPassed, true);
+  assert.deepEqual(calls.map(({command}) => command.args?.[0]), ['ci', 'run', 'run', 'test']);
+  assert.deepEqual(calls.map(({cwd}) => cwd), Array(4).fill('C:/worktree'));
+  assert.equal(calls[0].command.timeoutMs, 30000);
+});
+
+test('never runs preparation without explicit approval and skips dependent checks', async () => {
+  const calls = [];
+  const result = await runVerification('C:/worktree', {
+    prepare: [{command: 'npm', args: ['ci']}],
+    build: {command: 'npm', args: ['run', 'build']},
+    typecheck: {command: 'npm', args: ['run', 'typecheck']},
+    test: {command: 'npm', args: ['test']},
+  }, {runner: async (command) => {
+    calls.push(command);
+    return {stdout: '', stderr: ''};
+  }});
+
+  assert.equal(calls.length, 0);
+  assert.equal(result.allPassed, false);
+  assert.match(result.details.preparation, /explicit.*approval/i);
+  assert.match(result.details.build, /skipped/i);
+});
+
+test('stops before verification when an approved preparation command fails', async () => {
+  const calls = [];
+  const result = await runVerification('C:/worktree', {
+    prepare: [
+      {command: 'npm', args: ['ci']},
+      {command: 'node', args: ['setup-check.js']},
+    ],
+    build: {command: 'npm', args: ['run', 'build']},
+    typecheck: {command: 'npm', args: ['run', 'typecheck']},
+    test: {command: 'npm', args: ['test']},
+  }, {
+    allowPreparation: true,
+    runner: async (command) => {
+      calls.push(command.args?.[0]);
+      if (command.args?.[0] === 'ci') throw new Error('install failed');
+      return {stdout: '', stderr: ''};
+    },
+  });
+
+  assert.deepEqual(calls, ['ci']);
+  assert.equal(result.allPassed, false);
+  assert.match(result.details.preparation, /install failed/i);
+  assert.match(result.details.tests, /skipped/i);
+});
+
+test('bounds preparation command count and per-command timeout', async () => {
+  const tooMany = await runVerification('C:/worktree', {
+    prepare: Array.from({length: 4}, () => ({command: 'node', args: ['setup.js']})),
+  }, {allowPreparation: true, runner: async () => ({stdout: '', stderr: ''})});
+  const tooLong = await runVerification('C:/worktree', {
+    prepare: [{command: 'node', args: ['setup.js'], timeoutMs: 600001}],
+  }, {allowPreparation: true, runner: async () => ({stdout: '', stderr: ''})});
+
+  assert.equal(tooMany.allPassed, false);
+  assert.match(tooMany.details.preparation, /maximum of 3/i);
+  assert.equal(tooLong.allPassed, false);
+  assert.match(tooLong.details.preparation, /timeout/i);
+});
+
+test('enforces preparation command timeout in the real process runner', async () => {
+  const result = await runVerification(process.cwd(), {
+    prepare: [{command: process.execPath, args: ['-e', 'setTimeout(() => {}, 30000)'], timeoutMs: 1000}],
+  }, {allowPreparation: true});
+
+  assert.equal(result.allPassed, false);
+  assert.match(result.details.preparation, /failed/i);
+  assert.match(result.details.build, /skipped/i);
+});
+
