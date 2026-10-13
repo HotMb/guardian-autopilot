@@ -12,6 +12,7 @@ import { FileSubscriptionStore, MemorySubscriptionStore } from './subscriptions.
 import { PostgresSubscriptionStore } from './postgres-subscriptions.js';
 import { checkoutConfigurationFromEnv, createStripeClient } from './checkout.js';
 import { runPreflight } from './preflight.js';
+import {startStudio} from './studio.js';
 
 function cleanupArguments(values: string[]): {apply: boolean; files: string[]; checks: Array<{command: string; args?: string[]}>} {
   const files: string[] = [];
@@ -59,12 +60,25 @@ const argumentsList = process.argv.slice(2);
 const command = argumentsList.shift();
 const target = argumentsList[0]?.startsWith('--') || argumentsList.length === 0 ? '.' : (argumentsList.shift() ?? '.');
 
-if (command !== 'scan' && command !== 'inventory' && command !== 'references' && command !== 'plan' && command !== 'cleanup' && command !== 'mcp' && command !== 'webhook' && command !== 'preflight') {
-  console.log('Guardian Autopilot\nUsage:\n  guardian scan [directory]\n  guardian inventory [directory]\n  guardian references [directory]\n  guardian plan [directory]\n  guardian cleanup [directory] [--apply] [--check <command>] [--check-json <json>] <tracked-file>...\n  guardian mcp\n  guardian webhook\n  guardian preflight [--production]\nScan, references and plan are read-only; inventory writes only .guardian/index.json. Cleanup is a dry-run unless --apply is explicitly provided. MCP exposes read-only tools only. Webhook listens on HOST/PORT (defaults 127.0.0.1:8787), requires STRIPE_WEBHOOK_SECRET, and optionally verifies GitHub deliveries with GITHUB_WEBHOOK_SECRET. Preflight only validates local configuration and never creates cloud resources.');
+if (command !== 'scan' && command !== 'inventory' && command !== 'references' && command !== 'plan' && command !== 'cleanup' && command !== 'mcp' && command !== 'webhook' && command !== 'preflight' && command !== 'studio') {
+  console.log('Guardian Autopilot\nUsage:\n  guardian scan [directory]\n  guardian inventory [directory]\n  guardian references [directory]\n  guardian plan [directory]\n  guardian cleanup [directory] [--apply] [--check <command>] [--check-json <json>] <tracked-file>...\n  guardian studio\n  guardian mcp\n  guardian webhook\n  guardian preflight [--production]\nScan, references and plan are read-only; inventory writes only .guardian/index.json. Cleanup is a dry-run unless --apply is explicitly provided. Studio serves a local, read-only review UI on 127.0.0.1. MCP exposes read-only tools only. Webhook listens on HOST/PORT (defaults 127.0.0.1:8787), requires STRIPE_WEBHOOK_SECRET, and optionally verifies GitHub deliveries with GITHUB_WEBHOOK_SECRET. Preflight only validates local configuration and never creates cloud resources.');
   process.exit(command === undefined || command === '--help' ? 0 : 1);
 }
 try {
-  if (command === 'mcp') {
+  if (command === 'studio') {
+    if (target !== '.' || argumentsList.length !== 0) throw new Error('Usage: guardian studio (no project path or options are accepted)');
+    const portValue = process.env.GUARDIAN_STUDIO_PORT ?? '8765';
+    if (!/^\d+$/.test(portValue)) throw new Error('GUARDIAN_STUDIO_PORT must be a valid TCP port');
+    const port = Number(portValue);
+    const {server, url} = await startStudio(port);
+    console.log(`Guardian Studio listening locally at ${url}`);
+    console.log('Folder contents are read in the browser only; press Ctrl+C to stop.');
+    await new Promise<void>((resolve) => {
+      const shutdown = (): void => { void new Promise<void>((done) => server.close(() => done())).finally(resolve); };
+      process.once('SIGINT', shutdown);
+      process.once('SIGTERM', shutdown);
+    });
+  } else if (command === 'mcp') {
     await serveMcp();
   } else if (command === 'preflight') {
     const result = runPreflight(process.env, argumentsList.includes('--production'));

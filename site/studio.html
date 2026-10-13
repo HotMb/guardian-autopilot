@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f2ed">
+    <title>Guardian Studio — AI image storage</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/studio.css">
+    <script type="module" src="/studio.js"></script>
+  </head>
+  <body class="studio-body">
+    <a class="studio-skip" href="#studio-main">Skip to files</a>
+    <header class="studio-header">
+      <a class="studio-brand" href="/" aria-label="Guardian Studio home">
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span>Guardian <span class="studio-brand-light">Studio</span></span>
+      </a>
+      <div class="studio-header-state">
+        <span class="studio-local"><span aria-hidden="true"></span> Local workspace</span>
+        <span class="studio-demo-label" id="demo-label">Synthetic demo</span>
+      </div>
+    </header>
+
+    <div class="studio-workspace">
+      <aside class="studio-sidebar" aria-label="Archive navigation">
+        <div class="studio-folder-control">
+          <p class="studio-overline">YOUR COLLECTION</p>
+          <button class="studio-button studio-button-primary studio-folder-button" id="choose-folder" type="button">Choose a folder</button>
+          <input class="studio-visually-hidden" id="folder-input" type="file" webkitdirectory multiple aria-label="Choose a local folder to scan">
+          <button class="studio-text-button studio-folder-fallback" id="folder-fallback" type="button" hidden>Use compatibility picker</button>
+          <p class="studio-sidebar-note" id="folder-capability">Checking local folder support…</p>
+          <p class="studio-sidebar-note" id="folder-status">Demo collection · nothing on your device has been read.</p>
+        </div>
+
+        <nav class="studio-nav" aria-label="Collection views">
+          <p class="studio-overline">REVIEW</p>
+          <button class="studio-nav-item is-active" type="button" data-view="all" aria-current="page"><span>All images</span><span class="studio-count" id="count-all">0</span></button>
+          <button class="studio-nav-item" type="button" data-view="duplicates"><span>Exact duplicates</span><span class="studio-count" id="count-duplicates">0</span></button>
+          <button class="studio-nav-item" type="button" data-view="large"><span>Large images</span><span class="studio-count" id="count-large">0</span></button>
+          <button class="studio-nav-item" type="button" data-view="plan"><span>Review plan</span><span class="studio-count" id="count-plan">0</span></button>
+        </nav>
+
+        <section class="studio-folders" aria-labelledby="folders-heading">
+          <div class="studio-side-heading"><p class="studio-overline" id="folders-heading">FOLDERS</p><span id="folder-total">0</span></div>
+          <div id="folder-list" class="studio-folder-list"></div>
+        </section>
+
+        <div class="studio-privacy-note">
+          <span class="studio-privacy-mark" aria-hidden="true">LOCAL</span>
+          <p><strong>Your files stay here.</strong><br>Guardian reads the selected folder in this browser. It never uploads or changes files.</p>
+        </div>
+      </aside>
+
+      <main class="studio-main" id="studio-main">
+        <div class="studio-page-heading">
+          <div>
+            <p class="studio-overline">CREATOR ARCHIVE <span class="studio-heading-dot" aria-hidden="true">/</span> LOCAL</p>
+            <h1>Find where the image storage went.</h1>
+            <p class="studio-page-lede" id="scope-copy">Scan creator-output folders locally. Review exact repeats and the largest images before deciding what to keep.</p>
+          </div>
+          <div class="studio-heading-meta"><span class="studio-status-dot" aria-hidden="true"></span><span id="scan-state">Demo ready</span></div>
+        </div>
+
+        <section class="studio-overview" aria-label="Collection summary">
+          <article class="studio-stat"><span class="studio-stat-label">IMAGE FILES</span><strong id="total-assets">0</strong><span id="asset-caption">in this collection</span></article>
+          <article class="studio-stat"><span class="studio-stat-label">IMAGE STORAGE</span><strong id="images-size">0 B</strong><span id="storage-caption">image bytes only</span></article>
+          <article class="studio-stat studio-stat-accent"><span class="studio-stat-label">EXACT DUPLICATE FILES</span><strong id="duplicate-count">0</strong><span id="duplicate-method">SHA-256 and byte comparison</span></article>
+          <article class="studio-stat"><span class="studio-stat-label">SPACE FREED BY GUARDIAN</span><strong id="space-freed-total">0 B</strong><span>No files changed</span></article>
+        </section>
+        <p class="studio-limit-note" id="scan-limit-copy">Guardian counts image bytes across the selected folder, and keeps up to 10,000 largest images for review. Exact-duplicate hashing is limited to files up to 64 MiB. Nothing is moved or deleted.</p>
+
+        <section class="studio-files-panel" aria-labelledby="files-heading">
+          <div class="studio-panel-top">
+            <div><h2 id="files-heading">Image files</h2><p id="list-subtitle">Review exact matches; large size alone is not a cleanup signal.</p></div>
+            <div class="studio-search-wrap">
+              <label class="studio-visually-hidden" for="file-search">Search filenames and folders</label>
+              <input id="file-search" type="search" placeholder="Search files and folders" autocomplete="off">
+              <button id="clear-search" class="studio-clear-search" type="button" aria-label="Clear search" hidden>Clear</button>
+            </div>
+          </div>
+          <div id="scan-progress" class="studio-progress" role="status" aria-live="polite" hidden>
+            <span class="studio-progress-track" id="progress-track" role="progressbar" aria-label="Local scan progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progress-fill"></span></span>
+            <span id="progress-copy">Reading image files…</span>
+            <button id="cancel-scan" class="studio-text-button" type="button">Stop scan</button>
+          </div>
+          <div id="table-scroll" class="studio-table-scroll" tabindex="0" aria-label="Scrollable image file list">
+            <table class="studio-table">
+              <caption class="studio-visually-hidden">Image files in the selected collection</caption>
+              <thead>
+                <tr>
+                  <th scope="col" class="studio-file-column" aria-sort="ascending"><button type="button" data-sort="name">FILE <span aria-hidden="true">↕</span></button></th>
+                  <th scope="col"><button type="button" data-sort="folder">FOLDER <span aria-hidden="true">↕</span></button></th>
+                  <th scope="col" class="studio-size-column"><button type="button" data-sort="bytes">SIZE <span aria-hidden="true">↕</span></button></th>
+                  <th scope="col">SIGNAL</th>
+                  <th scope="col" class="studio-select-column">REVIEW</th>
+                </tr>
+              </thead>
+              <tbody id="file-rows"></tbody>
+            </table>
+          </div>
+          <div id="empty-state" class="studio-empty" hidden>
+            <p class="studio-empty-kicker">NO MATCHES HERE</p>
+            <h3>Nothing to show in this view.</h3>
+            <p>Try another filter, clear your search, or choose a different folder.</p>
+            <button id="reset-view" class="studio-button studio-button-secondary" type="button">Show all images</button>
+          </div>
+          <div class="studio-table-footer">
+            <p id="range-copy" aria-live="polite">Showing 0 images</p>
+            <nav class="studio-pagination" aria-label="Image list pages">
+              <button id="previous-page" class="studio-button studio-button-secondary" type="button" aria-label="Previous page" disabled>Previous</button>
+              <span id="page-copy" aria-current="page">Page 1</span>
+              <button id="next-page" class="studio-button studio-button-secondary" type="button" aria-label="Next page" disabled>Next</button>
+            </nav>
+          </div>
+        </section>
+
+        <p class="studio-disclaimer"><strong>Exact match means identical file bytes.</strong> Guardian does not compare visual similarity or decide which image matters. A selected file's size is not space recovered; Guardian currently changes no files.</p>
+        <div id="studio-notice" class="studio-notice" role="status" aria-live="polite" hidden></div>
+      </main>
+
+      <aside class="studio-inspector" aria-labelledby="inspector-heading">
+        <div class="studio-inspector-heading"><p class="studio-overline">SELECTED FILE</p><span id="inspector-index">01 / 01</span></div>
+        <div class="studio-preview-frame" id="preview-frame">
+          <img id="preview-image" src="/studio-demo/demo-cabin.png" alt="Synthetic demo image: a small modern cabin in a forest clearing">
+          <span class="studio-preview-unavailable" id="preview-unavailable" hidden>SVG preview disabled to keep embedded content offline.</span>
+          <span class="studio-preview-corner" aria-hidden="true">PREVIEW</span>
+        </div>
+        <div class="studio-file-detail">
+          <div class="studio-detail-badges" id="detail-badges"></div>
+          <h2 id="inspector-heading">cabin-final.png</h2>
+          <p class="studio-detail-path" id="detail-path">demo/exports/cabin-final.png</p>
+          <dl class="studio-detail-grid">
+            <div><dt>File size</dt><dd id="detail-size">—</dd></div>
+            <div><dt>File type</dt><dd id="detail-type">—</dd></div>
+            <div><dt>Folder</dt><dd id="detail-folder">—</dd></div>
+            <div><dt>Metadata markers</dt><dd id="detail-metadata" aria-live="polite">Not checked</dd></div>
+          </dl>
+          <p class="studio-metadata-note">For the selected PNG only, supported text metadata is read in this tab. Prompts and workflows are revealed on request; they are not uploaded or saved.</p>
+          <div class="studio-metadata-output" id="metadata-content"></div>
+        </div>
+
+        <section class="studio-plan-card" aria-labelledby="plan-heading">
+          <div class="studio-plan-title"><span class="studio-plan-square" aria-hidden="true"></span><p class="studio-overline">YOUR DECISION</p></div>
+          <h2 id="plan-heading">Review candidates</h2>
+          <dl class="studio-plan-metrics">
+            <div><dt>Selected candidate size</dt><dd id="plan-estimate">0 B</dd></div>
+            <div><dt>Space actually freed</dt><dd id="space-freed">0 B</dd></div>
+          </dl>
+          <p class="studio-plan-explainer" id="plan-explainer">Choose exact duplicates or large images for a human review plan. Candidate size is not recoverable space.</p>
+          <button id="create-plan" class="studio-button studio-button-primary studio-plan-action" type="button" disabled>Export review plan</button>
+          <button id="cleanup-action" class="studio-button studio-button-secondary studio-plan-action studio-cleanup-disabled" type="button" disabled>Move to quarantine — unavailable</button>
+          <p class="studio-cleanup-note" id="cleanup-limitation">This browser does not provide a portable, safe move-and-restore path for ordinary files. No cleanup action is enabled; export a plan and decide manually.</p>
+          <div id="review-plan" class="studio-review-result" hidden></div>
+        </section>
+        <p class="studio-inspector-foot">No canonical copy is chosen automatically.</p>
+      </aside>
+    </div>
+  </body>
+</html>

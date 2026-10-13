@@ -27,6 +27,7 @@
     "build:core": "npm run build --prefix packages/core",
     "build:cli": "npm run build --prefix packages/cli",
     "scan": "node dist/cli.js scan",
+    "studio": "npm run build && node dist/cli.js studio",
     "test": "npm run build && npm run build:shared && node --test tests/*.test.mjs && npm run test --prefix packages/shared && npm run test --prefix packages/license && npm run test --prefix packages/core && npm run test --prefix packages/cli",
     "test:shared": "npm run test --prefix packages/shared",
     "test:core": "npm run test --prefix packages/core",
@@ -37,7 +38,8 @@
   },
   "files": [
     "dist",
-    "integrations/claude-plugin"
+    "integrations/claude-plugin",
+    "site"
   ],
   "engines": {
     "node": ">=20"

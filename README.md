@@ -35,6 +35,15 @@ node dist/cli.js references /path/to/project
 node dist/cli.js plan /path/to/project
 ```
 
+Open the local Guardian Studio review interface:
+
+```bash
+npm run build
+node dist/cli.js studio
+```
+
+Then open the printed `127.0.0.1` address in your browser. Studio starts with clearly labeled synthetic data. Choosing a folder grants the browser read-only access; paths, image bytes, hashes, and supported metadata stay in the page and are never uploaded. For a selected PNG, Studio can reveal supported Stable Diffusion WebUI `parameters` and ComfyUI `prompt`/`workflow` text after an explicit disclosure. This is bounded PNG text-chunk support, not general EXIF or JPEG/WebP metadata support. Duplicate candidates are hashed and then byte-compared; large files and incomplete scans are called out. The temporary review plan is informational. Studio does not delete, move, rename, overwrite, or edit files.
+
 The scan command does not change the target project. The inventory command is the exception: it writes or updates `.guardian/index.json` to cache asset hashes.
 
 ## CleanCode CLI

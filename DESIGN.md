@@ -1,0 +1,115 @@
+---
+version: alpha
+name: Guardian Studio
+description: A quiet, local-first workbench for reviewing generated-image storage without changing files.
+colors:
+  forest: "#20372d"
+  lime: "#c6f36a"
+  paper: "#f3f2ed"
+  surface: "#fbfaf7"
+  ink: "#17201d"
+  muted: "#5c6661"
+  line: "#d4d5cd"
+typography:
+  display:
+    fontFamily: "'Arial Black', Arial, Helvetica, sans-serif"
+  sans:
+    fontFamily: "Arial, Helvetica, sans-serif"
+  mono:
+    fontFamily: "ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace"
+rounded:
+  control: "3px"
+  panel: "3px"
+  badge: "999px"
+spacing:
+  xs: "4px"
+  sm: "8px"
+  md: "12px"
+  lg: "20px"
+  xl: "28px"
+components:
+  primary-action:
+    background: "colors.lime"
+    foreground: "colors.ink"
+  panel:
+    background: "colors.surface"
+    border: "colors.line"
+  selected-row:
+    background: "#eef4e6"
+omitted:
+  - section: elevation
+    reason: "The selected Storage Triage direction uses tonal surfaces and fine borders; shadows are not needed."
+---
+
+# Guardian Studio Design System
+
+## Overview
+
+### Creative North Star
+
+An artist's archive desk: a dense contact sheet, a calm paper workspace, and a single bright lime marker that makes review state unmistakable. The app is a product tool, not a marketing page.
+
+### Product context and register
+
+- **Audience and primary job:** Creators who keep AI-generated image collections locally; understand storage consumption, then review exact duplicate files without handing file access to a cloud service.
+- **Target market(s) and evidence:** Individual desktop creators; selected Studio brief and the Storage Triage reference mock.
+- **Locale(s) and language policy:** English for this MVP, matching the selected mock and existing Guardian site. No locale switching is implemented.
+- **Usage scene:** Desktop browser on the creator's own machine, often with many image files and a need to compare previews and paths.
+- **Register:** Product utility. The existing Guardian wordmark and palette are retained.
+- **Memorable signature:** Storage totals and the actual-space-freed figure stay distinct above a compact, sortable contact-sheet table; the selected image preview and lime marker support a human review plan.
+- **Restraint:** No deletion action, similarity score, cloud account, or decorative dashboard metric. Never imply Guardian frees disk space while all operations remain read-only.
+- **Anti-references:** Generic SaaS gradient dashboards and image galleries that conceal file paths or imply AI similarity detection.
+- **Token ownership/runtime mapping:** `site/styles.css` owns the existing palette and type stacks; `site/studio.css` consumes its custom properties. This file mirrors those accepted values and documents Studio-specific geometry. No token generator is used.
+
+## Colors
+
+The canonical values come from `site/styles.css`: paper `#f3f2ed`, surface `#fbfaf7`, ink `#17201d`, muted text `#5c6661`, border `#d4d5cd`, forest `#20372d`, and lime `#c6f36a`. Paper is the application canvas; surface is for the file table and inspector; forest anchors the brand; lime is reserved for selected review items and the single primary action. Status always includes text, never color alone. The MVP is light theme only; high-contrast and forced-colors behavior must preserve system outlines and text.
+
+## Typography
+
+Use the existing display stack (`Arial Black`, Arial, Helvetica), practical Arial body copy, and a system monospace stack for paths, counts, and file metadata. Keep long paths readable by wrapping or exposing a copy action; do not rely on hover-only disclosure.
+
+## Layout
+
+Use a desktop archive layout: persistent narrow navigation, a flexible sortable file list, and a selected-file inspector. At narrow widths, navigation becomes a horizontally scrollable labeled row and the inspector moves below the list. Tables may scroll horizontally when column relationships require it; the page itself remains naturally scrollable. Keep image aspect ratios reserved to prevent layout shift.
+
+## Shapes
+
+Use square, fine-bordered panels and 3px control corners, with pill badges only for short status labels. Avoid floating-card stacks and ornamental shadows.
+
+## Components
+
+### Foundational visual states
+
+Hover and focus use clear contrast; focus-visible retains a high-contrast browser outline. Selected rows use the pale green tint and a text/checkbox state. Disabled controls are visibly disabled and explain why. Scan progress is determinate only when the file count is known; otherwise show a labeled indeterminate state. Reduced motion removes nonessential transitions.
+
+### Buttons and actions
+
+Primary is lime with dark text; secondary is paper/surface with a fine border. There is no destructive button in the MVP. The main action creates a temporary review plan and must say so.
+
+### Navigation and data display
+
+Use labeled navigation, real buttons for sorting and filters, and semantic tables. A review-plan badge counts selected exact duplicates, not files actually removed. Folder sizes are image bytes only and state that scope.
+
+### Forms and overlays
+
+Use a user-activated browser directory picker in read-only mode, with a multiple-file directory input fallback. Do not request write permission. Search is local and has an explicit clear button. Keep the plan in memory for the current tab only; no modal or toast is necessary for the main path.
+
+### Iconography
+
+Reuse the existing Guardian mark. Use descriptive text labels for controls; the current repository has no maintained icon library, so do not introduce hand-drawn icons.
+
+### Motion
+
+Motion is limited to brief hover and selected-state feedback. Respect `prefers-reduced-motion`.
+
+### Content and data visualization
+
+Use plain language: “Exact duplicate” means identical file bytes, not visually similar. “Candidate size” is not recovered storage; display actual space freed as zero until a separately designed, tested file-mutation feature exists. Never expose embedded prompts until the user explicitly opens the metadata disclosure.
+
+## Do's and Don'ts
+
+- **Do:** Keep file access in the browser after the user deliberately selects one folder.
+- **Do:** Make every candidate a human review choice and say nothing was modified.
+- **Don't:** Imply visual similarity, generation provenance, or actual recovery without evidence.
+- **Don't:** Use the first sorted path as an automatic decision about which file is valuable.
