@@ -60,3 +60,30 @@
 @media(prefers-reduced-motion:reduce){.studio-dialog[open]{animation:none}}
 @media(forced-colors:active){.studio-dialog,.studio-archive-card,.studio-archive-entry-list,.studio-dialog-file-list{border:1px solid CanvasText}.studio-button-warning,.studio-button-danger{border:1px solid ButtonText}.studio-archive-status{border:1px solid CanvasText}}
 @media(forced-colors:active){.studio-plan-metrics>div{border:1px solid CanvasText}}
+.studio-watch-panel{margin:0 0 16px;padding:13px 14px;border:1px solid var(--line);background:#efeee8}
+.studio-watch-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.studio-watch-heading h2{margin:5px 0 0;font:600 16px var(--display);letter-spacing:-.035em}
+.studio-watch-pill{flex:none;padding:5px 8px;border:1px solid #cbd0c7;background:#f6f5f0;color:#5e6b61;font:9px var(--mono)}
+.studio-watch-pill.is-active{border-color:#b5c99e;background:#e7eedf;color:#3e6036}
+.studio-watch-pill.is-error{border-color:#d6b1a5;background:#f2e8e3;color:#78483c}
+.studio-watch-summary{margin:9px 0 0;color:#647068;font-size:10px;line-height:1.55}
+.studio-watch-counts{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px 14px;color:#69756c;font:9px var(--mono)}
+.studio-watch-counts strong{color:#304637;font-weight:700}
+.studio-watch-list{max-height:280px;margin:10px 0 0;padding:0;overflow:auto;list-style:none;border-top:1px solid #d6d8d0}
+.studio-watch-list:empty{display:none}
+.studio-watch-row{min-width:0;padding:8px 2px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;border-bottom:1px solid #d6d8d0}
+.studio-watch-file{min-width:0}
+.studio-watch-path{display:block;overflow-wrap:anywhere;color:#304238;font:600 10px/1.45 var(--mono)}
+.studio-watch-tags{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px}
+.studio-watch-tag{padding:2px 5px;border:1px solid #cbd0c7;background:#f6f5f0;color:#59665d;font:8px var(--mono)}
+.studio-watch-tag.is-new{border-color:#b5c99e;background:#e7eedf;color:#3e6036}
+.studio-watch-tag.is-pending{border-color:#d9c79c;background:#f4eddb;color:#705b2a}
+.studio-watch-size{color:#435149;font:9px var(--mono);white-space:nowrap}
+.studio-watch-empty{margin:10px 0 0;padding:10px;border:1px dashed #cbd0c7;color:#6c766e;font-size:10px;line-height:1.5}
+.studio-watch-empty[hidden]{display:none}
+.studio-watch-empty code{color:#304637;font:9px var(--mono);overflow-wrap:anywhere}
+.studio-watch-footer{margin-top:10px;padding-top:9px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #d6d8d0}
+.studio-watch-footer p{margin:0;color:#68756b;font-size:9px;line-height:1.5}
+.studio-watch-footer .studio-button{flex:none;min-height:31px;font-size:9px}
+@media(max-width:760px){.studio-watch-panel{padding:12px}.studio-watch-footer{align-items:flex-start;flex-direction:column}.studio-watch-footer .studio-button{width:100%}.studio-watch-counts{gap:6px 10px}}
+@media(max-width:420px){.studio-watch-row{grid-template-columns:minmax(0,1fr)}.studio-watch-size{padding-left:1px}}

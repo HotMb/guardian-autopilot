@@ -78,6 +78,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     resumeDialog: $('resume-dialog'), resumeDialogClose: $('resume-dialog-close'), resumeDialogCancel: $('resume-dialog-cancel'), resumeDialogConfirm: $('resume-dialog-confirm'), resumeDialogFiles: $('resume-dialog-files'),
     purgeDialog: $('purge-dialog'), purgeDialogClose: $('purge-dialog-close'), purgeDialogCancel: $('purge-dialog-cancel'), purgeDialogConfirm: $('purge-dialog-confirm'), purgeDialogCount: $('purge-dialog-count'), purgeDialogBytes: $('purge-dialog-bytes'), purgeDialogFiles: $('purge-dialog-files'), purgeUnderstood: $('purge-understood'), purgePhrase: $('purge-phrase'),
     notice: $('studio-notice'),
+    watchState: $('watch-state'), watchSummary: $('watch-summary'), watchCounts: $('watch-counts'), watchNewCount: $('watch-new-count'), watchLargeCount: $('watch-large-count'), watchPendingCount: $('watch-pending-count'), watchCandidates: $('watch-candidates'), watchEmpty: $('watch-empty'), watchChecked: $('watch-checked'), watchRefresh: $('watch-refresh'),
   };
 
   function formatBytes(value) {
@@ -94,6 +95,160 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     nodes.notice.textContent = message;
     nodes.notice.classList.toggle('is-error', tone === 'error');
     nodes.notice.hidden = message === '';
+  }
+
+  let watchTimer = null;
+  let watchFailures = 0;
+  let watchRequest = false;
+  let watchQueued = false;
+  let watchController = null;
+  let lastWatchSummary = '';
+
+  function setWatchSummary(message) {
+    if (lastWatchSummary === message) return;
+    lastWatchSummary = message;
+    nodes.watchSummary.textContent = message;
+  }
+
+  function renderWatchStatus(data) {
+    nodes.watchCandidates.replaceChildren();
+    nodes.watchState.classList.remove('is-active', 'is-error');
+    nodes.watchCounts.hidden = data.enabled !== true;
+
+    if (data.enabled !== true) {
+      nodes.watchState.textContent = 'Off';
+      setWatchSummary('No folder is being watched by the local Guardian process.');
+      nodes.watchChecked.textContent = 'Status checked just now';
+      nodes.watchEmpty.hidden = false;
+      const command = document.createElement('code');
+      command.textContent = 'guardian studio --watch <image-folder>';
+      nodes.watchEmpty.replaceChildren(
+        document.createTextNode('Start Guardian Studio with '),
+        command,
+        document.createTextNode(' to monitor one local folder. The folder is scanned locally and nothing is changed.'),
+      );
+      return;
+    }
+
+    const candidates = Array.isArray(data.candidates) ? data.candidates.slice(0, 100) : [];
+    const modeLabel = data.mode === 'watching' ? 'Watching locally' : 'Polling folder';
+    nodes.watchState.textContent = modeLabel;
+    nodes.watchState.classList.add('is-active');
+    nodes.watchCounts.hidden = false;
+    nodes.watchNewCount.textContent = Number.isSafeInteger(data.newCount) ? data.newCount.toLocaleString('en') : '—';
+    nodes.watchLargeCount.textContent = Number.isSafeInteger(data.largeCount) ? data.largeCount.toLocaleString('en') : '—';
+    nodes.watchPendingCount.textContent = Number.isSafeInteger(data.pendingCount) ? data.pendingCount.toLocaleString('en') : '—';
+
+    const folder = typeof data.folder === 'string' && data.folder !== '' ? data.folder : 'selected folder';
+    if (state.sourceRoot === null && state.records.some((record) => record.isDemo === true)) {
+      nodes.folderStatus.textContent = 'Image table is synthetic · watcher reads names, sizes, and times from ' + folder + ' locally.';
+    }
+    const imageCount = Number.isSafeInteger(data.imageCount) ? data.imageCount.toLocaleString('en') : '—';
+    let summary = 'Monitoring ' + folder + ' locally · ' + imageCount + ' image files indexed.';
+    if (data.truncated === true) summary += ' The review list is capped at 100 files.';
+    if (typeof data.notice === 'string' && data.notice !== '') summary += ' ' + data.notice;
+    else if (data.partial === true) summary += ' Coverage is partial.';
+    setWatchSummary(summary);
+
+    if (typeof data.scannedAt === 'string' && Number.isFinite(Date.parse(data.scannedAt))) {
+      nodes.watchChecked.textContent = 'Last checked ' + new Date(data.scannedAt).toLocaleTimeString();
+    } else {
+      nodes.watchChecked.textContent = 'Initial scan in progress';
+    }
+
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate.path !== 'string' || !Number.isSafeInteger(candidate.bytes) || candidate.bytes < 0) continue;
+      const row = document.createElement('li');
+      row.className = 'studio-watch-row';
+      const copy = document.createElement('div');
+      copy.className = 'studio-watch-file';
+      const path = document.createElement('span');
+      path.className = 'studio-watch-path';
+      path.textContent = candidate.path;
+      const tags = document.createElement('span');
+      tags.className = 'studio-watch-tags';
+      if (candidate.isNew === true) {
+        const tag = document.createElement('span');
+        tag.className = 'studio-watch-tag is-new';
+        tag.textContent = 'New this session';
+        tags.append(tag);
+      }
+      if (candidate.isLarge === true) {
+        const tag = document.createElement('span');
+        tag.className = 'studio-watch-tag';
+        tag.textContent = 'Large image';
+        tags.append(tag);
+      }
+      if (candidate.isNew === true && candidate.stable !== true) {
+        const tag = document.createElement('span');
+        tag.className = 'studio-watch-tag is-pending';
+        tag.textContent = 'Waiting for a stable size';
+        tags.append(tag);
+      }
+      copy.append(path, tags);
+      const size = document.createElement('span');
+      size.className = 'studio-watch-size';
+      size.textContent = formatBytes(candidate.bytes);
+      row.append(copy, size);
+      nodes.watchCandidates.append(row);
+    }
+
+    nodes.watchEmpty.hidden = candidates.length > 0;
+    if (candidates.length === 0) {
+      nodes.watchEmpty.textContent = data.candidateCount > 0
+        ? 'Candidates are outside the displayed review limit. Narrow the watched folder or check again after the next refresh.'
+        : 'No new or large images are waiting for review.';
+    }
+  }
+
+  function scheduleWatchRefresh(delay = 5000) {
+    if (watchTimer !== null) window.clearTimeout(watchTimer);
+    if (document.hidden) delay = Math.max(delay, 15000);
+    watchTimer = window.setTimeout(() => {
+      watchTimer = null;
+      void refreshWatchStatus();
+    }, delay);
+  }
+
+  async function refreshWatchStatus() {
+    if (watchRequest) {
+      watchQueued = true;
+      return;
+    }
+    watchRequest = true;
+    watchController = new AbortController();
+    const timeout = window.setTimeout(() => watchController?.abort(), 7000);
+    try {
+      const response = await fetch('/api/watch/status', {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        signal: watchController.signal,
+      });
+      if (!response.ok) throw new Error('Watcher status request failed');
+      const data = await response.json();
+      if (!data || typeof data !== 'object' || (data.enabled !== true && data.enabled !== false)) throw new Error('Watcher status response was invalid');
+      if (data.enabled === true && !Array.isArray(data.candidates)) throw new Error('Watcher candidate list was invalid');
+      renderWatchStatus(data);
+      watchFailures = 0;
+      scheduleWatchRefresh(data.enabled === true ? 5000 : 15000);
+    } catch {
+      watchFailures += 1;
+      nodes.watchState.textContent = 'Status unavailable';
+      nodes.watchState.classList.remove('is-active');
+      nodes.watchState.classList.add('is-error');
+      setWatchSummary('Studio could not refresh local watch status. The watcher may still be running; retry when the local server is available.');
+      nodes.watchChecked.textContent = 'Refresh failed';
+      scheduleWatchRefresh(Math.min(30000, 5000 * Math.pow(2, Math.min(watchFailures - 1, 3))));
+    } finally {
+      window.clearTimeout(timeout);
+      watchController = null;
+      watchRequest = false;
+      if (watchQueued) {
+        watchQueued = false;
+        scheduleWatchRefresh(0);
+      }
+    }
   }
 
   function folderName(path) {
@@ -1187,6 +1342,20 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     nodes.cancelFileOperation.textContent = 'Stopping safely…';
   });
 
+  nodes.watchRefresh.addEventListener('click', () => {
+    if (watchTimer !== null) window.clearTimeout(watchTimer);
+    watchTimer = null;
+    void refreshWatchStatus();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) scheduleWatchRefresh(0);
+  });
+  window.addEventListener('pagehide', () => {
+    if (watchTimer !== null) window.clearTimeout(watchTimer);
+    watchController?.abort();
+  });
+
   updatePickerCapability();
   render();
+  void refreshWatchStatus();
 })();

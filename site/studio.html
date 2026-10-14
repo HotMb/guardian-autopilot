@@ -70,6 +70,29 @@
         </section>
         <p class="studio-limit-note" id="scan-limit-copy">Guardian counts image bytes across the selected folder, and keeps up to 10,000 largest images for review. Exact-duplicate hashing is limited to files up to 64 MiB. Archive requires separate write permission and your confirmation for every selected file.</p>
 
+        <section class="studio-watch-panel" aria-labelledby="watch-heading">
+          <div class="studio-watch-heading">
+            <div>
+              <p class="studio-overline">LOCAL WATCH</p>
+              <h2 id="watch-heading">Generation folder watch</h2>
+            </div>
+            <span class="studio-watch-pill" id="watch-state">Checking</span>
+          </div>
+          <p class="studio-watch-summary" id="watch-summary" role="status" aria-live="polite">Checking local watcher status…</p>
+          <div class="studio-watch-counts" id="watch-counts" hidden>
+            <span><strong id="watch-new-count">0</strong> new or changed</span>
+            <span><strong id="watch-large-count">0</strong> above the large-image threshold</span>
+            <span><strong id="watch-pending-count">0</strong> still settling</span>
+            <span id="watch-checked" aria-live="off">Not checked yet</span>
+          </div>
+          <ul class="studio-watch-list" id="watch-candidates" aria-label="Local image candidates for human review"></ul>
+          <p class="studio-watch-empty" id="watch-empty">The watcher is off. Start Guardian Studio with <code>guardian studio --watch &lt;image-folder&gt;</code> to monitor one local folder.</p>
+          <div class="studio-watch-footer">
+            <p>New files and images at least 10 MiB are review signals only. Guardian does not decide what to keep or change files automatically. Choose the same folder below to inspect images; archiving still uses its separate permission and confirmation flow.</p>
+            <button class="studio-button studio-button-secondary" id="watch-refresh" type="button">Refresh status</button>
+          </div>
+        </section>
+
         <section class="studio-files-panel" aria-labelledby="files-heading">
           <div class="studio-panel-top">
             <div><h2 id="files-heading">Image files</h2><p id="list-subtitle">Review exact matches; large size alone is not a cleanup signal.</p></div>

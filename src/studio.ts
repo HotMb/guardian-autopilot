@@ -3,6 +3,7 @@ import {stat} from 'node:fs/promises';
 import {createServer, IncomingMessage, Server, ServerResponse} from 'node:http';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import type {StudioWatcher} from './studio-watcher.js';
 
 const siteRoot = fileURLToPath(new URL('../site/', import.meta.url));
 const assets = new Map<string, {file: string; type: string}>([
@@ -66,7 +67,7 @@ async function serveAsset(pathname: string, response: ServerResponse): Promise<v
   }
 }
 
-function handleRequest(server: Server, request: IncomingMessage, response: ServerResponse): void {
+function handleRequest(server: Server, request: IncomingMessage, response: ServerResponse, watcher?: StudioWatcher): void {
   const host = expectedHost(server);
   if (host === undefined || request.headers.host !== host) {
     send(response, 421, 'Misdirected request');
@@ -86,27 +87,54 @@ function handleRequest(server: Server, request: IncomingMessage, response: Serve
     send(response, 403, 'Cross-site request denied');
     return;
   }
-  let pathname: string;
+  let requestUrl: URL;
   try {
-    pathname = new URL(request.url ?? '/', `http://${host}`).pathname;
+    requestUrl = new URL(request.url ?? '/', `http://${host}`);
   } catch {
     send(response, 400, 'Bad request');
     return;
   }
-  void serveAsset(pathname, response);
+  if (requestUrl.pathname === '/api/watch/status' && requestUrl.search === '') {
+    const status = watcher?.getSnapshot() ?? {
+      enabled: false,
+      mode: 'off',
+      folder: null,
+      scannedAt: null,
+      entriesScanned: 0,
+      imageCount: 0,
+      candidateCount: 0,
+      newCount: 0,
+      largeCount: 0,
+      pendingCount: 0,
+      partial: false,
+      truncated: false,
+      candidates: [],
+      notice: null,
+    };
+    send(response, 200, JSON.stringify(status), {
+      'Content-Type': 'application/json; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    });
+    return;
+  }
+  void serveAsset(requestUrl.pathname, response);
 }
 
-export function createStudioServer(): Server {
-  const server = createServer((request, response) => handleRequest(server, request, response));
+export function createStudioServer(watcher?: StudioWatcher): Server {
+  const server = createServer((request, response) => handleRequest(server, request, response, watcher));
+  if (watcher !== undefined) server.once('close', () => watcher.close());
   server.headersTimeout = 10_000;
   server.requestTimeout = 15_000;
   server.keepAliveTimeout = 5_000;
   return server;
 }
 
-export async function startStudio(port = 8765): Promise<{server: Server; url: string}> {
+export async function startStudio(port = 8765, watcher?: StudioWatcher): Promise<{server: Server; url: string}> {
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('GUARDIAN_STUDIO_PORT must be a valid TCP port');
-  const server = createStudioServer();
+  const server = createStudioServer(watcher);
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => resolve());

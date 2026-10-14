@@ -4,8 +4,8 @@ import {request as httpRequest} from 'node:http';
 import test from 'node:test';
 import {createStudioServer} from '../dist/studio.js';
 
-async function withStudio(run) {
-  const server = createStudioServer();
+async function withStudio(run, watcher) {
+  const server = createStudioServer(watcher);
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -54,7 +54,7 @@ test('Studio serves only allowlisted CSS, JavaScript, and synthetic preview imag
   });
 });
 
-test('Studio labels creator metadata as local, bounded, and opt-in without browser persistence or requests', async () => {
+test('Studio labels creator metadata as local, bounded, and opt-in without browser persistence or remote file uploads', async () => {
   const html = await readFile(new URL('../site/studio.html', import.meta.url), 'utf8');
   const app = await readFile(new URL('../site/studio.js', import.meta.url), 'utf8');
   const metadata = await readFile(new URL('../site/studio-metadata.js', import.meta.url), 'utf8');
@@ -71,6 +71,8 @@ test('Studio labels creator metadata as local, bounded, and opt-in without brows
   assert.match(html, /id="archive-dialog"/);
   assert.match(html, /id="purge-dialog"/);
   assert.match(html, /Type <code>PURGE<\/code>/);
+  assert.match(html, /id="watch-candidates"/);
+  assert.match(html, /id="watch-refresh"/);
   assert.match(html, /compatibility picker stays read-only/i);
   assert.match(html, /never uploads them; archive changes require separate permission and confirmation/i);
   assert.doesNotMatch(html, /currently changes no files|never uploads or changes files/i);
@@ -80,10 +82,53 @@ test('Studio labels creator metadata as local, bounded, and opt-in without brows
   assert.match(fileOps, /typedConfirmation !== 'PURGE'/);
   assert.match(fileOps, /Unsafe or protected path/);
   assert.match(html, /id="create-plan"[^>]*>Export review plan/);
-  for (const source of [app, metadata, scan, fileOps, worker]) {
+  assert.equal((app.match(/\bfetch\s*\(/g) ?? []).length, 1);
+  assert.match(app, /fetch\('\/api\/watch\/status'/);
+  const appWithoutLocalWatch = app.replace("fetch('/api/watch/status', {", '');
+  assert.doesNotMatch(appWithoutLocalWatch, /\b(?:fetch|XMLHttpRequest)\s*\(/);
+  for (const source of [metadata, scan, fileOps, worker]) {
     assert.doesNotMatch(source, /\b(?:fetch|XMLHttpRequest)\s*\(/);
     assert.doesNotMatch(source, /\b(?:localStorage|sessionStorage|indexedDB)\b/);
   }
+  assert.doesNotMatch(app, /\b(?:localStorage|sessionStorage|indexedDB)\b/);
+});
+
+test('Studio exposes only a fixed local watcher status route', async () => {
+  let closed = false;
+  const watcher = {
+    getSnapshot: () => ({
+      enabled: true,
+      mode: 'watching',
+      folder: 'outputs',
+      scannedAt: '2026-10-14T12:00:00.000Z',
+      entriesScanned: 2,
+      imageCount: 1,
+      candidateCount: 1,
+      newCount: 1,
+      largeCount: 0,
+      pendingCount: 0,
+      partial: false,
+      truncated: false,
+      largeImageThresholdBytes: 10485760,
+      candidates: [{path: '<img src=x onerror=alert(1)>/new.png', bytes: 32, modifiedAt: '2026-10-14T12:00:00.000Z', discoveredAt: '2026-10-14T12:00:00.000Z', isNew: true, isLarge: false, stable: true}],
+      notice: null,
+    }),
+    close: () => { closed = true; },
+  };
+  await withStudio(async ({baseUrl}) => {
+    const response = await fetch(baseUrl + '/api/watch/status');
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /application\/json/);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
+    const status = await response.json();
+    assert.equal(status.enabled, true);
+    assert.equal(status.candidates[0].path, '<img src=x onerror=alert(1)>/new.png');
+    assert.doesNotMatch(JSON.stringify(status), /C:\\\\Users|\/home\//);
+    const queryResponse = await fetch(baseUrl + '/api/watch/status?path=C%3A%5CUsers%5Csecret');
+    assert.equal(queryResponse.status, 404);
+  }, watcher);
+  assert.equal(closed, true);
 });
 
 test('Studio rejects methods other than GET', async () => {
