@@ -19,8 +19,9 @@ test('runs build, typecheck and tests without a shell and reports every result',
   assert.equal(result.build, true);
   assert.equal(result.typecheck, false);
   assert.equal(result.tests, true);
-  assert.equal(result.acceptance, true);
+  assert.equal(result.acceptance, false);
   assert.equal(result.allPassed, false);
+  assert.match(result.details.acceptance, /not configured/i);
   assert.equal(calls.length, 3);
   assert.deepEqual(calls[0], {command: {command: 'pnpm', args: ['build']}, cwd: 'C:/worktree'});
   assert.match(result.details.typecheck, /typecheck failed/);
@@ -75,6 +76,7 @@ test('runs explicitly approved preparation commands before build, typecheck and 
     test: {command: 'npm', args: ['test']},
   }, {
     allowPreparation: true,
+    acceptanceCheck: async () => ({passed: true, details: 'deterministic acceptance passed'}),
     runner: async (command, cwd) => {
       calls.push({command, cwd});
       return {stdout: '', stderr: ''};
@@ -82,6 +84,7 @@ test('runs explicitly approved preparation commands before build, typecheck and 
   });
 
   assert.equal(result.allPassed, true);
+  assert.equal(result.details.acceptance, 'deterministic acceptance passed');
   assert.deepEqual(calls.map(({command}) => command.args?.[0]), ['ci', 'run', 'run', 'test']);
   assert.deepEqual(calls.map(({cwd}) => cwd), Array(4).fill('C:/worktree'));
   assert.equal(calls[0].command.timeoutMs, 30000);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 import {isAbsolute, relative, resolve} from 'node:path';
-import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
+import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, listInterruptedWorktrees, planRepository, recoverInterruptedWorktree, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
 import {verifyLicense} from '@cleancode/license';
 import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
@@ -46,7 +46,7 @@ function format(args: string[]): OutputFormat {
 }
 
 function targetRoot(args: string[]): string {
-  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file']);
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file', '--confirm-branch', '--confirm-path']);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--dry-run' || value.startsWith('--')) {
@@ -59,7 +59,7 @@ function targetRoot(args: string[]): string {
 }
 
 function printUsage(): void {
-  console.error('Usage: cleancode <discover|analyze|plan|review|experiment|apply|report> [root] [options]');
+  console.error('Usage: cleancode <discover|analyze|plan|review|experiment|apply|report|recover> [root] [options]');
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  experiment <root> --path <relative-path> [--path <relative-path> ...] --verification-file checks.json');
   console.error('  experiment <root> --candidates-file paths.json --verification-file checks.json');
@@ -71,6 +71,10 @@ function printUsage(): void {
   console.error('  dependency setup in an isolated worktree requires --allow-preparation');
   console.error('  real CleanCode apply still requires engine-verified positive proof');
   console.error('  report [--format=json|md|html] [--output file]');
+  console.error('  recover [root] [--format=json] (read-only list)');
+  console.error('  recover [root] --rollback --confirm-branch <exact-branch> --confirm-path <exact-listed-path>');
+  console.error('  recover removes only registered, uncommitted Guardian temp worktrees and retains their backup branches');
+  console.error('  recover never removes committed review branches or replays cleanup receipts');
   console.error('  license <activate|status> --license-file file --public-key-file file [--output file]');
   console.error('  mcp');
 }
@@ -269,6 +273,46 @@ export async function runCli(args: readonly string[]): Promise<number> {
   }
   if (command === 'license') return runLicenseCommand(args.slice(1));
   if (command === 'mcp') { await serveMcp(); return 0; }
+  if (command === 'recover') {
+    const values = [...args.slice(1)];
+    const root = targetRoot(values);
+    const recoveryFormat = format(values);
+    const confirmBranch = optionValue(values, '--confirm-branch');
+    const confirmPath = optionValue(values, '--confirm-path');
+    const rollback = values.includes('--rollback');
+    if (!rollback && (confirmBranch !== undefined || confirmPath !== undefined)) {
+      throw new CleanCodeError('POLICY_VIOLATION', 'Confirmation flags require --rollback; without it recover is read-only');
+    }
+    if (rollback) {
+      if (confirmBranch === undefined || confirmPath === undefined) {
+        throw new CleanCodeError('POLICY_VIOLATION', 'Rollback requires both --confirm-branch and --confirm-path copied exactly from the listing');
+      }
+      await recoverInterruptedWorktree({rootDir: root, branchName: confirmBranch, worktreePath: confirmPath, confirmBranch, confirmPath});
+      if (recoveryFormat === 'json') console.log(JSON.stringify({mode: 'rollback', branchName: confirmBranch, worktreePath: confirmPath, backupRetained: true}, null, 2));
+      else {
+        console.log(`✓ removed the isolated worktree and execution branch ${confirmBranch}`);
+        console.log('✓ the matching cleancode/backup-* branch was retained');
+        console.log('! This does not restore committed work or replay an undo receipt.');
+      }
+      return 0;
+    }
+    const entries = await listInterruptedWorktrees(root);
+    if (recoveryFormat === 'json') console.log(JSON.stringify({mode: 'read-only', entries}, null, 2));
+    else if (entries.length === 0) console.log('✓ No registered Guardian recovery worktrees were found in the OS temp directory');
+    else {
+      for (const entry of entries) {
+        console.log(`${entry.state}: ${entry.branchName}`);
+        console.log(`  path: ${entry.worktreePath}`);
+        console.log(`  working tree: ${entry.workingTree}; ${entry.reason}`);
+        if (entry.state === 'recoverable') {
+          console.log(`  confirm with: cleancode recover --rollback --confirm-branch "${entry.branchName}" --confirm-path "${entry.worktreePath}"`);
+        }
+      }
+      console.log('! Committed review branches are listed but never removed. The matching backup branch is retained.');
+      console.log('! This command cannot recover a committed branch or replay a cleanup receipt after a crash.');
+    }
+    return 0;
+  }
   if (command === 'github') {
     const action = args[1];
     if (action !== 'analyze') throw new Error('Usage: cleancode github analyze <owner/repository> --destination <new-local-path> [--format=json]');

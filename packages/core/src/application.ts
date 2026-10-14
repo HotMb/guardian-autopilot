@@ -1,6 +1,8 @@
 import {randomBytes} from 'node:crypto';
+import {execFile as execFileCallback} from 'node:child_process';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {promisify} from 'node:util';
 import type {Candidate, State, VerificationResult} from '@cleancode/shared/types';
 import {CleanCodeError} from '@cleancode/shared/errors';
 import {AuditLog, type AuditEventInput} from './audit-log.js';
@@ -8,6 +10,10 @@ import {ExecutionStateMachine} from './state-machine.js';
 import {WorktreeExecutor} from './executor.js';
 import {ReceiptStore} from './receipts.js';
 import {runVerification, type VerificationConfig} from './verifier.js';
+import {enforceChangeLimits, isProtectedPath} from './safeguards.js';
+import {loadRepositoryConfig, matchesConfiguredRepositoryPath} from './repository-config.js';
+
+const execFile = promisify(execFileCallback);
 
 export type CleanupExecutionOptions = {
   rootDir: string;
@@ -51,6 +57,61 @@ function errorMessage(error: unknown): string {
 async function audit(log: AuditLog, id: string, state: State, action: string, details?: Readonly<Record<string, unknown>>): Promise<void> {
   const event: AuditEventInput = {id: `${id}-${state.toLowerCase()}`, action, state, occurredAt: new Date().toISOString(), details};
   await log.append(event);
+}
+
+async function cleanupAcceptanceCheck(
+  worktreePath: string,
+  expectedPaths: readonly string[],
+  counts: {files: number; lines: number; bytes: number},
+  approveLargeChange: boolean,
+): Promise<{passed: boolean; details?: string}> {
+  try {
+    enforceChangeLimits(counts);
+    if (expectedPaths.length !== counts.files) {
+      return {passed: false, details: 'Acceptance failed: requested file count does not match the bounded deletion preview'};
+    }
+    if (counts.files > 10 && !approveLargeChange) {
+      return {passed: false, details: 'Acceptance failed: changes over 10 files lack explicit approval'};
+    }
+    const repositoryConfig = await loadRepositoryConfig(worktreePath);
+    for (const path of expectedPaths) {
+      if (isProtectedPath(path) || matchesConfiguredRepositoryPath(path, repositoryConfig.protectedPaths)) {
+        return {passed: false, details: `Acceptance failed: protected path is included (${path})`};
+      }
+    }
+
+    const diff = await execFile('git', ['-C', worktreePath, 'diff', '--name-status', '-z', 'HEAD', '--'], {
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+    });
+    const tokens = diff.stdout.split('\0').filter(Boolean);
+    const actualDeletions: string[] = [];
+    for (let index = 0; index < tokens.length;) {
+      const status = tokens[index++];
+      const path = tokens[index++];
+      if (status !== 'D' || path === undefined) {
+        return {passed: false, details: `Acceptance failed: unexpected tracked change (${status ?? 'malformed diff'})`};
+      }
+      actualDeletions.push(path.replaceAll('\\', '/'));
+    }
+    const expected = expectedPaths.map((path) => path.replaceAll('\\', '/')).sort();
+    actualDeletions.sort();
+    if (actualDeletions.length !== expected.length || actualDeletions.some((path, index) => path !== expected[index])) {
+      return {passed: false, details: 'Acceptance failed: tracked changes do not exactly match the requested deletions'};
+    }
+
+    const untracked = await execFile('git', ['-C', worktreePath, 'ls-files', '--others', '--exclude-standard', '-z'], {
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+    });
+    const untrackedPaths = untracked.stdout.split('\0').filter(Boolean);
+    if (untrackedPaths.length > 0) {
+      return {passed: false, details: `Acceptance failed: unexpected untracked file (${untrackedPaths[0]})`};
+    }
+    return {passed: true, details: `Acceptance passed: exactly ${expected.length} requested tracked deletion(s), within policy limits, with no unexpected changes`};
+  } catch (error) {
+    return {passed: false, details: `Acceptance check failed: ${errorMessage(error)}`};
+  }
 }
 
 export async function executeCleanup(options: CleanupExecutionOptions): Promise<CleanupExecutionResult> {
@@ -114,7 +175,15 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
 
     verification = await runVerification(worktree.worktreePath, experiment
       ? {...options.verification, requireAll: true}
-      : options.verification ?? {}, {allowPreparation: options.allowPreparation});
+      : options.verification ?? {}, {
+      allowPreparation: options.allowPreparation,
+      acceptanceCheck: () => cleanupAcceptanceCheck(
+        worktree.worktreePath,
+        changedPaths,
+        preview,
+        options.approveLargeChange === true,
+      ),
+    });
     if (!verification.allPassed) {
       await rollbackExecution(executor, receiptStore, receiptId, machine, auditLog, id, verification.details);
       return {mode: experiment ? 'experiment' : 'apply', state: 'REVERTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, receiptId, verification, error: 'Verification failed'};

@@ -27,8 +27,10 @@ test('skips symlinked entries and hashes manifest files with SHA-256', async () 
   await writeFile(join(root, 'entry.ts'), 'hello');
   await writeFile(join(outside, 'secret.ts'), 'secret');
 
+  let createdLink = false;
   try {
     await symlink(join(outside, 'secret.ts'), join(root, 'linked.ts'));
+    createdLink = true;
   } catch (error) {
     if (error?.code !== 'EPERM' && error?.code !== 'EACCES') throw error;
   }
@@ -38,5 +40,30 @@ test('skips symlinked entries and hashes manifest files with SHA-256', async () 
   assert.deepEqual(manifest.files.map((file) => file.path), ['entry.ts']);
   assert.equal(manifest.files[0].sha256, '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824');
   assert.equal(manifest.files[0].bytes, 5);
+  if (createdLink) {
+    // Unknown/legacy runtime values must fail safe as skip, never as follow.
+    const legacyFollow = await discoverRepository(root, {symlinks: 'follow'});
+    assert.deepEqual(legacyFollow.files, ['entry.ts']);
+    await assert.rejects(() => discoverRepository(root, {symlinks: 'error'}), /symlink encountered: linked\.ts/i);
+  }
+});
+
+test('never traverses a directory symlink to an external target, including legacy follow values', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-symlink-root-'));
+  const outside = await mkdtemp(join(tmpdir(), 'cleancode-symlink-outside-'));
+  await writeFile(join(outside, 'secret.ts'), 'must never be read');
+  const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+  let createdLink = false;
+  try {
+    await symlink(outside, join(root, 'external'), linkType);
+    createdLink = true;
+  } catch (error) {
+    if (error?.code !== 'EPERM' && error?.code !== 'EACCES') throw error;
+  }
+  if (!createdLink) return;
+
+  const result = await discoverRepository(root, {symlinks: 'follow'});
+  assert.deepEqual(result.files, []);
+  await assert.rejects(() => discoverRepository(root, {symlinks: 'error'}), /symlink encountered: external/i);
 });
 

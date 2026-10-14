@@ -1,9 +1,9 @@
 import {createHash} from 'node:crypto';
-import {createReadStream} from 'node:fs';
-import {lstat, readdir, stat} from 'node:fs/promises';
+import {constants} from 'node:fs';
+import {lstat, open, readdir} from 'node:fs/promises';
 import {relative, resolve} from 'node:path';
 
-export type SymlinkMode = 'skip' | 'follow' | 'error';
+export type SymlinkMode = 'skip' | 'error';
 
 export type DiscoveryOptions = {
   ignore?: readonly string[];
@@ -96,11 +96,6 @@ export async function discoverRepository(rootDir: string, options: DiscoveryOpti
       if (ignored(relativePath, configuration.ignore)) continue;
       if (entry.isSymbolicLink()) {
         if (configuration.symlinks === 'error') throw new Error(`Symlink encountered: ${relativePath}`);
-        if (configuration.symlinks === 'follow') {
-          const followed = await stat(absolute);
-          if (followed.isDirectory()) await walk(absolute);
-          else if (followed.isFile()) files.push(relativePath);
-        }
         continue;
       }
       if (entry.isDirectory()) {
@@ -117,13 +112,28 @@ export async function discoverRepository(rootDir: string, options: DiscoveryOpti
 }
 
 function hashFile(path: string): Promise<string> {
-  return new Promise((resolveHash, reject) => {
-    const hash = createHash('sha256');
-    const stream = createReadStream(path);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('error', reject);
-    stream.on('end', () => resolveHash(hash.digest('hex')));
-  });
+  return (async () => {
+    const noFollow = constants.O_NOFOLLOW ?? 0;
+    const handle = await open(path, constants.O_RDONLY | noFollow);
+    try {
+      const opened = await handle.stat();
+      const currentPath = await lstat(path);
+      if (!opened.isFile() || currentPath.isSymbolicLink() || !currentPath.isFile()
+        || currentPath.dev !== opened.dev || currentPath.ino !== opened.ino) {
+        throw new Error(`Manifest entry changed or is not a regular file: ${path}`);
+      }
+      return await new Promise<string>((resolveHash, reject) => {
+        const hash = createHash('sha256');
+        const stream = handle.createReadStream({autoClose: true});
+        stream.on('data', (chunk) => hash.update(chunk));
+        stream.on('error', reject);
+        stream.on('end', () => resolveHash(hash.digest('hex')));
+      });
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      throw error;
+    }
+  })();
 }
 
 export async function buildManifest(rootDir: string, options: DiscoveryOptions = {}): Promise<RepositoryManifest> {
@@ -131,7 +141,8 @@ export async function buildManifest(rootDir: string, options: DiscoveryOptions =
   const files: ManifestFile[] = [];
   for (const path of discovery.files) {
     const absolute = resolve(discovery.root, path);
-    const details = await stat(absolute);
+    const details = await lstat(absolute);
+    if (details.isSymbolicLink() || !details.isFile()) throw new Error(`Manifest entry is not a regular file: ${path}`);
     files.push({path, bytes: details.size, sha256: await hashFile(absolute)});
   }
   return {schemaVersion: 1, root: discovery.root, files};

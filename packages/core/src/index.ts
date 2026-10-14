@@ -18,3 +18,4 @@ export * from './application.js';
 export * from './report.js';
 export * from './audit-log.js';
 export * from './receipts.js';
+export * from './recovery.js';

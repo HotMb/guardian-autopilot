@@ -163,16 +163,19 @@ test('runs dependency setup only in the isolated worktree and does not commit se
 
 test('rolls back the experiment when approved preparation modifies a tracked source file', async () => {
   const root = await repository();
-  await assert.rejects(() => executeCleanupExperiment({
-      rootDir: root,
-      paths: ['remove.ts'],
-      verification: {
-        prepare: [{command: process.execPath, args: ['-e', "require('node:fs').writeFileSync('safe.ts', 'setup changed this\\n')"]}],
-        ...passingVerification,
-      },
-      allowPreparation: true,
-    }), /unexpected.*change/i);
+  const result = await executeCleanupExperiment({
+    rootDir: root,
+    paths: ['remove.ts'],
+    verification: {
+      prepare: [{command: process.execPath, args: ['-e', "require('node:fs').writeFileSync('safe.ts', 'setup changed this\\n')"]}],
+      ...passingVerification,
+    },
+    allowPreparation: true,
+  });
 
+  assert.equal(result.state, 'REVERTED');
+  assert.equal(result.verification?.acceptance, false);
+  assert.match(result.verification?.details.acceptance ?? '', /unexpected tracked change/i);
   assert.equal(await readFile(join(root, 'safe.ts'), 'utf8'), 'export const safe = true;\n');
   assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
   assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
@@ -243,10 +246,48 @@ test('applies, verifies, audits, and commits approved deletions in an isolated w
 
   assert.equal(result.state, 'COMMITTED');
   assert.equal(result.verification?.allPassed, true);
+  assert.match(result.verification?.details.acceptance ?? '', /exactly 1 requested tracked deletion/i);
   assert.match(result.commit ?? '', /^[0-9a-f]{40}$/);
   assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
   const events = JSON.parse(`[${(await readFile(auditPath, 'utf8')).trim().split(/\r?\n/).join(',')}]`);
   assert.deepEqual(events.map((event) => event.state), ['ISOLATED', 'APPLIED', 'VERIFIED', 'COMMITTED']);
+});
+
+test('rolls back when verification introduces an unexpected tracked edit', async () => {
+  const root = await repository();
+  const result = await executeCleanup({
+    rootDir: root,
+    candidates: [candidate],
+    verification: {
+      ...passingVerification,
+      build: {command: process.execPath, args: ['-e', "require('node:fs').writeFileSync('safe.ts', 'verification changed this\\n')"]},
+    },
+  });
+
+  assert.equal(result.state, 'REVERTED');
+  assert.equal(result.verification?.acceptance, false);
+  assert.match(result.verification?.details.acceptance ?? '', /unexpected tracked change/i);
+  assert.equal(await readFile(join(root, 'safe.ts'), 'utf8'), 'export const safe = true;\n');
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
+});
+
+test('rolls back when verification leaves an unexpected untracked file', async () => {
+  const root = await repository();
+  const result = await executeCleanup({
+    rootDir: root,
+    candidates: [candidate],
+    verification: {
+      ...passingVerification,
+      build: {command: process.execPath, args: ['-e', "require('node:fs').writeFileSync('unexpected.txt', 'verification artifact')"]},
+    },
+  });
+
+  assert.equal(result.state, 'REVERTED');
+  assert.equal(result.verification?.acceptance, false);
+  assert.match(result.verification?.details.acceptance ?? '', /unexpected untracked file/i);
+  assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim(), '');
 });
 
 test('rolls back the isolated change when verification fails', async () => {
