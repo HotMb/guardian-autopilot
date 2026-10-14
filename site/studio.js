@@ -1410,6 +1410,8 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
         setNotice('Guardian will not scan its quarantine folder as a source. Choose the original image folder.', 'error');
         return;
       }
+      state.sourceBytesRemoved = null;
+      updateCounts();
       void scanEntries(directoryEntries(root, () => state.cancelRequested), {source: 'Recursive folder scan', rootHandle: root});
     } catch (error) {
       if (error?.name === 'AbortError') return;
@@ -1422,6 +1424,8 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
   nodes.folderInput.addEventListener('change', () => {
     const files = nodes.folderInput.files;
     if (files?.length) {
+      state.sourceBytesRemoved = null;
+      updateCounts();
       const snapshot = Array.from(files);
       void scanEntries(fileListEntries(snapshot), {
         source: directoryInputAvailable() ? 'Compatibility folder scan' : 'Selected image files',
