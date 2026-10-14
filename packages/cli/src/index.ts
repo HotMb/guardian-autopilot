@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 import {isAbsolute, relative, resolve} from 'node:path';
-import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, listInterruptedWorktrees, planRepository, recoverInterruptedWorktree, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
+import {analyzeClosedWorld, AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, listInterruptedWorktrees, planRepository, recoverInterruptedWorktree, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
 import {verifyLicense} from '@cleancode/license';
 import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
@@ -70,6 +70,8 @@ function printUsage(): void {
   console.error('  experiment creates only a local review branch; it never pushes or merges');
   console.error('  dependency setup in an isolated worktree requires --allow-preparation');
   console.error('  real CleanCode apply still requires engine-verified positive proof');
+  console.error('  apply <root> --candidates-file file --confirm-closed-world --verification-file checks.json');
+  console.error('  --confirm-closed-world reruns the trusted analyzer for selected paths; roots come from tracked .guardian/config.json');
   console.error('  report [--format=json|md|html] [--output file]');
   console.error('  recover [root] [--format=json] (read-only list)');
   console.error('  recover [root] --rollback --confirm-branch <exact-branch> --confirm-path <exact-listed-path>');
@@ -502,7 +504,22 @@ export async function runCli(args: readonly string[]): Promise<number> {
     if (!dryRun && optionValue(values, '--candidates-file') === undefined) {
       throw new CleanCodeError('POLICY_VIOLATION', 'Real cleanup requires an explicit candidates file reviewed by the user');
     }
-    const candidates = await loadCandidates(values, root);
+    let candidates = await loadCandidates(values, root);
+    if (!dryRun) {
+      if (!values.includes('--confirm-closed-world')) {
+        throw new CleanCodeError('POLICY_VIOLATION', 'Real apply requires --confirm-closed-world for this run; confirm that tracked closedWorld.entryFiles cover every runtime entrypoint.');
+      }
+      const analysis = await analyzeClosedWorld(root, candidates.map((candidate) => candidate.path));
+      if (!analysis.complete) {
+        const blockers = analysis.blockers.map((blocker) => `${blocker.code}${blocker.path ? ` (${blocker.path})` : ''}: ${blocker.message}`).join('; ');
+        throw new CleanCodeError('POLICY_VIOLATION', `Closed-world analysis is blocked${blockers ? `: ${blockers}` : ''}`);
+      }
+      candidates = candidates.map((candidate) => {
+        const proof = analysis.proofs.get(candidate.path);
+        if (proof === undefined) throw new CleanCodeError('POLICY_VIOLATION', `The selected path is reachable or unsupported and has no trusted proof: ${candidate.path}`);
+        return {path: candidate.path, evidence: [proof]};
+      });
+    }
     const verification = dryRun ? undefined : await loadVerification(values);
     if ((verification?.prepare?.length ?? 0) > 0 && !values.includes('--allow-preparation')) {
       throw new CleanCodeError('POLICY_VIOLATION', 'Verification config requests dependency setup; inspect its commands and pass --allow-preparation to approve them in the isolated worktree');
@@ -515,6 +532,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
       candidates,
       dryRun,
       approveLargeChange: values.includes('--approve-large-change'),
+      confirmClosedWorld: !dryRun && values.includes('--confirm-closed-world'),
       verification,
       allowPreparation: values.includes('--allow-preparation'),
       auditLog: dryRun ? undefined : optionValue(values, '--audit-file') === undefined ? undefined : new AuditLog(optionValue(values, '--audit-file') as string),

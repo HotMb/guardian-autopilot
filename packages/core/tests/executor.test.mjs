@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile as execFileCallback} from 'node:child_process';
-import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {WorktreeExecutor} from '../dist/executor.js';
-import {createVerifiedPositiveProofEvidence} from '../dist/proof-evidence.js';
+import {analyzeClosedWorld} from '../dist/closed-world.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -19,6 +19,14 @@ async function repository() {
   await git(root, 'init', '-q');
   await git(root, 'config', 'user.email', 'test@example.com');
   await git(root, 'config', 'user.name', 'CleanCode Tests');
+  await mkdir(join(root, '.guardian'), {recursive: true});
+  await writeFile(join(root, 'package.json'), JSON.stringify({name: 'executor-test-app', private: true}));
+  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({
+    version: 1,
+    protectedPaths: [],
+    ignoredPaths: [],
+    closedWorld: {profile: 'node-application-v1', commitment: 'all-runtime-roots-declared', entryFiles: ['safe.ts']},
+  }));
   await writeFile(join(root, 'safe.ts'), 'export const safe = true;\n');
   await writeFile(join(root, 'remove.ts'), 'export const remove = true;\n');
   await git(root, 'add', '.');
@@ -26,16 +34,17 @@ async function repository() {
   return root;
 }
 
-const allowedCandidate = {
-  id: 'candidate-remove',
-  path: 'remove.ts',
-  kind: 'unused-file',
-  confidence: 0.99,
-  evidence: [createVerifiedPositiveProofEvidence('test-only engine proof', 0.99)],
-};
+async function provenCandidate(root, path = 'remove.ts') {
+  const analysis = await analyzeClosedWorld(root, [path]);
+  assert.equal(analysis.complete, true, JSON.stringify(analysis.blockers));
+  const proof = analysis.proofs.get(path);
+  assert.ok(proof, `expected engine proof for ${path}`);
+  return {id: `candidate-${path}`, path, kind: 'unused-file', confidence: 0.99, evidence: [proof]};
+}
 
 test('creates an isolated worktree and commits only inside its branch', async () => {
   const root = await repository();
+  const allowedCandidate = await provenCandidate(root);
   const executor = new WorktreeExecutor({rootDir: root});
   const isolated = await executor.createIsolatedWorktree();
 
@@ -71,6 +80,7 @@ test('refuses to commit verification or setup side effects outside the requested
 
 test('rejects unsafe candidates before changing the isolated worktree', async () => {
   const root = await repository();
+  const allowedCandidate = await provenCandidate(root);
   const executor = new WorktreeExecutor({rootDir: root});
   await executor.createIsolatedWorktree();
 
@@ -80,6 +90,7 @@ test('rejects unsafe candidates before changing the isolated worktree', async ()
 
 test('rejects serialized or caller-asserted positive proof at the deletion boundary', async () => {
   const root = await repository();
+  const allowedCandidate = await provenCandidate(root);
   const executor = new WorktreeExecutor({rootDir: root});
   await executor.createIsolatedWorktree();
 
@@ -91,8 +102,25 @@ test('rejects serialized or caller-asserted positive proof at the deletion bound
   await executor.rollback();
 });
 
+test('rejects a worktree mutation after proof validation and before deletion', async () => {
+  const root = await repository();
+  const allowedCandidate = await provenCandidate(root);
+  class MutatingExecutor extends WorktreeExecutor {
+    async beforeDeletionBoundary() {
+      await writeFile(join(this.worktree.worktreePath, 'safe.ts'), 'changed after proof validation\n');
+    }
+  }
+  const executor = new MutatingExecutor({rootDir: root});
+  const isolated = await executor.createIsolatedWorktree();
+
+  await assert.rejects(() => executor.applyDeletions([allowedCandidate]), /closed-world proof could not be revalidated.*dirty-git-tree/i);
+  assert.equal((await readFile(join(isolated.worktreePath, 'remove.ts'), 'utf8')).replaceAll('\r\n', '\n'), 'export const remove = true;\n');
+  await executor.rollback();
+});
+
 test('rollback removes the execution branch while retaining the backup branch', async () => {
   const root = await repository();
+  const allowedCandidate = await provenCandidate(root);
   const executor = new WorktreeExecutor({rootDir: root});
   const isolated = await executor.createIsolatedWorktree();
   await executor.applyDeletions([allowedCandidate]);

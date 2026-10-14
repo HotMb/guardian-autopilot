@@ -51,6 +51,9 @@ function reportPath(value: string): string {
 
 function ignored(relativePath: string, patterns: readonly string[]): boolean {
   const normalized = reportPath(relativePath);
+  // Git worktrees store a file named `.git` that points to metadata outside the
+  // checkout. Treat it like the `.git/` directory in the primary checkout.
+  if (normalized.split('/').includes('.git')) return true;
   return patterns.some((pattern) => {
     const clean = reportPath(pattern).replace(/^\.\//, '');
     if (clean.includes('*')) {

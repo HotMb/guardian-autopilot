@@ -12,6 +12,8 @@ import {ReceiptStore} from './receipts.js';
 import {runVerification, type VerificationConfig} from './verifier.js';
 import {enforceChangeLimits, isProtectedPath} from './safeguards.js';
 import {loadRepositoryConfig, matchesConfiguredRepositoryPath} from './repository-config.js';
+import {analyzeClosedWorld, validateClosedWorldProof} from './closed-world.js';
+import {getPositiveProofBinding, isEngineVerifiedPositiveProof} from './proof-evidence.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -28,6 +30,8 @@ export type CleanupExecutionOptions = {
   receiptDirectory?: string;
   commitMessage?: string;
   expectedRepositoryHead?: string;
+  /** Explicit per-run confirmation that configured roots cover every runtime entrypoint. */
+  confirmClosedWorld?: boolean;
 };
 
 export type CleanupExecutionResult = {
@@ -134,6 +138,37 @@ export async function executeCleanupExperiment(options: CleanupExperimentOptions
 async function runCleanup(options: CleanupExecutionOptions, experiment: boolean): Promise<CleanupExecutionResult> {
   const executor = new WorktreeExecutor({rootDir: options.rootDir, worktreeRoot: options.worktreeRoot});
 
+  let candidates = options.candidates;
+  if (!experiment && !options.dryRun) {
+    const paths = options.candidates.map((candidate) => candidate.path);
+    // Preserve clear path and protected-file diagnostics before analyzing evidence.
+    await executor.previewDeletionExperiment(paths);
+    if (options.confirmClosedWorld === true) {
+      const analysis = await analyzeClosedWorld(options.rootDir, paths);
+      if (!analysis.complete) {
+        const details = analysis.blockers.map((blocker) => `${blocker.code}${blocker.path ? ` (${blocker.path})` : ''}: ${blocker.message}`).join('; ');
+        throw new CleanCodeError('POLICY_VIOLATION', `Closed-world analysis is blocked${details ? `: ${details}` : ''}`);
+      }
+      candidates = options.candidates.map((candidate) => {
+        const proof = analysis.proofs.get(candidate.path);
+        if (proof === undefined) throw new CleanCodeError('POLICY_VIOLATION', `No closed-world unreachable proof was produced for ${candidate.path}`);
+        return {path: candidate.path, evidence: [proof]};
+      });
+    } else {
+      const bound = options.candidates.flatMap((candidate) => candidate.evidence
+        .filter((evidence) => evidence.type === 'positive_proof' && getPositiveProofBinding(evidence) !== undefined)
+        .map((evidence) => ({path: candidate.path, evidence})));
+      if (bound.length > 0) throw new CleanCodeError('POLICY_VIOLATION', 'A bound closed-world proof requires explicit per-run confirmation (confirmClosedWorld).');
+      for (const candidate of options.candidates) {
+        for (const evidence of candidate.evidence) {
+          if (evidence.type === 'positive_proof' && isEngineVerifiedPositiveProof(evidence)) {
+            await validateClosedWorldProof(options.rootDir, candidate.path, evidence);
+          }
+        }
+      }
+    }
+  }
+
   if (options.dryRun) {
     if (options.candidates.length === 0) {
       return {mode: 'dry-run', state: 'PLANNED', changedPaths: [], files: 0, lines: 0, bytes: 0};
@@ -142,10 +177,10 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
     return {mode: 'dry-run', state: 'PLANNED', changedPaths: preview.paths, files: preview.files, lines: preview.lines, bytes: preview.bytes};
   }
 
-  if (options.candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', `At least one ${experiment ? 'experiment path' : 'approved candidate'} is required`);
+  if (candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', `At least one ${experiment ? 'experiment path' : 'approved candidate'} is required`);
   const preview = experiment
-    ? await executor.previewDeletionExperiment(options.candidates.map((candidate) => candidate.path))
-    : await executor.previewDeletions(options.candidates);
+    ? await executor.previewDeletionExperiment(candidates.map((candidate) => candidate.path))
+    : await executor.previewDeletions(candidates);
   if (preview.files > 10 && options.approveLargeChange !== true) {
     throw new CleanCodeError('POLICY_VIOLATION', `Cleanup affects more than 10 files (${preview.files}); explicit human approval is required`);
   }
@@ -168,7 +203,7 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
     const receipt = await receiptStore.begin(changedPaths);
     receiptId = receipt.id;
     if (experiment) await executor.applyDeletionExperiment(changedPaths);
-    else await executor.applyDeletions(options.candidates);
+    else await executor.applyDeletions(candidates);
     await receiptStore.finalize(receipt.id);
     machine.transitionTo('APPLIED');
     await audit(auditLog, id, 'APPLIED', experiment ? 'experiment-deletions' : 'apply-deletions', {paths: changedPaths, receiptId});

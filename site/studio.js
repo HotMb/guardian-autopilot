@@ -30,6 +30,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     inventoryComplete: true,
     unreadableFiles: 0,
     view: 'all',
+    layout: 'list',
     folder: null,
     query: '',
     sort: 'name',
@@ -64,7 +65,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
   const nodes = {
     folderInput: $('folder-input'), chooseFolder: $('choose-folder'), folderFallback: $('folder-fallback'), folderCapability: $('folder-capability'), folderStatus: $('folder-status'),
     scopeCopy: $('scope-copy'), scanState: $('scan-state'), demoLabel: $('demo-label'),
-    rows: $('file-rows'), folders: $('folder-list'), folderTotal: $('folder-total'),
+    rows: $('file-rows'), tableScroll: $('table-scroll'), contactSheet: $('contact-sheet'), viewList: $('view-list'), viewContactSheet: $('view-contact-sheet'), folders: $('folder-list'), folderTotal: $('folder-total'),
     totalAssets: $('total-assets'), assetCaption: $('asset-caption'), imageBytes: $('images-size'), storageCaption: $('storage-caption'), duplicateCount: $('duplicate-count'), spaceFreedTotal: $('space-freed-total'), sourceBytesCaption: $('source-bytes-caption'),
     duplicateMethod: $('duplicate-method'),
     allCount: $('count-all'), duplicateViewCount: $('count-duplicates'), similarViewCount: $('count-similar'), largeCount: $('count-large'), planCount: $('count-plan'),
@@ -400,17 +401,158 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     checkbox.disabled = state.scanning;
     checkbox.setAttribute('aria-label', `Add ${record.path} to review candidates`);
     checkbox.addEventListener('change', () => {
-      if (checkbox.checked) state.selectedForPlan.add(record.id);
-      else state.selectedForPlan.delete(record.id);
-      state.plan = null;
-      nodes.planResult.hidden = true;
-      row.classList.toggle('is-selected', state.selectedForPlan.has(record.id));
-      updateCounts();
-      renderInspector();
+      setReviewSelection(record, checkbox.checked, row);
     });
     reviewCell.append(checkbox);
     row.append(fileCell, folderCell, sizeCell, signalCell, reviewCell);
     return row;
+  }
+
+  function setReviewSelection(record, checked, item) {
+    if (checked) state.selectedForPlan.add(record.id);
+    else state.selectedForPlan.delete(record.id);
+    state.plan = null;
+    nodes.planResult.hidden = true;
+    item.classList.toggle('is-selected', checked);
+    item.classList.toggle('is-checked', checked);
+    updateCounts();
+    renderInspector();
+  }
+
+  function makeContactCard(record) {
+    const card = document.createElement('article');
+    card.className = 'studio-contact-card';
+    card.setAttribute('role', 'listitem');
+    card.classList.toggle('is-checked', state.selectedForPlan.has(record.id));
+    card.classList.toggle('is-inspected', state.selectedFile === record.id);
+
+    const imageButton = document.createElement('button');
+    imageButton.type = 'button';
+    imageButton.className = 'studio-contact-image-button';
+    imageButton.dataset.fileId = record.id;
+    imageButton.setAttribute('aria-pressed', String(state.selectedFile === record.id));
+    imageButton.setAttribute('aria-label', `Inspect ${record.path}`);
+    const image = document.createElement('img');
+    image.className = 'studio-contact-image';
+    const url = previewUrl(record);
+    if (url) image.src = url;
+    image.alt = '';
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    imageButton.append(image);
+    imageButton.addEventListener('click', () => selectFile(record.id));
+    card.append(imageButton);
+
+    const signals = document.createElement('div');
+    signals.className = 'studio-contact-signals';
+    if (record.duplicateGroup) {
+      const exact = document.createElement('span');
+      exact.className = 'studio-contact-signal is-exact';
+      exact.textContent = 'Exact byte match';
+      signals.append(exact);
+    }
+    if (record.similarGroup) {
+      const similar = document.createElement('span');
+      similar.className = 'studio-contact-signal is-visual';
+      similar.textContent = 'Visual candidate · hint only';
+      signals.append(similar);
+    }
+    if (record.bytes >= LARGE_IMAGE_BYTES) {
+      const large = document.createElement('span');
+      large.className = 'studio-contact-signal';
+      large.textContent = 'Large image · size only';
+      signals.append(large);
+    }
+    if (!signals.childElementCount) {
+      const none = document.createElement('span');
+      none.className = 'studio-contact-signal';
+      none.textContent = 'No review signal';
+      signals.append(none);
+    }
+    card.append(signals);
+
+    const copy = document.createElement('div');
+    copy.className = 'studio-contact-copy';
+    const name = document.createElement('h3');
+    name.className = 'studio-contact-name';
+    name.textContent = record.name;
+    const path = document.createElement('p');
+    path.className = 'studio-contact-path';
+    path.textContent = record.path;
+    copy.append(name, path);
+
+    const details = document.createElement('dl');
+    details.className = 'studio-contact-details';
+    const sizeTerm = document.createElement('dt');
+    sizeTerm.textContent = 'Size';
+    const sizeValue = document.createElement('dd');
+    sizeValue.textContent = formatBytes(record.bytes);
+    const typeTerm = document.createElement('dt');
+    typeTerm.textContent = 'Type';
+    const typeValue = document.createElement('dd');
+    typeValue.textContent = record.type || '—';
+    details.append(sizeTerm, sizeValue, typeTerm, typeValue);
+    copy.append(details);
+    card.append(copy);
+
+    const reviewLabel = document.createElement('label');
+    reviewLabel.className = 'studio-contact-review';
+    const checkbox = document.createElement('input');
+    checkbox.className = 'studio-review-check';
+    checkbox.type = 'checkbox';
+    checkbox.checked = state.selectedForPlan.has(record.id);
+    checkbox.disabled = state.scanning;
+    checkbox.setAttribute('aria-label', `Add ${record.path} to review candidates`);
+    checkbox.addEventListener('change', () => setReviewSelection(record, checkbox.checked, card));
+    const labelText = document.createElement('span');
+    labelText.textContent = 'Add to review';
+    reviewLabel.append(checkbox, labelText);
+    card.append(reviewLabel);
+    return card;
+  }
+
+  function renderContactSheet(visible, filteredRecords) {
+    nodes.contactSheet.replaceChildren();
+    if (state.view !== 'similar') {
+      const grid = document.createElement('div');
+      grid.className = 'studio-contact-grid';
+      grid.setAttribute('role', 'list');
+      grid.setAttribute('aria-label', 'Images on this page');
+      grid.append(...visible.map(makeContactCard));
+      nodes.contactSheet.append(grid);
+      return;
+    }
+
+    const groups = new Map();
+    for (const record of visible) {
+      const members = groups.get(record.similarGroup) ?? [];
+      members.push(record);
+      groups.set(record.similarGroup, members);
+    }
+    let groupNumber = 0;
+    for (const [groupId, members] of groups) {
+      groupNumber += 1;
+      const matchingGroupSize = filteredRecords.filter((record) => record.similarGroup === groupId).length;
+      const section = document.createElement('section');
+      section.className = 'studio-contact-group';
+      const heading = document.createElement('div');
+      heading.className = 'studio-contact-group-heading';
+      const title = document.createElement('h3');
+      title.id = `studio-contact-group-${groupNumber}`;
+      title.textContent = `Candidate group ${groupNumber}`;
+      const note = document.createElement('p');
+      note.textContent = matchingGroupSize > members.length
+        ? `${members.length} shown on this page · ${matchingGroupSize} match current filters · heuristic hint only. More may be on another page.`
+        : `${members.length} image${members.length === 1 ? '' : 's'} · heuristic hint only, not proof of interchangeability.`;
+      heading.append(title, note);
+      const grid = document.createElement('div');
+      grid.className = 'studio-contact-grid';
+      grid.setAttribute('role', 'list');
+      grid.setAttribute('aria-labelledby', title.id);
+      grid.append(...members.map(makeContactCard));
+      section.append(heading, grid);
+      nodes.contactSheet.append(section);
+    }
   }
 
   function renderRows() {
@@ -425,7 +567,19 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     const start = state.page * PAGE_SIZE;
     const visible = records.slice(start, start + PAGE_SIZE);
     retainVisibleObjectUrls(visible);
-    nodes.rows.replaceChildren(...visible.map(makeRow));
+    if (state.layout === 'list') {
+      nodes.rows.replaceChildren(...visible.map(makeRow));
+      nodes.contactSheet.replaceChildren();
+    } else {
+      nodes.rows.replaceChildren();
+      renderContactSheet(visible, records);
+    }
+    nodes.tableScroll.hidden = state.layout !== 'list' || records.length === 0;
+    nodes.contactSheet.hidden = state.layout !== 'contact' || records.length === 0;
+    nodes.viewList.setAttribute('aria-pressed', String(state.layout === 'list'));
+    nodes.viewContactSheet.setAttribute('aria-pressed', String(state.layout === 'contact'));
+    nodes.viewList.classList.toggle('is-active', state.layout === 'list');
+    nodes.viewContactSheet.classList.toggle('is-active', state.layout === 'contact');
     nodes.empty.hidden = records.length !== 0;
     nodes.range.textContent = records.length === 0 ? 'Showing 0 images' : `Showing ${start + 1}–${start + visible.length} of ${records.length} image${records.length === 1 ? '' : 's'}`;
     nodes.previousPage.disabled = state.scanning || state.page === 0;
@@ -811,7 +965,10 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     if (state.selectedFile === id) return;
     state.selectedFile = id;
     state.metadataCache.clear();
-    for (const item of nodes.rows.querySelectorAll('[data-file-id]')) item.setAttribute('aria-pressed', String(item.dataset.fileId === id));
+    for (const item of [...nodes.rows.querySelectorAll('[data-file-id]'), ...nodes.contactSheet.querySelectorAll('[data-file-id]')]) {
+      item.setAttribute('aria-pressed', String(item.dataset.fileId === id));
+      item.closest('.studio-contact-card')?.classList.toggle('is-inspected', item.dataset.fileId === id);
+    }
     const selected = state.records.find((record) => record.id === id);
     if (selected) nodes.index.textContent = `${String(state.records.indexOf(selected) + 1).padStart(2, '0')} / ${String(state.records.length).padStart(2, '0')}`;
     void renderInspector();
@@ -1298,6 +1455,16 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
   nodes.nextPage.addEventListener('click', () => {
     if (state.scanning) return;
     state.page += 1;
+    renderRows();
+  });
+  nodes.viewList.addEventListener('click', () => {
+    if (state.layout === 'list') return;
+    state.layout = 'list';
+    renderRows();
+  });
+  nodes.viewContactSheet.addEventListener('click', () => {
+    if (state.layout === 'contact') return;
+    state.layout = 'contact';
     renderRows();
   });
   for (const item of document.querySelectorAll('[data-view]')) {

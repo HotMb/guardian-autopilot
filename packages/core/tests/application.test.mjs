@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {AuditLog} from '../dist/audit-log.js';
 import {executeCleanup, executeCleanupExperiment} from '../dist/application.js';
-import {createVerifiedPositiveProofEvidence} from '../dist/proof-evidence.js';
+import {analyzeClosedWorld} from '../dist/closed-world.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -20,6 +20,14 @@ async function repository() {
   await git(root, 'init', '-q');
   await git(root, 'config', 'user.email', 'test@example.com');
   await git(root, 'config', 'user.name', 'CleanCode Tests');
+  await mkdir(join(root, '.guardian'), {recursive: true});
+  await writeFile(join(root, 'package.json'), JSON.stringify({name: 'application-test-app', private: true}));
+  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({
+    version: 1,
+    protectedPaths: [],
+    ignoredPaths: [],
+    closedWorld: {profile: 'node-application-v1', commitment: 'all-runtime-roots-declared', entryFiles: ['safe.ts']},
+  }));
   await writeFile(join(root, 'safe.ts'), 'export const safe = true;\n');
   await writeFile(join(root, 'remove.ts'), 'export const remove = true;\n');
   await git(root, 'add', '.');
@@ -27,13 +35,15 @@ async function repository() {
   return root;
 }
 
-const candidate = {
-  id: 'candidate-remove',
-  path: 'remove.ts',
-  kind: 'unused-file',
-  confidence: 0.99,
-  evidence: [createVerifiedPositiveProofEvidence('test-only engine proof', 0.99)],
-};
+async function provenCandidates(root, paths = ['remove.ts']) {
+  const analysis = await analyzeClosedWorld(root, paths);
+  assert.equal(analysis.complete, true, JSON.stringify(analysis.blockers));
+  return paths.map((path) => {
+    const proof = analysis.proofs.get(path);
+    assert.ok(proof, `expected engine proof for ${path}`);
+    return {id: `candidate-${path}`, path, kind: 'unused-file', confidence: 0.99, evidence: [proof]};
+  });
+}
 
 const passingVerification = {
   build: {command: process.execPath, args: ['-e', 'process.exit(0)']},
@@ -43,8 +53,9 @@ const passingVerification = {
 
 test('dry-run previews approved deletions without changing the repository', async () => {
   const root = await repository();
+  const candidates = await provenCandidates(root);
   const before = await readFile(join(root, 'remove.ts'), 'utf8');
-  const result = await executeCleanup({rootDir: root, candidates: [candidate], dryRun: true});
+  const result = await executeCleanup({rootDir: root, candidates, dryRun: true});
 
   assert.equal(result.mode, 'dry-run');
   assert.equal(result.state, 'PLANNED');
@@ -55,13 +66,19 @@ test('dry-run previews approved deletions without changing the repository', asyn
 
 test('repository-defined protected paths block both apply and experiment before a worktree is created', async () => {
   const root = await repository();
+  const candidates = await provenCandidates(root);
   await mkdir(join(root, '.guardian'), {recursive: true});
-  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({version: 1, protectedPaths: ['remove.ts']}));
+  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({
+    version: 1,
+    protectedPaths: ['remove.ts'],
+    ignoredPaths: [],
+    closedWorld: {profile: 'node-application-v1', commitment: 'all-runtime-roots-declared', entryFiles: ['safe.ts']},
+  }));
   await git(root, 'add', '.guardian/config.json');
   await git(root, 'commit', '-qm', 'configure a protected source path');
 
   await assert.rejects(
-    () => executeCleanup({rootDir: root, candidates: [candidate], verification: passingVerification}),
+    () => executeCleanup({rootDir: root, candidates, verification: passingVerification}),
     /protected path cannot be changed: remove\.ts/i,
   );
   await assert.rejects(
@@ -198,21 +215,19 @@ test('experiments cannot bypass required build, typecheck, and test checks', asy
 });
 
 test('requires explicit human approval before applying more than ten files', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'cleancode-large-application-'));
-  await git(root, 'init', '-q');
-  await git(root, 'config', 'user.email', 'test@example.com');
-  await git(root, 'config', 'user.name', 'CleanCode Tests');
-  const candidates = [];
+  const root = await repository();
+  const paths = [];
   for (let index = 0; index < 11; index += 1) {
     const path = `remove-${index}.ts`;
     await writeFile(join(root, path), `export const value${index} = true;\n`);
-    candidates.push({path, evidence: [createVerifiedPositiveProofEvidence('test-only engine proof', 0.99)]});
+    paths.push(path);
   }
   await git(root, 'add', '.');
   await git(root, 'commit', '-qm', 'initial');
+  const candidates = await provenCandidates(root, paths);
 
   await assert.rejects(
-    () => executeCleanup({rootDir: root, candidates, verification: passingVerification}),
+    () => executeCleanup({rootDir: root, candidates, confirmClosedWorld: true, verification: passingVerification}),
     /more than 10 files.*explicit human approval/i,
   );
 
@@ -236,10 +251,12 @@ test('rejects caller-asserted proof before creating a cleanup worktree', async (
 
 test('applies, verifies, audits, and commits approved deletions in an isolated worktree', async () => {
   const root = await repository();
+  const candidates = await provenCandidates(root);
   const auditPath = join(await mkdtemp(join(tmpdir(), 'cleancode-audit-')), 'audit.jsonl');
   const result = await executeCleanup({
     rootDir: root,
-    candidates: [candidate],
+    candidates,
+    confirmClosedWorld: true,
     verification: passingVerification,
     auditLog: new AuditLog(auditPath),
   });
@@ -255,9 +272,11 @@ test('applies, verifies, audits, and commits approved deletions in an isolated w
 
 test('rolls back when verification introduces an unexpected tracked edit', async () => {
   const root = await repository();
+  const candidates = await provenCandidates(root);
   const result = await executeCleanup({
     rootDir: root,
-    candidates: [candidate],
+    candidates,
+    confirmClosedWorld: true,
     verification: {
       ...passingVerification,
       build: {command: process.execPath, args: ['-e', "require('node:fs').writeFileSync('safe.ts', 'verification changed this\\n')"]},
@@ -274,9 +293,11 @@ test('rolls back when verification introduces an unexpected tracked edit', async
 
 test('rolls back when verification leaves an unexpected untracked file', async () => {
   const root = await repository();
+  const candidates = await provenCandidates(root);
   const result = await executeCleanup({
     rootDir: root,
-    candidates: [candidate],
+    candidates,
+    confirmClosedWorld: true,
     verification: {
       ...passingVerification,
       build: {command: process.execPath, args: ['-e', "require('node:fs').writeFileSync('unexpected.txt', 'verification artifact')"]},
@@ -292,10 +313,12 @@ test('rolls back when verification leaves an unexpected untracked file', async (
 
 test('rolls back the isolated change when verification fails', async () => {
   const root = await repository();
+  const candidates = await provenCandidates(root);
   const auditPath = join(await mkdtemp(join(tmpdir(), 'cleancode-audit-failed-')), 'audit.jsonl');
   const result = await executeCleanup({
     rootDir: root,
-    candidates: [candidate],
+    candidates,
+    confirmClosedWorld: true,
     verification: {
       ...passingVerification,
       test: {command: process.execPath, args: ['-e', 'process.exit(1)']},

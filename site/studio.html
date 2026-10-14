@@ -108,6 +108,11 @@
             <span id="progress-copy">Reading image files…</span>
             <button id="cancel-scan" class="studio-text-button" type="button">Stop scan</button>
           </div>
+          <div class="studio-view-controls" role="group" aria-label="Image presentation">
+            <span class="studio-view-label">VIEW</span>
+            <button id="view-list" class="studio-view-button is-active" type="button" aria-pressed="true" aria-controls="table-scroll">List</button>
+            <button id="view-contact-sheet" class="studio-view-button" type="button" aria-pressed="false" aria-controls="contact-sheet">Contact sheet</button>
+          </div>
           <div id="table-scroll" class="studio-table-scroll" tabindex="0" aria-label="Scrollable image file list">
             <table class="studio-table">
               <caption class="studio-visually-hidden">Image files and review signals in the selected collection</caption>
@@ -123,6 +128,8 @@
               <tbody id="file-rows"></tbody>
             </table>
           </div>
+          <p id="contact-sheet-help" class="studio-visually-hidden">Contact sheet shows image previews with full paths, names, sizes, and review signals. In Similar candidates, related heuristic candidates appear together. Similarity is only a hint; no file is selected automatically.</p>
+          <div id="contact-sheet" class="studio-contact-sheet" role="region" aria-label="Image contact sheet" aria-describedby="contact-sheet-help" hidden></div>
           <div id="empty-state" class="studio-empty" hidden>
             <p class="studio-empty-kicker">NO MATCHES HERE</p>
             <h3>Nothing to show in this view.</h3>

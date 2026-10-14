@@ -24,8 +24,8 @@ No account, permission-role, billing, or legal flow is part of Studio's current 
 
 | Capability | Owner | Behavior and verification |
 |---|---|---|
-| Image table | `site/studio.html` + `site/studio.js` | Semantic table; sortable headers are buttons; 40 rows per page; previous/next controls; browser test at narrow and desktop widths. |
-| Similar candidates | `data-view="similar"` in `site/studio.html` + `similarGroup` in `site/studio.js` | Show manually reviewable members of a bounded local perceptual-hash group. The text explicitly calls this a heuristic; selection stays unchecked and previews/paths remain visible. |
+| Image list and contact sheet | `site/studio.html` + `site/studio.js` | The labeled List / Contact sheet buttons are a single-choice presentation control with `aria-pressed` state. Both layouts project the same sorted, filtered page of 40 images and preserve inspector, search, folder/view filters, pagination, and manual review selection. The contact sheet uses local previews and keeps each complete path, name, size, and signal visible. |
+| Similar candidates | `data-view="similar"` and `similarGroup` in `site/studio.js` | In contact-sheet mode, members on the current page are placed side by side under a candidate-group heading. Group counts disclose when remaining matches are on another page. Visual similarity is explicitly a heuristic; exact byte matches remain a separate signal, large size is informational, and no candidate is checked automatically. |
 | Selection for review/archive | `state.selectedForPlan` in `site/studio.js` | Selection is always manual and spans pages/filters. Exact-match evidence and visual-candidate hints remain separate from user judgment. Archive requires a complete inventory/exact scan, at most 20 files, explicit write access, a reason, and an exact-path confirmation. |
 | Search | Native labeled search input in `site/studio.html` | Immediate local filename/path filtering; clear action resets to page 1 and returns focus to search. No prompt/workflow full-archive search. |
 | Notices/progress | `#scan-progress` and `#studio-notice` live regions | Inventory, hash, and visual-thumbnail stages report progress; byte confirmation is indeterminate. Cancellation and partial results are explicitly reported. |
@@ -38,8 +38,10 @@ No account, permission-role, billing, or legal flow is part of Studio's current 
 ## Dataset navigation
 
 - Search, view filter, folder filter, sort, and page are transient in-memory state; no path, prompt, or filter is put in the URL or persistent storage.
-- Page size is fixed at 40. Page navigation replaces the table rows rather than accumulating them.
+- Contact-sheet thumbnails use the same local object URLs or bundled synthetic demo images as list previews. Paths are rendered as text and wrap instead of being hidden in a tooltip or truncated; similarity and size signals never imply an automatic selection.
+- Page size is fixed at 40 images in both list and contact-sheet modes. Page navigation replaces the visible rows/cards rather than accumulating them; changing layout preserves the current page.
 - Search/filter/sort changes return to page 1. Previous/Next stay present and disable at boundaries.
+- Switching List / Contact sheet does not reset search, filters, sorting, page, selected inspector item, or manual review candidates. In Similar candidates, cards are grouped for side-by-side visual review; page-split groups say when more candidates appear on another page.
 - Empty collection and no-result filters use the empty state, with a reset action.
 - Selection persists across pages and filters in one scan and is cleared on rescan/folder selection or tab close.
 - The review-plan view lists selected paths and candidate sizes; JSON is downloaded only after the user activates Export. It does not claim that candidate bytes are recovered. Paths may be sensitive; the user is warned to keep the export private.
@@ -52,6 +54,7 @@ No account, permission-role, billing, or legal flow is part of Studio's current 
 | Watch one local folder | User passes one folder to `guardian studio --watch` at launch | Show new/changed and at least 10 MiB image candidates; only names, relative paths, byte counts, and times are sent to the same-origin Studio page | Watcher is off by default. Partial coverage, periodic polling fallback, pending file stability, queue truncation, and no-candidate states are visible; no file is modified. |
 | Choose local folder | User-selected read-only picker; no remote upload | Show inventory counts/bytes and largest files retained for review | Empty selection preserves the current view; read errors are reported and coverage becomes partial. |
 | Scan duplicate candidates | Progressive local inventory, exact-byte pass, then bounded visual-hint pass; Stop scan available | Same-size candidates are SHA-256 grouped and byte-compared before being called exact. PNG/JPEG/WebP/AVIF perceptual hashes create a separate candidate view; GIF/SVG are skipped and pair-cap, decode, worker, or cancellation limits are visible. Visual hints never imply interchangeability or select files. |
+| Change list/contact-sheet layout | Activate the labeled presentation button | Replace only the visual layout for the same current page; preserve filters, search, sort, inspector item, and manual review checks | Keep the same page and selection when switching either way; keyboard focus stays on the activated control. Similar candidates appear side by side only as human-review hints, with full paths visible. |
 | Inspect PNG metadata | Only selected PNG is read; 1 MiB bounded read | Show recognized supported fields behind explicit disclosure | Unsupported format/compression, malformed, truncated, and read-error states are distinct from “no supported fields.” |
 | Search/sort/page | Local synchronous view update | Preserve current scan and selected review items | Reset to first page; no server request. |
 | Export review plan | User-initiated JSON download | List selected relative paths and candidate size separately from actual bytes freed (0 B); state that files are unchanged | No plan if selection is empty or scan is in progress; warn that paths can be sensitive. |
@@ -75,8 +78,8 @@ No account, permission-role, billing, or legal flow is part of Studio's current 
 
 ## Verification
 
-- Unit tests: `tests/studio-metadata.test.mjs`, `tests/studio-scan.test.mjs`, `tests/studio-file-ops.test.mjs`, `tests/studio-watcher.test.mjs`.
+- Unit tests: `tests/studio-metadata.test.mjs`, `tests/studio-scan.test.mjs`, `tests/studio-contact-sheet.test.mjs`, `tests/studio-file-ops.test.mjs`, `tests/studio-watcher.test.mjs`.
 - HTTP safety tests: `tests/studio-server.test.mjs`; browser polling is restricted to the fixed local `/api/watch/status` route.
-- Browser checks: synthetic demo and temporary-folder fixtures only, exact and visual-candidate views, resized/re-encoded raster fixtures, skipped/corrupt/cancelled/capped visual scans, metadata disclosure, filters/sort/pages, permission denial/grant, archive journal, copy verification, restore conflict, typed purge confirmation, keyboard focus, reduced motion, and narrow viewport. Never exercise destructive controls against a user folder during automated smoke tests.
+- Browser checks: synthetic demo and temporary-folder fixtures only, exact and visual-candidate views, resized/re-encoded raster fixtures, skipped/corrupt/cancelled/capped visual scans, metadata disclosure, filters/sort/pages, list/contact-sheet state preservation and candidate grouping, permission denial/grant, archive journal, copy verification, restore conflict, typed purge confirmation, keyboard focus, reduced motion, and narrow viewport. Never exercise destructive controls against a user folder during automated smoke tests.
 - Package check: `npm run verify:package` and `npm pack --dry-run --json`.
 - Architecture boundary: browser-local APIs are a limited beta and not a substitute for native transactional file operations; see the residual concurrency limitation in the PRD.

@@ -31,9 +31,9 @@ test('renders a stable JSON report summary', async () => {
   assert.equal(report.stringReferences.noMatchIsProof, false);
   assert.deepEqual(report.deletionReadiness, {
     status: 'blocked',
-    reason: 'No supported analyzer can currently issue engine-verified positive proof.',
+    reason: 'No complete supported closed-world analysis is configured.',
     automatedBlockers: ['engine-proof-unavailable', 'dynamic-usage-hints'],
-    humanChecks: ['confirm-entrypoints', 'confirm-external-usage'],
+    humanChecks: ['confirm-closed-world-at-apply'],
   });
   assert.deepEqual(report.dynamicHints.map(({path, line, kind}) => ({path, line, kind})), [
     {path: 'src/runtime.ts', line: 1, kind: 'dynamic-require'},
@@ -52,9 +52,10 @@ test('renders escaped Markdown and HTML reports', async () => {
   assert.match(markdown, /Zero coverage is not proof/);
   assert.match(markdown, /Literal string matches suppress cleanup candidates/);
   assert.match(markdown, /Deletion readiness: blocked/);
-  assert.match(markdown, /No supported analyzer can currently issue engine-verified positive proof/);
+  assert.match(markdown, /No complete supported closed-world analysis is configured/);
   assert.match(markdown, /Human validation required/);
-  assert.match(markdown, /confirm every runtime, package, framework, CLI, plugin, and deployment entrypoint/i);
+  assert.match(markdown, /Pass --confirm-closed-world for each apply run after confirming the configured roots cover every runtime entrypoint/i);
+  assert.match(markdown, /closed-world-not-configured/);
   assert.match(markdown, /package\.json entrypoints/);
   assert.match(html, /<main>/);
   assert.match(html, /src\/unused\.ts/);
@@ -62,9 +63,10 @@ test('renders escaped Markdown and HTML reports', async () => {
   assert.match(html, /Zero coverage is not proof/);
   assert.match(html, /Literal string matches suppress cleanup candidates/);
   assert.match(html, /Deletion readiness.*blocked/);
-  assert.match(html, /No supported analyzer can currently issue engine-verified positive proof/);
+  assert.match(html, /No complete supported closed-world analysis is configured/);
   assert.match(html, /Human validation required/);
-  assert.match(html, /confirm every runtime, package, framework, CLI, plugin, and deployment entrypoint/i);
+  assert.match(html, /Pass --confirm-closed-world for each apply run after confirming the configured roots cover every runtime entrypoint/i);
+  assert.match(html, /closed-world-not-configured/);
   assert.match(html, /package\.json entrypoints/);
   assert.doesNotMatch(html, /<script>/i);
 });
@@ -78,7 +80,7 @@ test('reports owner confirmations even when automated scans find no dynamic hint
   const report = JSON.parse(renderReport(await planRepository(root, {knipExecutable: 'not-installed'}), 'json'));
 
   assert.deepEqual(report.deletionReadiness.automatedBlockers, ['engine-proof-unavailable']);
-  assert.deepEqual(report.deletionReadiness.humanChecks, ['confirm-entrypoints', 'confirm-external-usage']);
+  assert.deepEqual(report.deletionReadiness.humanChecks, ['confirm-closed-world-at-apply']);
 });
 
 test('lists every additional incomplete automated scan as a blocker', async () => {

@@ -10,6 +10,7 @@ import {scanCoverage, type CoverageReport} from './coverage.js';
 import {belongsToInvalidPackage, scanPackageEntrypoints, type PackageEntrypointReport} from './package-exports.js';
 import {scanStringReferences, type StringReferenceReport} from './string-references.js';
 import {loadRepositoryConfig} from './repository-config.js';
+import {analyzeClosedWorld, type ClosedWorldBlocker} from './closed-world.js';
 
 export type PlannedCandidate = Candidate & {
   action: 'review-only';
@@ -35,6 +36,15 @@ export type PlanReport = {
   coverage: CoverageReport;
   packageEntrypoints: PackageEntrypointReport;
   stringReferences: StringReferenceReport;
+  closedWorld: {
+    analyzer: string;
+    analyzerVersion: number;
+    complete: boolean;
+    roots: string[];
+    reachable: string[];
+    unreachable: string[];
+    blockers: ClosedWorldBlocker[];
+  };
   mode: 'read-only';
 };
 
@@ -77,6 +87,7 @@ function makeCandidate(
 
 export async function planRepository(rootDir: string, options: PlanOptions = {}): Promise<PlanReport> {
   const repositoryConfig = await loadRepositoryConfig(rootDir);
+  const closedWorldAnalysis = await analyzeClosedWorld(rootDir);
   const manifest = await buildManifest(rootDir, {
     ignore: [...DEFAULT_IGNORE_PATTERNS, ...repositoryConfig.ignoredPaths],
   });
@@ -101,6 +112,11 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
   const candidates: PlannedCandidate[] = [];
 
   for (const file of manifest.files) {
+    const positiveProof = closedWorldAnalysis.proofs.get(file.path);
+    if (positiveProof !== undefined) {
+      candidates.push(makeCandidate('closed-world-unreachable', file.path, [positiveProof], policy));
+      continue;
+    }
     if (stringReferences.unreadableFiles.length > 0 || !sourceFile(file.path) || entryFiles.has(file.path) || incoming.has(file.path) || observedAtRuntime.has(file.path) || publicFiles.has(file.path) || stringReferenced.has(file.path) || belongsToInvalidPackage(file.path, packageEntrypoints.invalidManifests)) continue;
     candidates.push(makeCandidate('unreferenced-file', file.path, [
       {type: 'no_import_references', confidence: 0.99, details: 'No local static import or export targets this file'},
@@ -120,5 +136,27 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
   }
 
   candidates.sort((left, right) => left.path.localeCompare(right.path) || left.kind.localeCompare(right.kind));
-  return {schemaVersion: 1, root: manifest.root, candidates, manifest, graph, duplicates, knip, dynamicHints, coverage, packageEntrypoints, stringReferences, mode: 'read-only'};
+  return {
+    schemaVersion: 1,
+    root: manifest.root,
+    candidates,
+    manifest,
+    graph,
+    duplicates,
+    knip,
+    dynamicHints,
+    coverage,
+    packageEntrypoints,
+    stringReferences,
+    closedWorld: {
+      analyzer: closedWorldAnalysis.analyzer,
+      analyzerVersion: closedWorldAnalysis.analyzerVersion,
+      complete: closedWorldAnalysis.complete,
+      roots: closedWorldAnalysis.roots,
+      reachable: closedWorldAnalysis.reachable,
+      unreachable: closedWorldAnalysis.unreachable,
+      blockers: closedWorldAnalysis.blockers,
+    },
+    mode: 'read-only',
+  };
 }

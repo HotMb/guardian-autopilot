@@ -31,19 +31,20 @@ export type CleanCodeReport = {
   coverage: CoverageReport;
   packageEntrypoints: PackageEntrypointReport;
   stringReferences: StringReferenceReport;
+  closedWorld: PlanReport['closedWorld'];
   deletionReadiness: {
-    status: 'blocked';
+    status: 'proof-capable' | 'blocked';
     reason: string;
     automatedBlockers: string[];
     humanChecks: string[];
   };
 };
 
-const deletionBlockedReason = 'No supported analyzer can currently issue engine-verified positive proof.';
-const humanChecks = ['confirm-entrypoints', 'confirm-external-usage'];
+const deletionBlockedReason = 'No complete supported closed-world analysis is configured.';
+const humanChecks = ['confirm-closed-world-at-apply'];
 
 function automatedBlockers(plan: PlanReport): string[] {
-  const blockers = ['engine-proof-unavailable'];
+  const blockers = plan.closedWorld.complete ? [] : ['engine-proof-unavailable'];
   if (plan.dynamicHints.length > 0) blockers.push('dynamic-usage-hints');
   if (plan.graph.unresolved.length > 0) blockers.push('unresolved-local-references');
   if (plan.packageEntrypoints.invalidManifests.length > 0) blockers.push('invalid-package-manifest');
@@ -54,6 +55,7 @@ function automatedBlockers(plan: PlanReport): string[] {
 function blockerDescription(id: string): string {
   switch (id) {
     case 'engine-proof-unavailable': return 'No supported analyzer can currently issue engine-verified positive proof.';
+    case 'closed-world-not-configured': return 'Opt in with a tracked .guardian/config.json, explicit runtime roots, and the all-runtime-roots-declared commitment.';
     case 'dynamic-usage-hints': return 'Dynamic-loading patterns were detected; the scan is not exhaustive and each hint needs review.';
     case 'unresolved-local-references': return 'One or more local references could not be resolved; candidates cannot be evaluated safely until they are resolved.';
     case 'invalid-package-manifest': return 'One or more package manifests could not be analyzed; package entrypoints may be missing from the scan.';
@@ -64,8 +66,7 @@ function blockerDescription(id: string): string {
 
 function humanCheckDescription(id: string): string {
   switch (id) {
-    case 'confirm-entrypoints': return 'Confirm every runtime, package, framework, CLI, plugin, and deployment entrypoint is represented.';
-    case 'confirm-external-usage': return 'Confirm no external consumer, deployment script, or runtime configuration loads the candidate.';
+    case 'confirm-closed-world-at-apply': return 'Pass --confirm-closed-world for each apply run after confirming the configured roots cover every runtime entrypoint.';
     default: return id;
   }
 }
@@ -96,9 +97,12 @@ function summary(plan: PlanReport): CleanCodeReport {
     coverage: plan.coverage,
     packageEntrypoints: plan.packageEntrypoints,
     stringReferences: plan.stringReferences,
+    closedWorld: plan.closedWorld,
     deletionReadiness: {
-      status: 'blocked',
-      reason: deletionBlockedReason,
+      status: plan.closedWorld.complete ? 'proof-capable' : 'blocked',
+      reason: plan.closedWorld.complete
+        ? `The ${plan.closedWorld.analyzer} analyzer completed for the declared roots; selected proofs are bound to this clean snapshot and revalidated during apply.`
+        : deletionBlockedReason,
       automatedBlockers: automatedBlockers(plan),
       humanChecks: [...humanChecks],
     },
@@ -131,11 +135,13 @@ function renderMarkdown(report: CleanCodeReport): string {
     `- Test coverage: ${report.coverage.status}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} file(s) with measured zero hits`,
     `- Package entrypoints: ${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)`,
     `- Literal string references: ${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)`,
+    `- Closed-world proof: ${report.closedWorld.complete ? 'complete' : 'blocked'}; ${report.closedWorld.roots.length} declared runtime root(s); ${report.closedWorld.unreachable.length} unreachable source file(s)`,
     `- Deletion readiness: ${report.deletionReadiness.status} — ${report.deletionReadiness.reason}`,
     '',
     '## Automated blockers',
     '',
     ...report.deletionReadiness.automatedBlockers.map((id) => `- \`${markdown(id)}\`: ${markdown(blockerDescription(id))}`),
+    ...report.closedWorld.blockers.map((blocker) => `- \`${markdown(blocker.code)}\`${blocker.path ? ` at \`${markdown(blocker.path)}\`` : ''}: ${markdown(blocker.message)}`),
     '',
     '## Human validation required',
     '',
@@ -176,8 +182,9 @@ function renderHtml(report: CleanCodeReport): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>CleanCode report</title></head>
 <body><main><h1>CleanCode report</h1>
-<dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd><dt>Literal string references</dt><dd>${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)</dd><dt>Deletion readiness</dt><dd>${html(report.deletionReadiness.status)} — ${html(report.deletionReadiness.reason)}</dd></dl>
+<dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd><dt>Literal string references</dt><dd>${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)</dd><dt>Closed-world proof</dt><dd>${report.closedWorld.complete ? 'complete' : 'blocked'}; ${report.closedWorld.roots.length} declared runtime root(s); ${report.closedWorld.unreachable.length} unreachable source file(s)</dd><dt>Deletion readiness</dt><dd>${html(report.deletionReadiness.status)} — ${html(report.deletionReadiness.reason)}</dd></dl>
 <h2>Automated blockers</h2><ul>${report.deletionReadiness.automatedBlockers.map((id) => `<li><code>${html(id)}</code>: ${html(blockerDescription(id))}</li>`).join('')}</ul>
+<h2>Closed-world blockers</h2><ul>${report.closedWorld.blockers.map((blocker) => `<li><code>${html(blocker.code)}</code>${blocker.path ? ` at <code>${html(blocker.path)}</code>` : ''}: ${html(blocker.message)}</li>`).join('')}</ul>
 <h2>Human validation required</h2><ul>${report.deletionReadiness.humanChecks.map((id) => `<li><code>${html(id)}</code>: ${html(humanCheckDescription(id))}</li>`).join('')}</ul>
 <h2>Candidates</h2><table><thead><tr><th>Path</th><th>Kind</th><th>Confidence</th><th>Decision</th><th>Reason</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Dynamic-usage hints</h2><table><thead><tr><th>Path</th><th>Line</th><th>Hint</th><th>Marker</th></tr></thead><tbody>${hintRows}</tbody></table>

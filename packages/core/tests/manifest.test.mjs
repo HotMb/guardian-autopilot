@@ -67,3 +67,12 @@ test('never traverses a directory symlink to an external target, including legac
   await assert.rejects(() => discoverRepository(root, {symlinks: 'error'}), /symlink encountered: external/i);
 });
 
+test('ignores the .git pointer file used by linked worktrees', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-worktree-manifest-'));
+  await writeFile(join(root, '.git'), 'gitdir: C:/private/worktrees/example/.git/worktrees/app\n');
+  await writeFile(join(root, 'entry.ts'), 'export const entry = true;\n');
+
+  const manifest = await buildManifest(root);
+  assert.deepEqual(manifest.files.map((file) => file.path), ['entry.ts']);
+});
+

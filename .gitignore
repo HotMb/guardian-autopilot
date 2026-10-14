@@ -1,5 +1,8 @@
 node_modules/
 dist/
 .guardian/
+!.guardian/
+.guardian/*
+!.guardian/config.json
 .env*
 !.env.example

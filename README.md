@@ -74,7 +74,7 @@ node packages/cli/dist/index.js plan /path/to/project --format=json
 node packages/cli/dist/index.js report /path/to/project --format=html --output report.html
 ```
 
-Plans are review-only. Guardian does not treat a missing import, a duplicate hash, or a passing test suite as proof that a file is unused. Real CleanCode deletion remains blocked until the engine can produce its own verified positive-use evidence.
+Plans are review-only by default. A positive unreachable-file proof is available only through the opt-in, closed-world `node-application-v1` profile; missing imports, duplicate hashes, coverage gaps, and passing tests do not create proof. The proof is conditional on the declared roots and the supported tracked snapshot, not a guarantee against external consumers or infrastructure-injected runtime configuration. See [the proof profile and its limits](docs/closed-world-proof.md).
 
 The conservative string-reference scan reads PHP and PHTML files for literal references such as WordPress enqueue and include paths. This does not parse PHP or prove framework behavior; dynamic paths and external plugins still require review. Common WordPress template-hierarchy files are protected from cleanup.
 
