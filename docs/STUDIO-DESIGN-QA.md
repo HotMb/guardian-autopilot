@@ -7,7 +7,7 @@
 
 ## Verification status
 
-The full repository suite passed: 317 tests passed and one OS-dependent test was skipped. The desktop protocol/security tests, desktop package verifier, CLI package verifier, and Windows x64 Squirrel installer build passed. The installer is unsigned. The browser environment could render an existing Studio demo tab on port 8767, but its copy did not match the current source; a server from this checkout on port 8765 timed out from that separate browser environment. The installed app has not yet been manually opened through its full folder-permission and archive flow. No user folder, real image, browser file permission, or destructive UI action was used.
+The full repository suite passed: 317 tests passed and one OS-dependent test was skipped. The desktop protocol/security tests, desktop package verifier, CLI package verifier, and Windows x64 Squirrel installer build passed. A smoke run of the packaged executable loaded the synthetic Studio demo at `guardian://studio/`; the renderer reported a secure context and exposed `showDirectoryPicker`. The installer is unsigned. The browser environment could render an existing Studio demo tab on port 8767, but its copy did not match the current source; a server from this checkout on port 8765 timed out from that separate browser environment. Actual folder permission and archive/restore/purge actions were not exercised. No user folder, real image, browser file permission, or destructive UI action was used.
 
 ## Automated checks
 
@@ -24,13 +24,13 @@ The full repository suite passed: 317 tests passed and one OS-dependent test was
 | Listener-backed local HTTP/security checks | Not verified: browser timed out against the server started from this checkout |
 | Full repository test chain | Passed: 317 tests; one OS-dependent test skipped |
 | Visual/browser smoke | Incomplete: an existing stale demo rendered; the current checkout could not be reached from the browser |
-| Packaged desktop manual smoke | Not run: no folder permission or file operation was exercised through the installed app |
+| Packaged desktop startup smoke | Passed: packaged window loaded synthetic demo at the secure app origin; folder selection and file-operation permissions were not exercised |
 
 The synthetic file-operation suite covers chunked SHA-256, exact-copy verification, source preservation on copy failure, explicit confirmation and permission checks, path validation, archive collisions and unknown data folders, resumable interruption states, attribution of already-absent bytes, restore conflicts and source-folder confirmation, retained archive copies, typed purge confirmation, and cancellation.
 
 ## Browser smoke limitation
 
-The current checkout's browser server was started on `127.0.0.1:8765` and printed its listening URL, but the separate browser environment returned `ERR_CONNECTION_TIMED_OUT` for that address. An existing demo tab at `127.0.0.1:8767` rendered stale copy and was not treated as validation of this checkout. The desktop protocol handler is covered by automated tests, but its packaged window and filesystem permissions still need a manual smoke check. Use only a disposable folder containing synthetic images: verify the UI, permission denial, a confirmed archive to a separate folder, restore, retained archive copy, and a purge after checking the recovered files. Do not use a personal collection for first-run validation.
+The current checkout's browser server was started on `127.0.0.1:8765` and printed its listening URL, but the separate browser environment returned `ERR_CONNECTION_TIMED_OUT` for that address. An existing demo tab at `127.0.0.1:8767` rendered stale copy and was not treated as validation of this checkout. The packaged window has loaded the demo over its secure origin; filesystem permission and file-operation testing still need a manual smoke check. Use only a disposable folder containing synthetic images: verify permission denial, a confirmed archive to a separate folder, restore, retained archive copy, and a purge after checking the recovered files. Do not use a personal collection for first-run validation.
 
 ## Product and safety limits
 
