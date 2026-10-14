@@ -72,6 +72,8 @@ test('Studio labels creator metadata as local, bounded, and opt-in without brows
   assert.match(html, /id="purge-dialog"/);
   assert.match(html, /Type <code>PURGE<\/code>/);
   assert.match(html, /compatibility picker stays read-only/i);
+  assert.match(html, /never uploads them; archive changes require separate permission and confirmation/i);
+  assert.doesNotMatch(html, /currently changes no files|never uploads or changes files/i);
   assert.match(fileOps, /MAX_QUARANTINE_BATCH = 20/);
   assert.match(fileOps, /await writer\.close\(\)/);
   assert.match(fileOps, /await sourceHandle\.remove/);

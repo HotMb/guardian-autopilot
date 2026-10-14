@@ -7,7 +7,7 @@
 
 ## Verification status
 
-The local file-operation module and the synthetic inventory/metadata suites pass. The TypeScript build and JavaScript syntax checks pass. Browser end-to-end behavior and the local HTTP server suite were not verified in this run: the available browser could not connect to the loopback test server, and the restricted environment denied local listener access. No user folder, real image, browser file permission, or destructive UI action was used during these checks.
+The local file-operation module and the synthetic inventory/metadata suites pass. The TypeScript build and JavaScript syntax checks pass. The static Studio content assertion passes. The browser could render an existing Studio demo tab on port 8767, but its copy did not match the current source, so it is not accepted as a current-build smoke test. A server started from this checkout on port 8765, but the browser timed out when connecting to it. The listener-backed HTTP suite therefore remains unverified. No user folder, real image, browser file permission, or destructive UI action was used.
 
 ## Automated checks
 
@@ -16,15 +16,16 @@ The local file-operation module and the synthetic inventory/metadata suites pass
 | Studio file operations, metadata, and inventory | Passed: 31 synthetic tests, 0 failures |
 | TypeScript build | Passed: `npm run build` |
 | JavaScript syntax | Passed: `site/studio.js`, `site/studio-file-ops.js`, `site/studio-scan.js`, and file-operation tests |
-| Static local HTTP/security suite | Not run: its listener-based checks require loopback access unavailable in this environment |
+| Static Studio content assertion | Passed: one test, run without opening a listener |
+| Listener-backed local HTTP/security checks | Not verified: browser timed out against the server started from this checkout |
 | Full repository test chain | Not run in this verification pass |
-| Visual/browser smoke | Incomplete: loopback page timed out; no claim of rendered or end-to-end validation |
+| Visual/browser smoke | Incomplete: an existing stale demo rendered; the current checkout could not be reached from the browser |
 
 The synthetic file-operation suite covers chunked SHA-256, exact-copy verification, source preservation on copy failure, explicit confirmation and permission checks, path validation, archive collisions and unknown data folders, resumable interruption states, attribution of already-absent bytes, restore conflicts and source-folder confirmation, retained archive copies, typed purge confirmation, and cancellation.
 
 ## Browser smoke limitation
 
-The test page was directed only to `127.0.0.1` on the dedicated test port. The browser reported a connection timeout and no listening process was found on that port. No non-loopback binding was used, and the test was stopped there. A future human smoke check should use only a disposable folder containing synthetic images. It should verify the UI, permission denial, a confirmed archive to a separate folder, restore, and a purge only after checking the recovered files. Do not use a personal collection for first-run validation.
+The current checkout's server was started on `127.0.0.1:8765` and printed its listening URL, but the separate browser environment returned `ERR_CONNECTION_TIMED_OUT` for that address. An existing demo tab at `127.0.0.1:8767` did render the synthetic collection and archive panel, but it exposed stale copy and was not treated as a validation of this checkout. No non-loopback binding was used. A future end-to-end smoke check should use only a disposable folder containing synthetic images. It should verify the UI, permission denial, a confirmed archive to a separate folder, restore, and a purge only after checking the recovered files. Do not use a personal collection for first-run validation.
 
 ## Product and safety limits
 
