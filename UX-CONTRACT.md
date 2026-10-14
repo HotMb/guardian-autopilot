@@ -5,7 +5,7 @@ This contract records interface behavior only. Product scope and privacy constra
 ## Product context
 
 - Audience: creators who locally generate and curate images, especially Stable Diffusion WebUI and ComfyUI users.
-- Primary job: understand local AI-image storage consumption, then inspect supported generation metadata and review exact byte-identical files before making a human decision.
+- Primary job: understand local AI-image storage consumption, then inspect supported generation metadata and review exact byte-identical files plus heuristic visual-variant candidates before making a human decision.
 - Active locale: English (`en`).
 - Accessibility baseline: semantic HTML, keyboard operation, visible focus, live scan status, reduced motion, and responsive page/document scrolling.
 - Product boundary: Studio is a local image-archive tool with an optional one-folder watcher started from the CLI. Watch and browser scans are read-only; archive/restore/purge remain separately authorized local file operations. CleanCode remains a separate product capability.
@@ -25,9 +25,10 @@ No account, permission-role, billing, or legal flow is part of Studio's current 
 | Capability | Owner | Behavior and verification |
 |---|---|---|
 | Image table | `site/studio.html` + `site/studio.js` | Semantic table; sortable headers are buttons; 40 rows per page; previous/next controls; browser test at narrow and desktop widths. |
-| Selection for review/archive | `state.selectedForPlan` in `site/studio.js` | Selection is always manual and spans pages/filters. Exact-match evidence remains separate from user judgment. Archive requires a complete scan, at most 20 files, explicit write access, a reason, and an exact-path confirmation. |
+| Similar candidates | `data-view="similar"` in `site/studio.html` + `similarGroup` in `site/studio.js` | Show manually reviewable members of a bounded local perceptual-hash group. The text explicitly calls this a heuristic; selection stays unchecked and previews/paths remain visible. |
+| Selection for review/archive | `state.selectedForPlan` in `site/studio.js` | Selection is always manual and spans pages/filters. Exact-match evidence and visual-candidate hints remain separate from user judgment. Archive requires a complete inventory/exact scan, at most 20 files, explicit write access, a reason, and an exact-path confirmation. |
 | Search | Native labeled search input in `site/studio.html` | Immediate local filename/path filtering; clear action resets to page 1 and returns focus to search. No prompt/workflow full-archive search. |
-| Notices/progress | `#scan-progress` and `#studio-notice` live regions | Hash stage is determinate; byte-confirmation stage is indeterminate; cancellation and partial results are explicitly reported. |
+| Notices/progress | `#scan-progress` and `#studio-notice` live regions | Inventory, hash, and visual-thumbnail stages report progress; byte confirmation is indeterminate. Cancellation and partial results are explicitly reported. |
 | Metadata disclosure | Native `<details>` created by `site/studio.js` | Values are absent from the DOM until the user expands the metadata disclosure and then a field; content is inserted with `textContent`; selection change clears cached data. |
 | File picker and permissions | `showDirectoryPicker({mode: 'read'})` plus native directory input fallback | Scanning asks only for read access. The fallback remains read-only. A separate user gesture requests source write access; a separate directory-picker gesture chooses a `readwrite` archive folder. |
 | Archive operations | `site/studio-file-ops.js` + dialogs in `site/studio.html` | Stream-copy and verify before removing source; journal state is committed first. Failures preserve source. Archive stays recoverable; restore checks for an existing path and keeps an archive copy. A failed restore may leave a partial target to inspect. |
@@ -50,7 +51,7 @@ No account, permission-role, billing, or legal flow is part of Studio's current 
 |---|---|---|---|
 | Watch one local folder | User passes one folder to `guardian studio --watch` at launch | Show new/changed and at least 10 MiB image candidates; only names, relative paths, byte counts, and times are sent to the same-origin Studio page | Watcher is off by default. Partial coverage, periodic polling fallback, pending file stability, queue truncation, and no-candidate states are visible; no file is modified. |
 | Choose local folder | User-selected read-only picker; no remote upload | Show inventory counts/bytes and largest files retained for review | Empty selection preserves the current view; read errors are reported and coverage becomes partial. |
-| Scan duplicate candidates | Progressive local inventory, then worker-backed hashing when available; Stop scan available | Same-size candidates are SHA-256 grouped, then compared by bytes before being called exact matches | Stop is cooperative; entry cap, 10,000-file review cap, 64 MiB hash cap, worker errors, and read failures must be visible and make coverage partial. |
+| Scan duplicate candidates | Progressive local inventory, exact-byte pass, then bounded visual-hint pass; Stop scan available | Same-size candidates are SHA-256 grouped and byte-compared before being called exact. PNG/JPEG/WebP/AVIF perceptual hashes create a separate candidate view; GIF/SVG are skipped and pair-cap, decode, worker, or cancellation limits are visible. Visual hints never imply interchangeability or select files. |
 | Inspect PNG metadata | Only selected PNG is read; 1 MiB bounded read | Show recognized supported fields behind explicit disclosure | Unsupported format/compression, malformed, truncated, and read-error states are distinct from “no supported fields.” |
 | Search/sort/page | Local synchronous view update | Preserve current scan and selected review items | Reset to first page; no server request. |
 | Export review plan | User-initiated JSON download | List selected relative paths and candidate size separately from actual bytes freed (0 B); state that files are unchanged | No plan if selection is empty or scan is in progress; warn that paths can be sensitive. |
@@ -76,6 +77,6 @@ No account, permission-role, billing, or legal flow is part of Studio's current 
 
 - Unit tests: `tests/studio-metadata.test.mjs`, `tests/studio-scan.test.mjs`, `tests/studio-file-ops.test.mjs`, `tests/studio-watcher.test.mjs`.
 - HTTP safety tests: `tests/studio-server.test.mjs`; browser polling is restricted to the fixed local `/api/watch/status` route.
-- Browser checks: synthetic demo and synthetic temporary folder fixture only, metadata disclosure, filters/sort/pages, empty/error/partial scan, permission denial/grant, archive journal, copy verification, restore conflict, typed purge confirmation, keyboard focus, reduced motion, and narrow viewport. Never exercise destructive controls against a user's personal folder during automated smoke tests.
+- Browser checks: synthetic demo and temporary-folder fixtures only, exact and visual-candidate views, resized/re-encoded raster fixtures, skipped/corrupt/cancelled/capped visual scans, metadata disclosure, filters/sort/pages, permission denial/grant, archive journal, copy verification, restore conflict, typed purge confirmation, keyboard focus, reduced motion, and narrow viewport. Never exercise destructive controls against a user folder during automated smoke tests.
 - Package check: `npm run verify:package` and `npm pack --dry-run --json`.
 - Architecture boundary: browser-local APIs are a limited beta and not a substitute for native transactional file operations; see the residual concurrency limitation in the PRD.

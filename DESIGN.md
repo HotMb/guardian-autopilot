@@ -51,14 +51,14 @@ An artist's archive desk: a dense contact sheet, a calm paper workspace, and a s
 
 ### Product context and register
 
-- **Audience and primary job:** Creators who keep AI-generated image collections locally; understand storage consumption, then review exact duplicate files without handing file access to a cloud service.
+- **Audience and primary job:** Creators who keep AI-generated image collections locally; understand storage consumption, then review exact duplicates and visual-variant candidates without handing file access to a cloud service.
 - **Target market(s) and evidence:** Individual desktop creators; selected Studio brief and the Storage Triage reference mock.
 - **Locale(s) and language policy:** English for this MVP, matching the selected mock and existing Guardian site. No locale switching is implemented.
 - **Usage scene:** Desktop browser on the creator's own machine, often with many image files and a need to compare previews and paths.
 - **Register:** Product utility. The existing Guardian wordmark and palette are retained.
 - **Memorable signature:** Storage totals and actual operating-system free space remain distinct above a compact, sortable contact-sheet table; the selected image preview and lime marker support a human-controlled review and verified archive.
-- **Restraint:** No automatic cleanup, similarity score, cloud account, or decorative dashboard metric. Permanent purge remains separate from recoverable archive. Never claim or infer operating-system free space from file byte counts.
-- **Anti-references:** Generic SaaS gradient dashboards and image galleries that conceal file paths or imply AI similarity detection.
+- **Restraint:** No automatic cleanup, probability/percent similarity score, cloud account, or decorative dashboard metric. Visual groups are low-resolution heuristic candidates only. Permanent purge remains separate from recoverable archive. Never claim or infer operating-system free space from file byte counts.
+- **Anti-references:** Generic SaaS gradient dashboards, image galleries that conceal file paths, and any claim that the perceptual-hash hint performs semantic or AI similarity analysis.
 - **Token ownership/runtime mapping:** `site/styles.css` owns the existing palette and type stacks; `site/studio.css` consumes its custom properties. This file mirrors those accepted values and documents Studio-specific geometry. No token generator is used.
 
 ## Colors
@@ -89,7 +89,7 @@ Primary is lime with dark text; secondary is paper/surface with a fine border. R
 
 ### Navigation and data display
 
-Use labeled navigation, real buttons for sorting and filters, and semantic tables. A review-plan badge counts selected exact duplicates, not files actually removed. Folder sizes are image bytes only and state that scope.
+Use labeled navigation, real buttons for sorting and filters, and semantic tables. The review-plan badge counts manually selected files. Label exact byte matches and visual candidates separately; neither count means files were removed. Folder sizes are image bytes only and state that scope.
 
 ### Forms and overlays
 
@@ -105,11 +105,12 @@ Motion is limited to brief hover and selected-state feedback. Respect `prefers-r
 
 ### Content and data visualization
 
-Use plain language: “Exact duplicate” means identical file bytes, not visually similar. “Candidate size” is not recovered storage; Guardian does not measure operating-system free space. Report only verified source/archive bytes changed by the explicit operation. Explain that same-volume archive does not reduce total device storage until purge. Never expose embedded prompts until the user explicitly opens the metadata disclosure.
+Use plain language: “Exact duplicate” means identical file bytes. “Visual candidate” means a low-resolution perceptual-hash pattern fell within the review threshold; it is a heuristic, not proof that images are interchangeable. “Candidate size” is not recovered storage; Guardian does not measure operating-system free space. Report only verified source/archive bytes changed by the explicit operation. Explain that same-volume archive does not reduce total device storage until purge. Never expose embedded prompts until the user explicitly opens the metadata disclosure.
 
 ## Do's and Don'ts
 
 - **Do:** Keep file access in the browser after the user deliberately selects one folder.
 - **Do:** Make every candidate a human review choice and say nothing was modified.
-- **Don't:** Imply visual similarity, generation provenance, or actual recovery without evidence.
+- **Do:** Label perceptual groups as heuristic visual candidates and make image previews and paths available for comparison.
+- **Don't:** Imply semantic/AI similarity, generation provenance, or actual recovery without evidence.
 - **Don't:** Use the first sorted path as an automatic decision about which file is valuable.

@@ -116,11 +116,12 @@ export function buildReviewPlan(records, selectedIds, inventory, {createdAt = ne
     },
     candidateSizeBytes,
     spaceActuallyFreedBytes: 0,
-    candidates: selected.map(({path, bytes, type, duplicateGroup}) => ({
+    candidates: selected.map(({path, bytes, type, duplicateGroup, similarGroup}) => ({
       relativePath: path,
       sizeBytes: bytes,
       type,
       confirmedExactDuplicate: Boolean(duplicateGroup),
+      visuallySimilarCandidate: Boolean(similarGroup),
     })),
     note: 'Human review only. This export does not delete, move, or change files; no space has been freed.',
   };

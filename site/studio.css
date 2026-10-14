@@ -87,3 +87,5 @@
 .studio-watch-footer .studio-button{flex:none;min-height:31px;font-size:9px}
 @media(max-width:760px){.studio-watch-panel{padding:12px}.studio-watch-footer{align-items:flex-start;flex-direction:column}.studio-watch-footer .studio-button{width:100%}.studio-watch-counts{gap:6px 10px}}
 @media(max-width:420px){.studio-watch-row{grid-template-columns:minmax(0,1fr)}.studio-watch-size{padding-left:1px}}
+
+.studio-signal-list{display:grid;justify-items:start;gap:4px}.studio-signal.is-similar{border-color:#d9c79c;background:#f4eddb;color:#705b2a}

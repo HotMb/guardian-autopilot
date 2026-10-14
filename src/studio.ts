@@ -13,6 +13,7 @@ const assets = new Map<string, {file: string; type: string}>([
   ['/studio.js', {file: 'studio.js', type: 'text/javascript; charset=utf-8'}],
   ['/studio-metadata.js', {file: 'studio-metadata.js', type: 'text/javascript; charset=utf-8'}],
   ['/studio-scan.js', {file: 'studio-scan.js', type: 'text/javascript; charset=utf-8'}],
+  ['/studio-similarity.js', {file: 'studio-similarity.js', type: 'text/javascript; charset=utf-8'}],
   ['/studio-worker.js', {file: 'studio-worker.js', type: 'text/javascript; charset=utf-8'}],
   ['/studio-file-ops.js', {file: 'studio-file-ops.js', type: 'text/javascript; charset=utf-8'}],
   ['/studio-demo/demo-cabin.png', {file: 'studio-demo/demo-cabin.png', type: 'image/png'}],

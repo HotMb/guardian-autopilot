@@ -1,5 +1,6 @@
 import {parsePngGenerationMetadata} from './studio-metadata.js';
 import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from './studio-scan.js';
+import {findVisualSimilarityGroups} from './studio-similarity.js';
 import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFiles, reconcileVerifiedQuarantine, restoreQuarantined, isProtectedQuarantineDirectory, QUARANTINE_DIRECTORY} from './studio-file-ops.js';
 
 (() => {
@@ -9,11 +10,11 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
   const MAX_SCAN_FILES = 10_000;
   const PAGE_SIZE = 40;
   const demoFiles = [
-    {id: 'demo-cabin-a', name: 'cabin-final.png', path: 'exports/cabin-final.png', folder: 'exports', bytes: 12_840_112, type: 'PNG', src: '/studio-demo/demo-cabin.png', duplicateGroup: 'demo-cabin-match', metadataFields: [{key: 'parameters', producer: 'Stable Diffusion WebUI', encoding: 'Synthetic', value: 'A small cedar cabin in a quiet forest clearing, warm late-afternoon light\nNegative prompt: blurry, low detail\nSteps: 28, Sampler: DPM++ 2M, Seed: 428173'}]},
+    {id: 'demo-cabin-a', name: 'cabin-final.png', path: 'exports/cabin-final.png', folder: 'exports', bytes: 12_840_112, type: 'PNG', src: '/studio-demo/demo-cabin.png', duplicateGroup: 'demo-cabin-match', similarGroup: 'demo-cabin-visual', metadataFields: [{key: 'parameters', producer: 'Stable Diffusion WebUI', encoding: 'Synthetic', value: 'A small cedar cabin in a quiet forest clearing, warm late-afternoon light\nNegative prompt: blurry, low detail\nSteps: 28, Sampler: DPM++ 2M, Seed: 428173'}]},
     {id: 'demo-cabin-b', name: 'cabin-final-copy.png', path: 'archive/old/cabin-final-copy.png', folder: 'archive/old', bytes: 12_840_112, type: 'PNG', src: '/studio-demo/demo-cabin.png', duplicateGroup: 'demo-cabin-match', metadataFields: [{key: 'parameters', producer: 'Stable Diffusion WebUI', encoding: 'Synthetic', value: 'A small cedar cabin in a quiet forest clearing, warm late-afternoon light\nNegative prompt: blurry, low detail\nSteps: 28, Sampler: DPM++ 2M, Seed: 428173'}]},
     {id: 'demo-observatory', name: 'observatory-study.png', path: 'concepts/observatory-study.png', folder: 'concepts', bytes: 9_624_680, type: 'PNG', src: '/studio-demo/demo-observatory.png', metadataFields: []},
     {id: 'demo-explorer', name: 'field-notes-04.png', path: 'concepts/field-notes-04.png', folder: 'concepts', bytes: 8_902_401, type: 'PNG', src: '/studio-demo/demo-explorer.png', metadata: 'not-checked'},
-    {id: 'demo-cabin-webp', name: 'cabin-social.webp', path: 'exports/social/cabin-social.webp', folder: 'exports/social', bytes: 7_412_208, type: 'WEBP', src: '/studio-demo/demo-cabin.png'},
+    {id: 'demo-cabin-webp', name: 'cabin-social.webp', path: 'exports/social/cabin-social.webp', folder: 'exports/social', bytes: 7_412_208, type: 'WEBP', src: '/studio-demo/demo-cabin.png', similarGroup: 'demo-cabin-visual'},
     {id: 'demo-observatory-copy', name: 'observatory-v1.png', path: 'archive/old/observatory-v1.png', folder: 'archive/old', bytes: 6_320_410, type: 'PNG', src: '/studio-demo/demo-observatory.png', duplicateGroup: 'demo-observatory-match', metadataFields: [{key: 'prompt', producer: 'ComfyUI', encoding: 'Synthetic', value: '{\n  "4": { "class_type": "CLIPTextEncode", "inputs": { "text": "A fictional observatory beneath a clear night sky" } }\n}'}, {key: 'workflow', producer: 'ComfyUI', encoding: 'Synthetic', value: '{\n  "nodes": [\n    { "id": 1, "type": "CheckpointLoaderSimple" },\n    { "id": 2, "type": "CLIPTextEncode" },\n    { "id": 3, "type": "KSampler" },\n    { "id": 4, "type": "SaveImage" }\n  ]\n}'}]},
     {id: 'demo-observatory-copy-2', name: 'observatory-v1-backup.png', path: 'archive/backup/observatory-v1-backup.png', folder: 'archive/backup', bytes: 6_320_410, type: 'PNG', src: '/studio-demo/demo-observatory.png', duplicateGroup: 'demo-observatory-match', metadataFields: [{key: 'prompt', producer: 'ComfyUI', encoding: 'Synthetic', value: '{\n  "4": { "class_type": "CLIPTextEncode", "inputs": { "text": "A fictional observatory beneath a clear night sky" } }\n}'}, {key: 'workflow', producer: 'ComfyUI', encoding: 'Synthetic', value: '{\n  "nodes": [\n    { "id": 1, "type": "CheckpointLoaderSimple" },\n    { "id": 2, "type": "CLIPTextEncode" },\n    { "id": 3, "type": "KSampler" },\n    { "id": 4, "type": "SaveImage" }\n  ]\n}'}]},
     {id: 'demo-explorer-jpg', name: 'explorer-contact.jpg', path: 'exports/contacts/explorer-contact.jpg', folder: 'exports/contacts', bytes: 3_804_774, type: 'JPEG', src: '/studio-demo/demo-explorer.png', metadata: 'not-checked'},
@@ -39,8 +40,10 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     plan: null,
     scanning: false,
     partial: false,
+    visualPartial: false,
     scanToken: 0,
     scanStats: null,
+    visualStats: null,
     objectUrls: new Map(),
     metadataCache: new Map(),
     worker: null,
@@ -64,7 +67,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     rows: $('file-rows'), folders: $('folder-list'), folderTotal: $('folder-total'),
     totalAssets: $('total-assets'), assetCaption: $('asset-caption'), imageBytes: $('images-size'), storageCaption: $('storage-caption'), duplicateCount: $('duplicate-count'), spaceFreedTotal: $('space-freed-total'), sourceBytesCaption: $('source-bytes-caption'),
     duplicateMethod: $('duplicate-method'),
-    allCount: $('count-all'), duplicateViewCount: $('count-duplicates'), largeCount: $('count-large'), planCount: $('count-plan'),
+    allCount: $('count-all'), duplicateViewCount: $('count-duplicates'), similarViewCount: $('count-similar'), largeCount: $('count-large'), planCount: $('count-plan'),
     search: $('file-search'), clearSearch: $('clear-search'), range: $('range-copy'), subtitle: $('list-subtitle'),
     empty: $('empty-state'), resetView: $('reset-view'), previousPage: $('previous-page'), nextPage: $('next-page'), pageCopy: $('page-copy'),
     progress: $('scan-progress'), progressTrack: $('progress-track'), progressFill: $('progress-fill'), progressCopy: $('progress-copy'), cancel: $('cancel-scan'),
@@ -286,6 +289,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
   function baseRecords() {
     let records = state.records;
     if (state.view === 'duplicates') records = records.filter((record) => record.duplicateGroup);
+    if (state.view === 'similar') records = records.filter((record) => record.similarGroup);
     if (state.view === 'large') records = records.filter((record) => record.bytes >= LARGE_IMAGE_BYTES);
     if (state.view === 'plan') records = records.filter((record) => state.selectedForPlan.has(record.id));
     if (state.folder) records = records.filter((record) => record.folder === state.folder);
@@ -365,10 +369,28 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     sizeCell.textContent = formatBytes(record.bytes);
 
     const signalCell = document.createElement('td');
-    const signal = document.createElement('span');
-    signal.className = `studio-signal${record.duplicateGroup ? ' is-match' : ''}`;
-    signal.textContent = record.duplicateGroup ? 'Exact byte match' : record.bytes >= LARGE_IMAGE_BYTES ? 'Large image' : '—';
-    signalCell.append(signal);
+    const signalList = document.createElement('span');
+    signalList.className = 'studio-signal-list';
+    if (record.duplicateGroup) {
+      const exact = document.createElement('span');
+      exact.className = 'studio-signal is-match';
+      exact.textContent = 'Exact byte match';
+      signalList.append(exact);
+    }
+    if (record.similarGroup) {
+      const similar = document.createElement('span');
+      similar.className = 'studio-signal is-similar';
+      similar.textContent = 'Visual candidate';
+      signalList.append(similar);
+    }
+    if (record.bytes >= LARGE_IMAGE_BYTES) {
+      const large = document.createElement('span');
+      large.className = 'studio-signal';
+      large.textContent = 'Large image';
+      signalList.append(large);
+    }
+    if (!signalList.childElementCount) signalList.textContent = '—';
+    signalCell.append(signalList);
 
     const reviewCell = document.createElement('td');
     const checkbox = document.createElement('input');
@@ -422,6 +444,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
 
   function updateCounts() {
     const duplicates = state.records.filter((record) => record.duplicateGroup);
+    const similar = state.records.filter((record) => record.similarGroup);
     const large = state.records.filter((record) => record.bytes >= LARGE_IMAGE_BYTES);
     nodes.totalAssets.textContent = new Intl.NumberFormat('en').format(state.totalImageCount);
     nodes.assetCaption.textContent = state.inventoryComplete
@@ -440,6 +463,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     else nodes.duplicateMethod.textContent = `${state.scanStats.hashedFiles} hashed · ${state.scanStats.skippedLargeFiles} over 64 MB skipped · ${state.scanStats.readFailures} read errors`;
     nodes.allCount.textContent = new Intl.NumberFormat('en').format(state.indexedImageCount);
     nodes.duplicateViewCount.textContent = new Intl.NumberFormat('en').format(duplicates.length);
+    nodes.similarViewCount.textContent = new Intl.NumberFormat('en').format(similar.length);
     nodes.largeCount.textContent = new Intl.NumberFormat('en').format(large.length);
     nodes.planCount.textContent = new Intl.NumberFormat('en').format(state.selectedForPlan.size);
     nodes.folderTotal.textContent = String(new Set(state.records.map((record) => record.folder)).size);
@@ -448,7 +472,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     nodes.planEstimate.textContent = formatBytes(estimate);
     nodes.spaceFreed.textContent = 'Not measured';
     nodes.planExplainer.textContent = state.selectedForPlan.size === 0
-      ? 'Select large images or exact duplicates after reviewing their previews. Nothing is chosen automatically.'
+      ? 'Review exact matches, visual candidates, or large images by hand. Nothing is chosen automatically.'
       : `${state.selectedForPlan.size} selected file${state.selectedForPlan.size === 1 ? '' : 's'} · candidate size only. OS free space is not measured.`;
     const archiveReady = state.sourceRoot && state.archiveRoot && state.sourceWriteGranted && state.archiveWriteGranted
       && state.inventoryComplete && !state.partial && !state.scanning && !state.operationBusy
@@ -659,9 +683,10 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     nodes.clearSearch.hidden = state.query.length === 0;
     nodes.subtitle.textContent = state.folder ? `Folder: ${state.folder} · image files only.`
       : state.view === 'duplicates' ? 'Only files confirmed by SHA-256 and byte comparison are shown.'
-        : state.view === 'large' ? 'Large images are informational; size alone never makes a review candidate.'
-          : state.view === 'plan' ? 'Temporary selection for human review. No files are changed.'
-            : 'Review exact matches; large size alone is not a cleanup signal.';
+        : state.view === 'similar' ? 'Local visual-pattern candidates can be resized or re-encoded versions; inspect previews because this is only a heuristic.'
+          : state.view === 'large' ? 'Large images are informational; size alone never makes a review candidate.'
+            : state.view === 'plan' ? 'Temporary selection for human review. No files are changed.'
+              : 'Review exact matches and visual candidates; large size alone is not a cleanup signal.';
   }
 
   function addBadge(label, neutral = false) {
@@ -753,7 +778,8 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     nodes.badges.replaceChildren();
     if (record.isDemo) addBadge('Synthetic demo', true);
     if (record.duplicateGroup) addBadge('Exact byte match');
-    else if (record.bytes >= LARGE_IMAGE_BYTES) addBadge('Large image', true);
+    if (record.similarGroup) addBadge('Visual similarity candidate', true);
+    if (record.bytes >= LARGE_IMAGE_BYTES) addBadge('Large image', true);
     nodes.metadataContent.replaceChildren();
     if (record.isDemo && record.type === 'PNG') {
       const fields = record.metadataFields ?? [];
@@ -899,6 +925,10 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     return {groups: [], stats: {candidateFiles: 0, hashedFiles: 0, skippedLargeFiles: 0, readFailures: 0, confirmedGroups: 0}, cancelled};
   }
 
+  function emptyVisualResult(cancelled = false, failed = false) {
+    return {groups: [], stats: {eligibleFiles: 0, hashedFiles: 0, skippedFormats: 0, readFailures: 0, candidatePairs: 0, candidatePairsCapped: false, candidateGroups: 0}, cancelled, failed};
+  }
+
   async function scanDuplicates(records, token) {
     const shouldCancel = () => token !== state.scanToken || state.cancelRequested;
     const fallback = () => findExactDuplicateGroups(records, {
@@ -952,6 +982,87 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     });
   }
 
+  function setVisualProgress(progress, token) {
+    if (token !== state.scanToken) return;
+    state.visualStats = {
+      ...state.visualStats,
+      eligibleFiles: progress.total ?? state.visualStats?.eligibleFiles ?? 0,
+      hashedFiles: progress.hashedFiles ?? state.visualStats?.hashedFiles ?? 0,
+      readFailures: progress.readFailures ?? state.visualStats?.readFailures ?? 0,
+      candidatePairs: progress.candidatePairs ?? state.visualStats?.candidatePairs ?? 0,
+    };
+    const total = progress.total ?? 0;
+    const percentage = progress.phase === 'visual-hash'
+      ? (total ? Math.round(progress.completed / total * 65) : 65)
+      : (total ? 65 + Math.round(progress.completed / total * 35) : 100);
+    nodes.progressTrack.classList.remove('is-indeterminate');
+    nodes.progressTrack.setAttribute('aria-valuenow', String(percentage));
+    nodes.progressTrack.setAttribute('aria-valuetext', progress.phase === 'visual-hash'
+      ? `${progress.completed} of ${total} raster images checked for visual candidates`
+      : `Grouping visual candidates · ${progress.completed} of ${total} image patterns`);
+    nodes.progressFill.style.width = `${percentage}%`;
+    nodes.scanState.textContent = 'Checking visual candidates';
+    nodes.progressCopy.textContent = progress.phase === 'visual-hash'
+      ? `Checking local image patterns · ${progress.completed.toLocaleString('en')} of ${total.toLocaleString('en')} raster images`
+      : `Grouping visual review candidates · ${progress.completed.toLocaleString('en')} of ${total.toLocaleString('en')} image patterns`;
+  }
+
+  async function scanVisualSimilarities(records, token) {
+    const shouldCancel = () => token !== state.scanToken || state.cancelRequested;
+    const maxDistance = 5;
+    const maxCandidatePairs = 50_000;
+    const fallback = () => findVisualSimilarityGroups(records, {
+      maxDistance,
+      maxCandidatePairs,
+      shouldCancel,
+      onProgress: (progress) => setVisualProgress(progress, token),
+      yieldToBrowser,
+    });
+    if (typeof Worker !== 'function') return fallback();
+
+    let worker;
+    try { worker = new Worker(new URL('./studio-worker.js', import.meta.url), {type: 'module'}); }
+    catch { return fallback(); }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let failingOver = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        worker.terminate();
+        if (state.worker === worker) state.worker = null;
+        resolve(result);
+      };
+      const failOver = async () => {
+        if (settled || failingOver) return;
+        failingOver = true;
+        worker.terminate();
+        if (state.worker === worker) state.worker = null;
+        if (shouldCancel()) { finish(emptyVisualResult(true)); return; }
+        try { finish(await fallback()); }
+        catch { finish(emptyVisualResult(false, true)); }
+      };
+      state.worker = worker;
+      worker.onmessage = (event) => {
+        const message = event.data;
+        if (!message || message.token !== token) return;
+        if (message.type === 'progress') setVisualProgress(message.progress, token);
+        else if (message.type === 'error') void failOver();
+        else if (message.type === 'similarity-result') {
+          const byId = new Map(records.map((record) => [record.id, record]));
+          finish({...message, groups: message.groups.map((group) => group.map((id) => byId.get(id)).filter(Boolean)).filter((group) => group.length > 1)});
+        }
+      };
+      worker.onerror = () => { void failOver(); };
+      try {
+        worker.postMessage({type: 'similarity-scan', token, maxDistance, maxCandidatePairs, records: records.map(({id, file, type, path}) => ({id, file, type, path}))});
+      } catch {
+        void failOver();
+      }
+    });
+  }
+
   function startScanState() {
     state.scanToken += 1;
     state.worker?.terminate();
@@ -961,7 +1072,9 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     state.sourceRoot = null;
     state.sourceWriteGranted = false;
     state.partial = false;
+    state.visualPartial = false;
     state.scanStats = null;
+    state.visualStats = null;
     state.plan = null;
     state.selectedForPlan.clear();
     state.records = [];
@@ -1043,7 +1156,26 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
         const id = `exact-byte-match-${token}-${matchIndex++}`;
         for (const record of matches) record.duplicateGroup = id;
       }
+      let visual = emptyVisualResult(inventory.cancelled || result.cancelled);
+      if (!inventory.cancelled && !result.cancelled && !state.cancelRequested && state.records.length > 0) {
+        nodes.scanState.textContent = 'Checking visual candidates';
+        nodes.progressTrack.classList.remove('is-indeterminate');
+        nodes.progressTrack.setAttribute('aria-valuenow', '0');
+        nodes.progressTrack.setAttribute('aria-valuetext', 'Preparing local visual candidate scan');
+        nodes.progressFill.style.width = '0%';
+        nodes.progressCopy.textContent = 'Preparing local visual candidate scan…';
+        visual = await scanVisualSimilarities(state.records, token);
+      }
+      if (token !== state.scanToken) return;
+      let visualIndex = 0;
+      for (const matches of visual.groups) {
+        const id = `visual-candidate-${token}-${visualIndex++}`;
+        for (const record of matches) record.similarGroup = id;
+      }
       state.scanStats = result.stats;
+      state.visualStats = visual.stats;
+      state.visualPartial = visual.cancelled || visual.failed || visual.stats.skippedFormats > 0
+        || visual.stats.readFailures > 0 || visual.stats.candidatePairsCapped;
       state.partial = inventory.cancelled || inventory.capped || inventory.imageCount > inventory.records.length
         || inventory.unreadableFiles > 0 || result.cancelled || result.failed
         || result.stats.skippedLargeFiles > 0 || result.stats.readFailures > 0;
@@ -1056,7 +1188,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
       nodes.cancel.hidden = true;
       nodes.cancel.disabled = false;
       nodes.cancel.textContent = 'Stop scan';
-      nodes.scanState.textContent = state.partial ? 'Partial scan' : 'Scan complete';
+      nodes.scanState.textContent = state.partial ? 'Partial scan' : state.visualPartial ? 'Scan complete · visual hints partial' : 'Scan complete';
       const warnings = [];
       if (inventory.cancelled || result.cancelled) warnings.push('Scan stopped early. Counts, duplicates, and the review set may be incomplete.');
       if (inventory.capped) warnings.push('The scan reached the 250,000-entry safety limit; total image count and bytes are partial.');
@@ -1065,8 +1197,13 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
       if (result.stats.skippedLargeFiles > 0) warnings.push(`${result.stats.skippedLargeFiles.toLocaleString('en')} retained images over 64 MiB were not hash-checked.`);
       const readErrors = inventory.unreadableFiles + result.stats.readFailures;
       if (readErrors > 0) warnings.push(`${readErrors.toLocaleString('en')} file reads failed; those files were not marked as duplicates.`);
+      if (visual.failed) warnings.push('Visual candidate checking could not run in this browser. Exact duplicate results remain available.');
+      if (visual.cancelled) warnings.push('Visual candidate checking stopped early; no complete visual result is available.');
+      if (visual.stats.skippedFormats > 0) warnings.push(`${visual.stats.skippedFormats.toLocaleString('en')} GIF/SVG or unsupported image files were skipped by visual candidate checking.`);
+      if (visual.stats.readFailures > 0) warnings.push(`${visual.stats.readFailures.toLocaleString('en')} raster images could not be decoded for visual candidate checking.`);
+      if (visual.stats.candidatePairsCapped) warnings.push('Visual candidate grouping reached its safety limit; its results are partial.');
       const ending = 'No files were moved or deleted; space actually freed by Guardian is 0 B.';
-      setNotice(warnings.length ? `${warnings.join(' ')} ${ending}` : `${inventory.imageCount.toLocaleString('en')} image files counted locally. Exact duplicates include a byte comparison. ${ending}`, warnings.length ? 'error' : 'info');
+      setNotice(warnings.length ? `${warnings.join(' ')} ${ending}` : `${inventory.imageCount.toLocaleString('en')} image files counted locally. Exact duplicates include a byte comparison; visual candidates are heuristic review hints. ${ending}`, warnings.length ? 'error' : 'info');
       render();
     } catch {
       if (token !== state.scanToken) return;
@@ -1142,7 +1279,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     state.worker?.postMessage({type: 'cancel', token: state.scanToken});
     nodes.cancel.disabled = true;
     nodes.cancel.textContent = 'Stopping…';
-    nodes.progressCopy.textContent = 'Stopping after the current file operation…';
+    nodes.progressCopy.textContent = 'Stopping after the current local check…';
   });
   nodes.search.addEventListener('input', () => {
     state.query = nodes.search.value.trim();
@@ -1186,7 +1323,7 @@ import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFile
     if (selected.length === 0 || state.scanning) return;
     const candidateBytes = selected.reduce((sum, record) => sum + record.bytes, 0);
     state.plan = buildReviewPlan(state.records, state.selectedForPlan, {
-      complete: state.inventoryComplete && !state.partial,
+      complete: state.inventoryComplete && !state.partial && !state.visualPartial,
       totalImageCount: state.totalImageCount,
       totalImageBytes: state.totalImageBytes,
       retainedForReview: state.indexedImageCount,

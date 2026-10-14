@@ -42,6 +42,7 @@ test('Studio serves only allowlisted CSS, JavaScript, and synthetic preview imag
       ['/studio.js', /javascript/],
       ['/studio-metadata.js', /javascript/],
       ['/studio-scan.js', /javascript/],
+      ['/studio-similarity.js', /javascript/],
       ['/studio-worker.js', /javascript/],
       ['/studio-file-ops.js', /javascript/],
       ['/studio-demo/demo-cabin.png', /image\/png/],

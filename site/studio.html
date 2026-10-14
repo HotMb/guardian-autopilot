@@ -37,6 +37,7 @@
           <p class="studio-overline">REVIEW</p>
           <button class="studio-nav-item is-active" type="button" data-view="all" aria-current="page"><span>All images</span><span class="studio-count" id="count-all">0</span></button>
           <button class="studio-nav-item" type="button" data-view="duplicates"><span>Exact duplicates</span><span class="studio-count" id="count-duplicates">0</span></button>
+          <button class="studio-nav-item" type="button" data-view="similar"><span>Similar candidates</span><span class="studio-count" id="count-similar">0</span></button>
           <button class="studio-nav-item" type="button" data-view="large"><span>Large images</span><span class="studio-count" id="count-large">0</span></button>
           <button class="studio-nav-item" type="button" data-view="plan"><span>Review plan</span><span class="studio-count" id="count-plan">0</span></button>
         </nav>
@@ -68,7 +69,7 @@
           <article class="studio-stat studio-stat-accent"><span class="studio-stat-label">EXACT DUPLICATE FILES</span><strong id="duplicate-count">0</strong><span id="duplicate-method">SHA-256 and byte comparison</span></article>
           <article class="studio-stat"><span class="studio-stat-label">SOURCE BYTES REMOVED</span><strong id="space-freed-total">Not measured</strong><span id="source-bytes-caption">OS free space is not measured</span></article>
         </section>
-        <p class="studio-limit-note" id="scan-limit-copy">Guardian counts image bytes across the selected folder, and keeps up to 10,000 largest images for review. Exact-duplicate hashing is limited to files up to 64 MiB. Archive requires separate write permission and your confirmation for every selected file.</p>
+        <p class="studio-limit-note" id="scan-limit-copy">Guardian counts image bytes across the selected folder and keeps up to 10,000 largest images for review. Exact duplicate hashing is limited to 64 MiB per file. Visual candidates use local raster thumbnails; GIF and SVG are skipped. They are review hints, never proof that files can be replaced. Archive needs separate write permission and your confirmation for every selected file.</p>
 
         <section class="studio-watch-panel" aria-labelledby="watch-heading">
           <div class="studio-watch-heading">
@@ -95,7 +96,7 @@
 
         <section class="studio-files-panel" aria-labelledby="files-heading">
           <div class="studio-panel-top">
-            <div><h2 id="files-heading">Image files</h2><p id="list-subtitle">Review exact matches; large size alone is not a cleanup signal.</p></div>
+            <div><h2 id="files-heading">Image files</h2><p id="list-subtitle">Review exact matches and visual candidates; large size alone is not a cleanup signal.</p></div>
             <div class="studio-search-wrap">
               <label class="studio-visually-hidden" for="file-search">Search filenames and folders</label>
               <input id="file-search" type="search" placeholder="Search files and folders" autocomplete="off">
@@ -109,7 +110,7 @@
           </div>
           <div id="table-scroll" class="studio-table-scroll" tabindex="0" aria-label="Scrollable image file list">
             <table class="studio-table">
-              <caption class="studio-visually-hidden">Image files in the selected collection</caption>
+              <caption class="studio-visually-hidden">Image files and review signals in the selected collection</caption>
               <thead>
                 <tr>
                   <th scope="col" class="studio-file-column" aria-sort="ascending"><button type="button" data-sort="name">FILE <span aria-hidden="true">↕</span></button></th>
@@ -138,7 +139,7 @@
           </div>
         </section>
 
-        <p class="studio-disclaimer"><strong>Exact match means identical file bytes.</strong> Guardian does not compare visual similarity or decide which image matters. Candidate size is not space recovered; archive changes are separately authorized, and OS free space is not measured.</p>
+        <p class="studio-disclaimer"><strong>Exact match means identical file bytes.</strong> Visual candidates are low-resolution pattern hints, not proof that images are interchangeable; inspect the previews and paths. Guardian does not decide which image matters. Candidate size is not space recovered; archive changes are separately authorized, and OS free space is not measured.</p>
         <div id="studio-notice" class="studio-notice" role="status" aria-live="polite" hidden></div>
       </main>
 

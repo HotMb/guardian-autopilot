@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups, imageTypeFromName} from '../site/studio-scan.js';
+import {findVisualSimilarityGroups, groupPerceptualHashes, hammingDistance, perceptualHashFromRgba} from '../site/studio-similarity.js';
 
 const record = (id, bytes) => ({id, bytes: bytes.length, file: new Blob([bytes])});
 const quiet = {yieldToBrowser: async () => {}};
@@ -127,7 +128,7 @@ test('recognizes the image formats used by local generator archives', () => {
 test('exports candidate size separately from actual space freed and omits image contents', () => {
   const records = [
     {id: 'large', path: 'ComfyUI/output/large.png', bytes: 50, type: 'PNG'},
-    {id: 'duplicate', path: 'Stable-diffusion/output/copy.png', bytes: 30, type: 'PNG', duplicateGroup: 'match-1'},
+    {id: 'duplicate', path: 'Stable-diffusion/output/copy.png', bytes: 30, type: 'PNG', duplicateGroup: 'match-1', similarGroup: 'visual-1'},
   ];
   const plan = buildReviewPlan(records, new Set(['large', 'duplicate']), {
     complete: true, totalImageCount: 2, totalImageBytes: 80, retainedForReview: 2,
@@ -136,6 +137,7 @@ test('exports candidate size separately from actual space freed and omits image 
   assert.equal(plan.candidateSizeBytes, 80);
   assert.equal(plan.spaceActuallyFreedBytes, 0);
   assert.deepEqual(plan.candidates.map(({relativePath}) => relativePath), records.map(({path}) => path));
+  assert.deepEqual(plan.candidates.map(({visuallySimilarCandidate}) => visuallySimilarCandidate), [false, true]);
   assert.ok(plan.candidates.every((candidate) => !('bytes' in candidate) && !('hash' in candidate)));
   assert.match(plan.note, /no space has been freed/i);
 
@@ -146,4 +148,77 @@ test('exports candidate size separately from actual space freed and omits image 
   assert.equal(partialPlan.scan.totalImageCount, 12_050);
   assert.equal(partialPlan.scan.retainedForReview, 10_000);
   assert.equal(partialPlan.spaceActuallyFreedBytes, 0);
+});
+
+
+test('perceptual hash is deterministic and ignores a uniform brightness shift', () => {
+  const first = new Uint8ClampedArray(32 * 32 * 4);
+  const second = new Uint8ClampedArray(32 * 32 * 4);
+  for (let pixel = 0; pixel < 32 * 32; pixel += 1) {
+    const x = pixel % 32;
+    const y = Math.floor(pixel / 32);
+    const value = (x * 7 + y * 11) % 180;
+    first.set([value, value, value, 255], pixel * 4);
+    const shifted = Math.min(255, value + 35);
+    second.set([shifted, shifted, shifted, 255], pixel * 4);
+  }
+  const a = perceptualHashFromRgba(first);
+  const b = perceptualHashFromRgba(second);
+  assert.equal(typeof a, 'bigint');
+  assert.ok(hammingDistance(a, b) <= 5);
+  assert.throws(() => perceptualHashFromRgba(new Uint8Array(4)), /32 by 32/);
+});
+
+test('groups resized or re-encoded candidates without merging a similarity chain', async () => {
+  const hashes = [
+    {record: {id: 'a', path: 'a.png'}, hash: 0n},
+    {record: {id: 'b', path: 'b.webp'}, hash: (1n << 0n) | (1n << 2n)},
+    {record: {id: 'c', path: 'c.jpg'}, hash: (1n << 1n) | (1n << 3n) | (1n << 4n) | (1n << 5n)},
+    {record: {id: 'far', path: 'far.png'}, hash: (1n << 0n) | (1n << 1n) | (1n << 2n) | (1n << 3n) | (1n << 4n) | (1n << 5n)},
+  ];
+  const result = await groupPerceptualHashes(hashes, quiet);
+  assert.deepEqual(result.groups.map((group) => group.map(({id}) => id)), [['a', 'b'], ['c', 'far']]);
+  assert.equal(result.stats.candidateGroups, 2);
+  assert.equal(hammingDistance(0n, (1n << 0n) | (1n << 1n)), 2);
+});
+
+test('keeps distinct perceptual candidates separate when the pair budget is reached', async () => {
+  const entries = [0n, 1n << 0n, 1n << 1n, 1n << 2n].map((hash, index) => ({record: {id: String(index)}, hash}));
+  const result = await groupPerceptualHashes(entries, {...quiet, maxCandidatePairs: 1});
+  assert.equal(result.stats.candidatePairsCapped, true);
+  assert.equal(result.stats.candidatePairs, 1);
+  assert.equal(result.groups.length, 1);
+  assert.deepEqual(result.groups[0].map(({id}) => id), ['0', '1']);
+});
+
+test('visual scan skips animated and SVG formats and reports decode failures', async () => {
+  const records = [
+    {id: 'png', type: 'PNG', file: new Blob(['a'])},
+    {id: 'jpeg', type: 'JPEG', file: new Blob(['b'])},
+    {id: 'gif', type: 'GIF', file: new Blob(['c'])},
+    {id: 'svg', type: 'SVG', file: new Blob(['d'])},
+  ];
+  const result = await findVisualSimilarityGroups(records, {
+    ...quiet,
+    hashFile: async (file) => { if (await file.text() === 'b') throw new Error('bad image'); return 0n; },
+  });
+  assert.deepEqual(result.groups, []);
+  assert.equal(result.stats.eligibleFiles, 2);
+  assert.equal(result.stats.skippedFormats, 2);
+  assert.equal(result.stats.readFailures, 1);
+  assert.equal(result.stats.hashedFiles, 1);
+});
+
+test('visual scan reports cancellation without claiming unprocessed images were checked', async () => {
+  let cancel = false;
+  const records = ['a', 'b', 'c'].map((id) => ({id, type: 'PNG', file: new Blob([id])}));
+  const result = await findVisualSimilarityGroups(records, {
+    ...quiet,
+    hashFile: async () => 0n,
+    shouldCancel: () => cancel,
+    onProgress: ({phase}) => { if (phase === 'visual-hash') cancel = true; },
+  });
+  assert.equal(result.cancelled, true);
+  assert.equal(result.stats.hashedFiles, 1);
+  assert.deepEqual(result.groups, []);
 });
