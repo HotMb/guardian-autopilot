@@ -66,9 +66,9 @@
           <article class="studio-stat"><span class="studio-stat-label">IMAGE FILES</span><strong id="total-assets">0</strong><span id="asset-caption">in this collection</span></article>
           <article class="studio-stat"><span class="studio-stat-label">IMAGE STORAGE</span><strong id="images-size">0 B</strong><span id="storage-caption">image bytes only</span></article>
           <article class="studio-stat studio-stat-accent"><span class="studio-stat-label">EXACT DUPLICATE FILES</span><strong id="duplicate-count">0</strong><span id="duplicate-method">SHA-256 and byte comparison</span></article>
-          <article class="studio-stat"><span class="studio-stat-label">SPACE FREED BY GUARDIAN</span><strong id="space-freed-total">0 B</strong><span>No files changed</span></article>
+          <article class="studio-stat"><span class="studio-stat-label">SOURCE BYTES REMOVED</span><strong id="space-freed-total">Not measured</strong><span id="source-bytes-caption">OS free space is not measured</span></article>
         </section>
-        <p class="studio-limit-note" id="scan-limit-copy">Guardian counts image bytes across the selected folder, and keeps up to 10,000 largest images for review. Exact-duplicate hashing is limited to files up to 64 MiB. Nothing is moved or deleted.</p>
+        <p class="studio-limit-note" id="scan-limit-copy">Guardian counts image bytes across the selected folder, and keeps up to 10,000 largest images for review. Exact-duplicate hashing is limited to files up to 64 MiB. Archive requires separate write permission and your confirmation for every selected file.</p>
 
         <section class="studio-files-panel" aria-labelledby="files-heading">
           <div class="studio-panel-top">
@@ -145,16 +145,77 @@
           <h2 id="plan-heading">Review candidates</h2>
           <dl class="studio-plan-metrics">
             <div><dt>Selected candidate size</dt><dd id="plan-estimate">0 B</dd></div>
-            <div><dt>Space actually freed</dt><dd id="space-freed">0 B</dd></div>
+            <div><dt>OS free space</dt><dd id="space-freed">Not measured</dd></div>
           </dl>
-          <p class="studio-plan-explainer" id="plan-explainer">Choose exact duplicates or large images for a human review plan. Candidate size is not recoverable space.</p>
+          <p class="studio-plan-explainer" id="plan-explainer">Choose exact duplicates or large images for a human review plan. Candidate size is not recovered disk space.</p>
           <button id="create-plan" class="studio-button studio-button-primary studio-plan-action" type="button" disabled>Export review plan</button>
-          <button id="cleanup-action" class="studio-button studio-button-secondary studio-plan-action studio-cleanup-disabled" type="button" disabled>Move to quarantine — unavailable</button>
-          <p class="studio-cleanup-note" id="cleanup-limitation">This browser does not provide a portable, safe move-and-restore path for ordinary files. No cleanup action is enabled; export a plan and decide manually.</p>
+          <div class="studio-write-controls">
+            <button id="enable-source-write" class="studio-button studio-button-secondary studio-plan-action" type="button" disabled>Allow source write access</button>
+            <button id="choose-quarantine" class="studio-button studio-button-secondary studio-plan-action" type="button" disabled>Choose archive folder</button>
+          </div>
+          <p class="studio-cleanup-note" id="cleanup-limitation">Archive needs a Chromium-based browser, a folder selected with the directory picker, and separate write permission. The compatibility picker stays read-only. No files are chosen automatically.</p>
+          <button id="cleanup-action" class="studio-button studio-button-primary studio-plan-action" type="button" disabled>Review archive selection</button>
+          <div id="archive-operation-status" class="studio-archive-status" aria-live="polite" hidden></div>
+          <div id="archive-operation-progress" class="studio-archive-progress" hidden>
+            <div class="studio-progress-track" id="file-op-progress" role="progressbar" aria-label="File operation progress"><span id="file-op-progress-fill"></span></div>
+            <p id="file-op-progress-copy">Preparing local file operation…</p>
+            <button id="cancel-file-operation" class="studio-button studio-button-secondary" type="button">Stop safely</button>
+          </div>
           <div id="review-plan" class="studio-review-result" hidden></div>
+        </section>
+        <section class="studio-archive-card" aria-labelledby="archive-heading">
+          <div class="studio-plan-title"><span class="studio-plan-square" aria-hidden="true"></span><p class="studio-overline">LOCAL JOURNAL</p></div>
+          <h2 id="archive-heading">Archive &amp; recovery</h2>
+          <p class="studio-cleanup-note" id="archive-journal-copy">Choose an archive folder to open its local journal. Paths and hashes remain in that folder and are not uploaded.</p>
+          <div id="archive-entry-list" class="studio-archive-entry-list" aria-live="polite"></div>
+          <div id="archive-pagination" class="studio-archive-pagination" hidden>
+            <button id="archive-previous" class="studio-button studio-button-secondary" type="button">Previous</button>
+            <span id="archive-page-copy"></span>
+            <button id="archive-next" class="studio-button studio-button-secondary" type="button">Next</button>
+          </div>
+          <div class="studio-archive-actions">
+            <button id="resume-verified" class="studio-button studio-button-warning" type="button" disabled>Review interrupted archive</button>
+            <button id="restore-selected" class="studio-button studio-button-secondary" type="button" disabled>Review restore</button>
+            <button id="purge-selected" class="studio-button studio-button-danger" type="button" disabled>Review permanent purge</button>
+          </div>
         </section>
         <p class="studio-inspector-foot">No canonical copy is chosen automatically.</p>
       </aside>
     </div>
+    <dialog id="archive-dialog" class="studio-dialog" aria-labelledby="archive-dialog-title" aria-describedby="archive-dialog-description">
+      <div class="studio-dialog-header"><span class="studio-overline">REVERSIBLE ARCHIVE</span><button id="archive-dialog-close" class="studio-dialog-close" type="button" aria-label="Close archive review">×</button></div>
+      <h2 id="archive-dialog-title">Review exact files</h2>
+      <p id="archive-dialog-description">Guardian will stream-copy each selected file, verify every byte, save a local journal, then remove the source entry. If copy or verification fails, the source stays in place.</p>
+      <dl class="studio-dialog-metrics"><div><dt>Files selected</dt><dd id="archive-dialog-count">0</dd></div><div><dt>Bytes to archive</dt><dd id="archive-dialog-bytes">0 B</dd></div></dl>
+      <ul id="archive-dialog-files" class="studio-dialog-file-list"></ul>
+      <label class="studio-dialog-field" for="archive-reason">Why are these files being archived? <span>Required, 1–300 characters</span><textarea id="archive-reason" maxlength="300" rows="3" autocomplete="off"></textarea></label>
+      <label class="studio-confirm-check"><input id="external-volume-confirm" type="checkbox"><span>I confirm the chosen archive folder is on a different storage volume. Guardian cannot verify this.</span></label>
+      <p class="studio-dialog-warning">The archive keeps these bytes stored. Device free space is not measured. Keep other apps from changing this folder while the operation runs.</p>
+      <div class="studio-dialog-actions"><button id="archive-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="archive-dialog-confirm" class="studio-button studio-button-warning" type="button" disabled>Archive these files</button></div>
+    </dialog>
+    <dialog id="restore-dialog" class="studio-dialog" aria-labelledby="restore-dialog-title" aria-describedby="restore-dialog-description">
+      <div class="studio-dialog-header"><span class="studio-overline">RESTORE</span><button id="restore-dialog-close" class="studio-dialog-close" type="button" aria-label="Close restore review">×</button></div>
+      <h2 id="restore-dialog-title">Restore selected files?</h2><p id="restore-dialog-description">Guardian verifies the archived bytes and checks that each original path is absent before writing. If a path already exists at that check, restore stops. The browser cannot make the check and write atomic, so keep both folders unchanged. A verified archive copy is retained until you explicitly purge it.</p>
+      <ul id="restore-dialog-files" class="studio-dialog-file-list"></ul>
+      <label class="studio-confirm-check"><input id="restore-source-confirm" type="checkbox"><span>I selected the original source folder for these archived paths.</span></label>
+      <div class="studio-dialog-actions"><button id="restore-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="restore-dialog-confirm" class="studio-button studio-button-primary" type="button" disabled>Restore selected files</button></div>
+    </dialog>
+    <dialog id="resume-dialog" class="studio-dialog" aria-labelledby="resume-dialog-title" aria-describedby="resume-dialog-description">
+      <div class="studio-dialog-header"><span class="studio-overline">RECOVERY CHECK</span><button id="resume-dialog-close" class="studio-dialog-close" type="button" aria-label="Close recovery review">×</button></div>
+      <h2 id="resume-dialog-title">Reconcile verified archive entries?</h2><p id="resume-dialog-description">Guardian rechecks the stored SHA-256 and bytes. If the original source still exists and matches, it removes that source entry and updates the journal. If the source is already absent, Guardian records the verified archive without claiming who removed it.</p>
+      <ul id="resume-dialog-files" class="studio-dialog-file-list"></ul>
+      <p class="studio-dialog-warning">Keep both selected folders unchanged during this check. The verified archive is not removed.</p>
+      <div class="studio-dialog-actions"><button id="resume-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="resume-dialog-confirm" class="studio-button studio-button-warning" type="button">Reconcile verified entries</button></div>
+    </dialog>
+    <dialog id="purge-dialog" class="studio-dialog studio-dialog-danger" aria-labelledby="purge-dialog-title" aria-describedby="purge-dialog-description">
+      <div class="studio-dialog-header"><span class="studio-overline">IRREVERSIBLE</span><button id="purge-dialog-close" class="studio-dialog-close" type="button" aria-label="Close purge review">×</button></div>
+      <h2 id="purge-dialog-title">Permanently purge archive copies?</h2><p id="purge-dialog-description">This permanently removes the selected files from Guardian’s archive. It cannot be undone. It does not remove any restored copy in your source folder.</p>
+      <dl class="studio-dialog-metrics"><div><dt>Files selected</dt><dd id="purge-dialog-count">0</dd></div><div><dt>Archive bytes to remove</dt><dd id="purge-dialog-bytes">0 B</dd></div></dl>
+      <ul id="purge-dialog-files" class="studio-dialog-file-list"></ul>
+      <label class="studio-confirm-check"><input id="purge-understood" type="checkbox"><span>I understand this permanently removes these archive copies.</span></label>
+      <label class="studio-dialog-field" for="purge-phrase">Type <code>PURGE</code> to confirm<input id="purge-phrase" type="text" maxlength="5" autocomplete="off" spellcheck="false"></label>
+      <p class="studio-dialog-warning">Guardian reports only the archive file bytes it removes. Operating-system free space is not measured.</p>
+      <div class="studio-dialog-actions"><button id="purge-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="purge-dialog-confirm" class="studio-button studio-button-danger" type="button" disabled>Purge permanently</button></div>
+    </dialog>
   </body>
 </html>

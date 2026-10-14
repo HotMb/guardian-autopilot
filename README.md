@@ -5,6 +5,7 @@ Guardian is a local-first toolkit for inspecting repositories and testing bounde
 ## Capabilities
 
 - Scan common image and video assets, calculate SHA-256 hashes, and report exact duplicates without modifying files.
+- Review AI-image collections locally; optionally archive manually selected files with a verified recoverable copy and an explicit purge lifecycle.
 - Build an asset inventory and resolve local references in JavaScript/TypeScript, CSS, HTML, Markdown, and public asset paths.
 - Analyze JavaScript/TypeScript repositories, explain possible unused-file candidates, and produce read-only plans.
 - Test selected cleanup candidates in an isolated local Git worktree. Required checks run before a successful experiment is kept for review.
@@ -42,7 +43,11 @@ npm run build
 node dist/cli.js studio
 ```
 
-Then open the printed `127.0.0.1` address in your browser. Studio starts with clearly labeled synthetic data. Choosing a folder grants the browser read-only access; paths, image bytes, hashes, and supported metadata stay in the page and are never uploaded. For a selected PNG, Studio can reveal supported Stable Diffusion WebUI `parameters` and ComfyUI `prompt`/`workflow` text after an explicit disclosure. This is bounded PNG text-chunk support, not general EXIF or JPEG/WebP metadata support. Duplicate candidates are hashed and then byte-compared; large files and incomplete scans are called out. The temporary review plan is informational. Studio does not delete, move, rename, overwrite, or edit files.
+Then open the printed `127.0.0.1` address in a supported Chromium-based desktop browser. Studio starts with clearly labeled synthetic data. Scanning requests read access only. The compatibility folder picker remains read-only. The optional archive workflow separately asks for source write permission and a user-chosen archive folder; it is disabled unless the browser exposes the required local file APIs.
+
+Archive is never automatic: select up to 20 exact paths, add a reason, and confirm them in a dialog. Guardian copies in 1 MiB chunks, verifies byte equality and a streaming SHA-256, records the operation in `.guardian-quarantine/manifest.json`, then removes the source entry. Failed/cancelled copies keep the source. Restore stops when the target already exists at its preflight check and retains the verified archive copy; a failed write may leave a partial target that must be inspected before retrying. Permanent purge is separate and requires an acknowledgement plus typing `PURGE`. The archive journal contains sensitive relative paths and reasons and stays in the selected local folder; it is not uploaded. Guardian reports only verified bytes removed from the chosen source/archive, never operating-system free space. If the archive is on the same volume, total device storage is not reduced until archive copies are purged.
+
+The browser does not provide a portable atomic no-replace guarantee against another program editing the selected folders during an operation. Keep those folders unchanged and do not run concurrent Guardian instances while archiving or restoring; maintain an independent backup for valuable data. For a selected PNG, Studio can reveal supported Stable Diffusion WebUI `parameters` and ComfyUI `prompt`/`workflow` text after an explicit disclosure. This is bounded PNG text-chunk support, not general EXIF or JPEG/WebP metadata support. Duplicate candidates are hashed and then byte-compared; large files and incomplete scans are called out.
 
 The scan command does not change the target project. The inventory command is the exception: it writes or updates `.guardian/index.json` to cache asset hashes.
 

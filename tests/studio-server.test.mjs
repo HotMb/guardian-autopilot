@@ -43,6 +43,7 @@ test('Studio serves only allowlisted CSS, JavaScript, and synthetic preview imag
       ['/studio-metadata.js', /javascript/],
       ['/studio-scan.js', /javascript/],
       ['/studio-worker.js', /javascript/],
+      ['/studio-file-ops.js', /javascript/],
       ['/studio-demo/demo-cabin.png', /image\/png/],
     ]) {
       const response = await fetch(`${baseUrl}${path}`);
@@ -58,15 +59,26 @@ test('Studio labels creator metadata as local, bounded, and opt-in without brows
   const app = await readFile(new URL('../site/studio.js', import.meta.url), 'utf8');
   const metadata = await readFile(new URL('../site/studio-metadata.js', import.meta.url), 'utf8');
   const scan = await readFile(new URL('../site/studio-scan.js', import.meta.url), 'utf8');
+  const fileOps = await readFile(new URL('../site/studio-file-ops.js', import.meta.url), 'utf8');
   const worker = await readFile(new URL('../site/studio-worker.js', import.meta.url), 'utf8');
 
   assert.match(html, /Prompts and workflows are revealed on request; they are not uploaded or saved/);
   assert.match(html, /id="previous-page"/);
   assert.match(html, /id="next-page"/);
   assert.match(html, /id="space-freed"/);
-  assert.match(html, /id="cleanup-action"[^>]*disabled/);
+  assert.match(html, /id="enable-source-write"/);
+  assert.match(html, /id="choose-quarantine"/);
+  assert.match(html, /id="archive-dialog"/);
+  assert.match(html, /id="purge-dialog"/);
+  assert.match(html, /Type <code>PURGE<\/code>/);
+  assert.match(html, /compatibility picker stays read-only/i);
+  assert.match(fileOps, /MAX_QUARANTINE_BATCH = 20/);
+  assert.match(fileOps, /await writer\.close\(\)/);
+  assert.match(fileOps, /await sourceHandle\.remove/);
+  assert.match(fileOps, /typedConfirmation !== 'PURGE'/);
+  assert.match(fileOps, /Unsafe or protected path/);
   assert.match(html, /id="create-plan"[^>]*>Export review plan/);
-  for (const source of [app, metadata, scan, worker]) {
+  for (const source of [app, metadata, scan, fileOps, worker]) {
     assert.doesNotMatch(source, /\b(?:fetch|XMLHttpRequest)\s*\(/);
     assert.doesNotMatch(source, /\b(?:localStorage|sessionStorage|indexedDB)\b/);
   }

@@ -56,8 +56,8 @@ An artist's archive desk: a dense contact sheet, a calm paper workspace, and a s
 - **Locale(s) and language policy:** English for this MVP, matching the selected mock and existing Guardian site. No locale switching is implemented.
 - **Usage scene:** Desktop browser on the creator's own machine, often with many image files and a need to compare previews and paths.
 - **Register:** Product utility. The existing Guardian wordmark and palette are retained.
-- **Memorable signature:** Storage totals and the actual-space-freed figure stay distinct above a compact, sortable contact-sheet table; the selected image preview and lime marker support a human review plan.
-- **Restraint:** No deletion action, similarity score, cloud account, or decorative dashboard metric. Never imply Guardian frees disk space while all operations remain read-only.
+- **Memorable signature:** Storage totals and actual operating-system free space remain distinct above a compact, sortable contact-sheet table; the selected image preview and lime marker support a human-controlled review and verified archive.
+- **Restraint:** No automatic cleanup, similarity score, cloud account, or decorative dashboard metric. Permanent purge remains separate from recoverable archive. Never claim or infer operating-system free space from file byte counts.
 - **Anti-references:** Generic SaaS gradient dashboards and image galleries that conceal file paths or imply AI similarity detection.
 - **Token ownership/runtime mapping:** `site/styles.css` owns the existing palette and type stacks; `site/studio.css` consumes its custom properties. This file mirrors those accepted values and documents Studio-specific geometry. No token generator is used.
 
@@ -85,7 +85,7 @@ Hover and focus use clear contrast; focus-visible retains a high-contrast browse
 
 ### Buttons and actions
 
-Primary is lime with dark text; secondary is paper/surface with a fine border. There is no destructive button in the MVP. The main action creates a temporary review plan and must say so.
+Primary is lime with dark text; secondary is paper/surface with a fine border. Reversible archive uses a warning/outline treatment; permanent purge uses a visually distinct danger treatment only in its final confirmation. The review plan remains informational.
 
 ### Navigation and data display
 
@@ -93,7 +93,7 @@ Use labeled navigation, real buttons for sorting and filters, and semantic table
 
 ### Forms and overlays
 
-Use a user-activated browser directory picker in read-only mode, with a multiple-file directory input fallback. Do not request write permission. Search is local and has an explicit clear button. Keep the plan in memory for the current tab only; no modal or toast is necessary for the main path.
+Use a user-activated browser directory picker in read-only mode, with a multiple-file directory input fallback. Request source write access only after a separate user click; the fallback remains read-only. Search is local and has an explicit clear button. Use app-owned dialogs for exact archive review, restore confirmation, and typed irreversible purge. Keep review plans in memory for the current tab only; persist only the explicit local archive journal and its data in the user-chosen folder.
 
 ### Iconography
 
@@ -105,7 +105,7 @@ Motion is limited to brief hover and selected-state feedback. Respect `prefers-r
 
 ### Content and data visualization
 
-Use plain language: “Exact duplicate” means identical file bytes, not visually similar. “Candidate size” is not recovered storage; display actual space freed as zero until a separately designed, tested file-mutation feature exists. Never expose embedded prompts until the user explicitly opens the metadata disclosure.
+Use plain language: “Exact duplicate” means identical file bytes, not visually similar. “Candidate size” is not recovered storage; Guardian does not measure operating-system free space. Report only verified source/archive bytes changed by the explicit operation. Explain that same-volume archive does not reduce total device storage until purge. Never expose embedded prompts until the user explicitly opens the metadata disclosure.
 
 ## Do's and Don'ts
 

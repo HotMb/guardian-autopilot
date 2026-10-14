@@ -1,5 +1,6 @@
 import {parsePngGenerationMetadata} from './studio-metadata.js';
 import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from './studio-scan.js';
+import {loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFiles, reconcileVerifiedQuarantine, restoreQuarantined, isProtectedQuarantineDirectory, QUARANTINE_DIRECTORY} from './studio-file-ops.js';
 
 (() => {
   const LARGE_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -44,6 +45,16 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     metadataCache: new Map(),
     worker: null,
     cancelRequested: false,
+    sourceRoot: null,
+    sourceWriteGranted: false,
+    archiveRoot: null,
+    archiveWriteGranted: false,
+    archiveEntries: [],
+    selectedArchiveIds: new Set(),
+    archivePage: 0,
+    operationController: null,
+    operationBusy: false,
+    sourceBytesRemoved: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -51,7 +62,7 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     folderInput: $('folder-input'), chooseFolder: $('choose-folder'), folderFallback: $('folder-fallback'), folderCapability: $('folder-capability'), folderStatus: $('folder-status'),
     scopeCopy: $('scope-copy'), scanState: $('scan-state'), demoLabel: $('demo-label'),
     rows: $('file-rows'), folders: $('folder-list'), folderTotal: $('folder-total'),
-    totalAssets: $('total-assets'), assetCaption: $('asset-caption'), imageBytes: $('images-size'), storageCaption: $('storage-caption'), duplicateCount: $('duplicate-count'), spaceFreedTotal: $('space-freed-total'),
+    totalAssets: $('total-assets'), assetCaption: $('asset-caption'), imageBytes: $('images-size'), storageCaption: $('storage-caption'), duplicateCount: $('duplicate-count'), spaceFreedTotal: $('space-freed-total'), sourceBytesCaption: $('source-bytes-caption'),
     duplicateMethod: $('duplicate-method'),
     allCount: $('count-all'), duplicateViewCount: $('count-duplicates'), largeCount: $('count-large'), planCount: $('count-plan'),
     search: $('file-search'), clearSearch: $('clear-search'), range: $('range-copy'), subtitle: $('list-subtitle'),
@@ -60,6 +71,12 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     preview: $('preview-image'), previewFrame: $('preview-frame'), previewUnavailable: $('preview-unavailable'), index: $('inspector-index'), badges: $('detail-badges'),
     name: $('inspector-heading'), path: $('detail-path'), size: $('detail-size'), type: $('detail-type'), folder: $('detail-folder'), metadata: $('detail-metadata'), metadataContent: $('metadata-content'),
     planEstimate: $('plan-estimate'), spaceFreed: $('space-freed'), planExplainer: $('plan-explainer'), createPlan: $('create-plan'), cleanupAction: $('cleanup-action'), cleanupLimitation: $('cleanup-limitation'), planResult: $('review-plan'),
+    enableSourceWrite: $('enable-source-write'), chooseQuarantine: $('choose-quarantine'), archiveStatus: $('archive-operation-status'), archiveProgress: $('archive-operation-progress'), fileOpTrack: $('file-op-progress'), fileOpProgressFill: $('file-op-progress-fill'), fileOpProgressCopy: $('file-op-progress-copy'), cancelFileOperation: $('cancel-file-operation'),
+    archiveJournalCopy: $('archive-journal-copy'), archiveEntryList: $('archive-entry-list'), archivePagination: $('archive-pagination'), archivePrevious: $('archive-previous'), archiveNext: $('archive-next'), archivePageCopy: $('archive-page-copy'), resumeVerified: $('resume-verified'), restoreSelected: $('restore-selected'), purgeSelected: $('purge-selected'),
+    archiveDialog: $('archive-dialog'), archiveDialogClose: $('archive-dialog-close'), archiveDialogCancel: $('archive-dialog-cancel'), archiveDialogConfirm: $('archive-dialog-confirm'), archiveDialogCount: $('archive-dialog-count'), archiveDialogBytes: $('archive-dialog-bytes'), archiveDialogFiles: $('archive-dialog-files'), archiveReason: $('archive-reason'), externalVolumeConfirm: $('external-volume-confirm'),
+    restoreDialog: $('restore-dialog'), restoreDialogClose: $('restore-dialog-close'), restoreDialogCancel: $('restore-dialog-cancel'), restoreDialogConfirm: $('restore-dialog-confirm'), restoreDialogFiles: $('restore-dialog-files'), restoreSourceConfirm: $('restore-source-confirm'),
+    resumeDialog: $('resume-dialog'), resumeDialogClose: $('resume-dialog-close'), resumeDialogCancel: $('resume-dialog-cancel'), resumeDialogConfirm: $('resume-dialog-confirm'), resumeDialogFiles: $('resume-dialog-files'),
+    purgeDialog: $('purge-dialog'), purgeDialogClose: $('purge-dialog-close'), purgeDialogCancel: $('purge-dialog-cancel'), purgeDialogConfirm: $('purge-dialog-confirm'), purgeDialogCount: $('purge-dialog-count'), purgeDialogBytes: $('purge-dialog-bytes'), purgeDialogFiles: $('purge-dialog-files'), purgeUnderstood: $('purge-understood'), purgePhrase: $('purge-phrase'),
     notice: $('studio-notice'),
   };
 
@@ -258,7 +275,10 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     nodes.imageBytes.textContent = formatBytes(state.totalImageBytes);
     nodes.storageCaption.textContent = state.inventoryComplete ? 'supported image bytes counted' : 'partial image-byte total';
     nodes.duplicateCount.textContent = new Intl.NumberFormat('en').format(duplicates.length);
-    nodes.spaceFreedTotal.textContent = formatBytes(0);
+    nodes.spaceFreedTotal.textContent = state.sourceBytesRemoved === null ? 'Not measured' : formatBytes(state.sourceBytesRemoved);
+    nodes.sourceBytesCaption.textContent = state.sourceBytesRemoved === null
+      ? 'OS free space is not measured'
+      : 'verified bytes removed from selected source; OS free space not measured';
     if (state.records.length > 0 && state.records.every((record) => record.isDemo)) nodes.duplicateMethod.textContent = 'Synthetic example matches';
     else if (state.scanning) nodes.duplicateMethod.textContent = `${state.scanStats?.hashedFiles ?? 0} of ${state.scanStats?.candidateFiles ?? 0} candidate files hashed`;
     else if (!state.scanStats) nodes.duplicateMethod.textContent = 'No local scan yet';
@@ -271,10 +291,172 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     nodes.createPlan.disabled = state.selectedForPlan.size === 0 || state.scanning;
     const estimate = state.records.reduce((sum, record) => sum + (state.selectedForPlan.has(record.id) ? record.bytes : 0), 0);
     nodes.planEstimate.textContent = formatBytes(estimate);
-    nodes.spaceFreed.textContent = formatBytes(0);
+    nodes.spaceFreed.textContent = 'Not measured';
     nodes.planExplainer.textContent = state.selectedForPlan.size === 0
-      ? 'Select large images or exact duplicates after reviewing their previews. No file is moved or deleted.'
-      : `${state.selectedForPlan.size} selected file${state.selectedForPlan.size === 1 ? '' : 's'} · candidate size only. Guardian has freed 0 B.`;
+      ? 'Select large images or exact duplicates after reviewing their previews. Nothing is chosen automatically.'
+      : `${state.selectedForPlan.size} selected file${state.selectedForPlan.size === 1 ? '' : 's'} · candidate size only. OS free space is not measured.`;
+    const archiveReady = state.sourceRoot && state.archiveRoot && state.sourceWriteGranted && state.archiveWriteGranted
+      && state.inventoryComplete && !state.partial && !state.scanning && !state.operationBusy
+      && state.selectedForPlan.size > 0 && state.selectedForPlan.size <= 20
+      && state.records.filter((record) => state.selectedForPlan.has(record.id)).every((record) => !record.isDemo);
+    nodes.cleanupAction.disabled = !archiveReady;
+    nodes.cleanupAction.textContent = state.selectedForPlan.size > 20 ? 'Select up to 20 files per operation' : 'Review archive selection';
+    nodes.enableSourceWrite.disabled = !state.sourceRoot || !directoryPickerAvailable() || state.scanning || state.operationBusy || state.sourceWriteGranted;
+    nodes.enableSourceWrite.textContent = state.sourceWriteGranted ? 'Source write permission granted' : 'Allow source write access';
+    nodes.chooseQuarantine.disabled = !state.sourceRoot || !directoryPickerAvailable() || state.scanning || state.operationBusy;
+    nodes.chooseQuarantine.textContent = state.archiveRoot ? 'Change archive folder' : 'Choose archive folder';
+    updateArchiveActionButtons();
+  }
+
+  function updateArchiveActionButtons() {
+    const chosen = state.archiveEntries.filter((entry) => state.selectedArchiveIds.has(entry.id));
+    const resumeReady = chosen.length > 0 && chosen.every((entry) => entry.status === 'verified') && state.sourceRoot && state.sourceWriteGranted && state.archiveWriteGranted;
+    const restoreReady = chosen.length > 0 && chosen.every((entry) => entry.status === 'quarantined') && state.sourceRoot && state.sourceWriteGranted && state.archiveWriteGranted;
+    const purgeReady = chosen.length > 0 && chosen.every((entry) => ['quarantined', 'restored', 'purging'].includes(entry.status)) && state.archiveRoot && state.archiveWriteGranted;
+    nodes.resumeVerified.disabled = !resumeReady || state.operationBusy;
+    nodes.restoreSelected.disabled = !restoreReady || state.operationBusy;
+    nodes.purgeSelected.disabled = !purgeReady || state.operationBusy;
+  }
+
+  function renderArchiveJournal() {
+    const pageSize = 20;
+    const entries = state.archiveEntries;
+    const pages = Math.max(1, Math.ceil(entries.length / pageSize));
+    state.archivePage = Math.min(state.archivePage, pages - 1);
+    const start = state.archivePage * pageSize;
+    const shown = entries.slice(start, start + pageSize);
+    const fragment = document.createDocumentFragment();
+    for (const entry of shown) {
+      const item = document.createElement('label');
+      item.className = 'studio-archive-entry';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = state.selectedArchiveIds.has(entry.id);
+      checkbox.disabled = !['quarantined', 'restored', 'verified', 'purging'].includes(entry.status) || !state.archiveWriteGranted || state.operationBusy;
+      checkbox.setAttribute('aria-label', `Select ${entry.sourcePath} (${entry.status})`);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) state.selectedArchiveIds.add(entry.id); else state.selectedArchiveIds.delete(entry.id);
+        updateArchiveActionButtons();
+      });
+      const text = document.createElement('span'); text.className = 'studio-archive-entry-copy';
+      const path = document.createElement('strong'); path.textContent = entry.sourcePath;
+      const detail = document.createElement('span'); detail.textContent = `${formatBytes(entry.sizeBytes)} · ${entry.status}${entry.reason ? ` · ${entry.reason}` : ''}`;
+      text.append(path, detail); item.append(checkbox, text); fragment.append(item);
+    }
+    if (entries.length === 0) {
+      const empty = document.createElement('p'); empty.className = 'studio-archive-empty';
+      empty.textContent = state.archiveRoot ? 'No archived files in this local journal.' : 'No archive folder selected.';
+      fragment.append(empty);
+    }
+    nodes.archiveEntryList.replaceChildren(fragment);
+    nodes.archivePagination.hidden = entries.length <= pageSize;
+    nodes.archivePrevious.disabled = state.archivePage <= 0;
+    nodes.archiveNext.disabled = state.archivePage >= pages - 1;
+    nodes.archivePageCopy.textContent = `${state.archivePage + 1} / ${pages}`;
+    nodes.archiveJournalCopy.textContent = state.archiveRoot
+      ? `${entries.length.toLocaleString('en')} journal entries · paths, reasons, and hashes are stored locally in the selected archive folder and are not uploaded.`
+      : 'Choose an archive folder to open its local journal. Paths and hashes remain in that folder and are not uploaded.';
+    updateArchiveActionButtons();
+  }
+
+  function setArchiveStatus(message, tone = 'info') {
+    nodes.archiveStatus.textContent = message;
+    nodes.archiveStatus.classList.toggle('is-error', tone === 'error');
+    nodes.archiveStatus.hidden = !message;
+  }
+
+  function setFileOperationProgress(progress, label) {
+    nodes.archiveProgress.hidden = false;
+    const total = Math.max(0, progress?.total ?? 0);
+    const completed = Math.min(total, Math.max(0, progress?.completed ?? 0));
+    const percentage = total ? Math.round(completed / total * 100) : 0;
+    nodes.fileOpTrack.setAttribute('aria-valuenow', String(percentage));
+    nodes.fileOpTrack.setAttribute('aria-valuetext', `${label} ${formatBytes(completed)} of ${formatBytes(total)}`);
+    nodes.fileOpProgressFill.style.width = `${percentage}%`;
+    nodes.fileOpProgressCopy.textContent = `${label} · ${formatBytes(completed)} of ${formatBytes(total)}`;
+  }
+
+  function selectedRecords() { return state.records.filter((record) => state.selectedForPlan.has(record.id)); }
+  function selectedArchiveEntries() { return state.archiveEntries.filter((entry) => state.selectedArchiveIds.has(entry.id)); }
+  function appendPathList(container, entries, sizeLabel = (entry) => formatBytes(entry.bytes ?? entry.sizeBytes)) {
+    const fragment = document.createDocumentFragment();
+    for (const entry of entries) {
+      const item = document.createElement('li');
+      item.textContent = `${entry.path ?? entry.sourcePath} · ${sizeLabel(entry)}${entry.reason ? ` · ${entry.reason}` : ''}`;
+      fragment.append(item);
+    }
+    container.replaceChildren(fragment);
+  }
+
+  function fillArchiveDialog() {
+    const records = selectedRecords();
+    nodes.archiveDialogCount.textContent = String(records.length);
+    nodes.archiveDialogBytes.textContent = formatBytes(records.reduce((sum, record) => sum + record.bytes, 0));
+    appendPathList(nodes.archiveDialogFiles, records);
+    nodes.archiveReason.value = '';
+    nodes.externalVolumeConfirm.checked = false;
+    nodes.archiveDialogConfirm.disabled = true;
+    nodes.archiveDialog.showModal();
+    nodes.archiveReason.focus();
+  }
+
+  async function refreshArchiveJournal() {
+    if (!state.archiveRoot) return;
+    try {
+      const journal = await loadQuarantine(state.archiveRoot);
+      state.archiveEntries = [...journal.entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      state.selectedArchiveIds = new Set([...state.selectedArchiveIds].filter((id) => state.archiveEntries.some((entry) => entry.id === id && ['quarantined', 'restored', 'verified', 'purging'].includes(entry.status))));
+      renderArchiveJournal();
+    } catch (error) {
+      state.archiveEntries = [];
+      renderArchiveJournal();
+      setArchiveStatus(quarantineErrorMessage(error), 'error');
+    }
+  }
+
+  async function runFileOperation(dialog, work) {
+    if (state.operationBusy) return;
+    state.operationBusy = true;
+    state.operationController = new AbortController();
+    nodes.archiveProgress.hidden = false;
+    nodes.cancelFileOperation.disabled = false;
+    nodes.fileOpProgressCopy.textContent = 'Preparing local file operation…';
+    nodes.fileOpProgressFill.style.width = '0%';
+    nodes.fileOpTrack.removeAttribute('aria-valuenow');
+    setArchiveStatus('Operation in progress. Keep this tab open; stopping is honored only at safe checkpoints.');
+    for (const button of dialog.querySelectorAll('button')) button.disabled = true;
+    for (const active of [nodes.archiveDialog, nodes.restoreDialog, nodes.resumeDialog, nodes.purgeDialog]) {
+      active.addEventListener('cancel', (event) => { if (state.operationBusy) event.preventDefault(); }, {once: true});
+    }
+    updateCounts();
+    try {
+      const result = await work(state.operationController.signal);
+      dialog.close();
+      setArchiveStatus(result.message);
+      state.selectedArchiveIds.clear();
+      await refreshArchiveJournal();
+      if (result.sourceBytesRemoved !== undefined) {
+        state.sourceBytesRemoved = (state.sourceBytesRemoved ?? 0) + result.sourceBytesRemoved;
+        updateCounts();
+        const root = state.sourceRoot;
+        state.selectedForPlan.clear();
+        void scanEntries(directoryEntries(root, () => state.cancelRequested), {source: 'Recursive folder scan after archive', rootHandle: root});
+      } else if (result.restoredBytes !== undefined) {
+        const root = state.sourceRoot;
+        setArchiveStatus(`Restored ${formatBytes(result.restoredBytes)} of verified files. The archive copies remain until you explicitly purge them. OS free space is not measured.`);
+        void scanEntries(directoryEntries(root, () => state.cancelRequested), {source: 'Recursive folder scan after restore', rootHandle: root});
+      }
+    } catch (error) {
+      setArchiveStatus(quarantineErrorMessage(error), 'error');
+      await refreshArchiveJournal();
+    } finally {
+      state.operationBusy = false;
+      state.operationController = null;
+      nodes.archiveProgress.hidden = true;
+      nodes.cancelFileOperation.textContent = 'Stop safely';
+      for (const button of dialog.querySelectorAll('button')) button.disabled = false;
+      updateCounts();
+    }
   }
 
   function renderFolders() {
@@ -497,8 +679,12 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
           if (handle.kind === 'directory') {
             yield {kind: 'directory', path};
             yield* visit(handle, path);
+          } else if (handle.kind === 'directory') {
+            if (handle.name === QUARANTINE_DIRECTORY) continue;
+            yield {kind: 'directory', path};
+            yield* visit(handle, path);
           } else if (handle.kind === 'file') {
-            try { yield {kind: 'file', file: await handle.getFile(), path}; }
+            try { yield {kind: 'file', handle, file: await handle.getFile(), path}; }
             catch { yield {kind: 'error', path}; }
           }
         }
@@ -617,6 +803,8 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     state.worker = null;
     state.cancelRequested = false;
     state.scanning = true;
+    state.sourceRoot = null;
+    state.sourceWriteGranted = false;
     state.partial = false;
     state.scanStats = null;
     state.plan = null;
@@ -653,8 +841,15 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     return state.scanToken;
   }
 
-  async function scanEntries(entries, {source, knownTotal = 0} = {}) {
+  async function scanEntries(entries, {source, knownTotal = 0, rootHandle = null} = {}) {
+    if (rootHandle && (rootHandle.name === QUARANTINE_DIRECTORY || await isProtectedQuarantineDirectory(rootHandle))) {
+      setNotice('Guardian will not scan its quarantine data directory as a source. Choose the original image folder.', 'error');
+      return;
+    }
+    const keepWriteGrant = Boolean(rootHandle && rootHandle === state.sourceRoot && state.sourceWriteGranted);
     const token = startScanState();
+    state.sourceRoot = rootHandle;
+    state.sourceWriteGranted = keepWriteGrant;
     let inventory;
     try {
       inventory = await collectImageInventory(entries, {
@@ -675,7 +870,7 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
       state.folder = null; state.page = 0;
       state.scanStats = {candidateFiles: 0, hashedFiles: 0, skippedLargeFiles: 0, readFailures: 0, confirmedGroups: 0};
       nodes.folderStatus.textContent = `${inventory.imageCount.toLocaleString('en')} images counted · ${inventory.records.length.toLocaleString('en')} largest retained for review · ${formatBytes(inventory.imageBytes)} total.`;
-      nodes.scopeCopy.textContent = `${source}. Counts include supported image files; the largest ${MAX_SCAN_FILES.toLocaleString('en')} are retained for visual review. No files are changed.`;
+      nodes.scopeCopy.textContent = `${source}. Counts include supported image files; the largest ${MAX_SCAN_FILES.toLocaleString('en')} are retained for visual review. Scanning is read-only; archive actions require separate write permission and per-file confirmation.`;
       render();
 
       let result = emptyDuplicateResult(inventory.cancelled);
@@ -743,7 +938,7 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
   function updatePickerCapability() {
     if (directoryPickerAvailable()) {
       nodes.chooseFolder.textContent = 'Choose a folder';
-      nodes.folderCapability.textContent = `Recursive browser folder picker available · ${typeof Worker === 'function' ? 'background duplicate scan' : 'slower compatible duplicate scan'} · read only.`;
+      nodes.folderCapability.textContent = `Recursive browser folder picker available · ${typeof Worker === 'function' ? 'background duplicate scan' : 'slower compatible duplicate scan'} · read-only until you separately grant write access.`;
       nodes.folderFallback.hidden = false;
     } else if (directoryInputAvailable()) {
       nodes.chooseFolder.textContent = 'Choose a folder';
@@ -762,7 +957,11 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     if (!directoryPickerAvailable()) { nodes.folderInput.click(); return; }
     try {
       const root = await window.showDirectoryPicker({mode: 'read'});
-      void scanEntries(directoryEntries(root, () => state.cancelRequested), {source: 'Recursive folder scan'});
+      if (root.name === QUARANTINE_DIRECTORY) {
+        setNotice('Guardian will not scan its quarantine folder as a source. Choose the original image folder.', 'error');
+        return;
+      }
+      void scanEntries(directoryEntries(root, () => state.cancelRequested), {source: 'Recursive folder scan', rootHandle: root});
     } catch (error) {
       if (error?.name === 'AbortError') return;
       nodes.folderFallback.hidden = false;
@@ -859,6 +1058,133 @@ import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from '
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 30_000);
     setNotice(`Exported ${selected.length.toLocaleString('en')} candidates (${formatBytes(candidateBytes)}). Guardian has freed 0 B; no files were changed.`);
+  });
+
+  nodes.enableSourceWrite.addEventListener('click', async () => {
+    const root = state.sourceRoot;
+    if (!root || typeof root.requestPermission !== 'function') return;
+    try {
+      const permission = await root.requestPermission({mode: 'readwrite'});
+      state.sourceWriteGranted = permission === 'granted';
+      setArchiveStatus(state.sourceWriteGranted
+        ? 'Source write access granted for this browser session. Archiving still requires a separate archive folder and exact-file confirmation.'
+        : 'Source write access was not granted. Scanning and review remain available; archive is disabled.');
+    } catch {
+      state.sourceWriteGranted = false;
+      setArchiveStatus('The browser did not grant source write access. No source file was changed.', 'error');
+    }
+    updateCounts();
+  });
+
+  nodes.chooseQuarantine.addEventListener('click', async () => {
+    if (!directoryPickerAvailable() || !state.sourceRoot || state.operationBusy) return;
+    try {
+      const selected = await window.showDirectoryPicker({mode: 'readwrite'});
+      if (selected.name === QUARANTINE_DIRECTORY || await isProtectedQuarantineDirectory(selected)) {
+        setArchiveStatus('Choose a normal archive folder, not Guardian’s protected quarantine data folder.', 'error');
+        return;
+      }
+      state.archiveRoot = selected;
+      state.archiveWriteGranted = await selected.queryPermission({mode: 'readwrite'}) === 'granted';
+      state.archivePage = 0;
+      state.selectedArchiveIds.clear();
+      if (!state.archiveWriteGranted) setArchiveStatus('Archive-folder write access was not granted. Choose it again or authorize it; no file was changed.', 'error');
+      else setArchiveStatus('Archive folder selected. Guardian stores a local journal and verified archive copies in a reserved subfolder.');
+      await refreshArchiveJournal();
+    } catch (error) {
+      if (error?.name !== 'AbortError') setArchiveStatus('The archive folder could not be opened. Nothing was changed.', 'error');
+    }
+    updateCounts();
+  });
+
+  nodes.cleanupAction.addEventListener('click', () => {
+    if (nodes.cleanupAction.disabled) return;
+    fillArchiveDialog();
+  });
+  const closeDialog = (dialog) => { if (dialog.open && !state.operationBusy) dialog.close(); };
+  nodes.archiveDialogClose.addEventListener('click', () => closeDialog(nodes.archiveDialog));
+  nodes.archiveDialogCancel.addEventListener('click', () => closeDialog(nodes.archiveDialog));
+  nodes.archiveReason.addEventListener('input', () => { nodes.archiveDialogConfirm.disabled = nodes.archiveReason.value.trim().length === 0 || state.operationBusy; });
+  nodes.archiveDialogConfirm.addEventListener('click', () => {
+    const records = selectedRecords();
+    const separateVolume = nodes.externalVolumeConfirm.checked;
+    void runFileOperation(nodes.archiveDialog, async (signal) => {
+      const result = await quarantineFiles({sourceRoot: state.sourceRoot, destinationRoot: state.archiveRoot, records, reason: nodes.archiveReason.value.trim(), confirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, progress.phase === 'copy' ? 'Copying' : 'Verifying')});
+      const absent = result.sourceBytesAlreadyAbsent ? ` ${formatBytes(result.sourceBytesAlreadyAbsent)} more bytes were already absent and are not attributed to Guardian.` : '';
+      return {sourceBytesRemoved: result.sourceBytesRemoved, message: `${formatBytes(result.sourceBytesRemoved)} of verified file bytes removed from the selected source.${absent} Archive copies remain stored${separateVolume ? ' in the separately confirmed volume' : ' in the chosen archive folder'}; OS free space is not measured.`};
+    });
+  });
+
+  nodes.archivePrevious.addEventListener('click', () => { state.archivePage = Math.max(0, state.archivePage - 1); renderArchiveJournal(); });
+  nodes.archiveNext.addEventListener('click', () => { state.archivePage += 1; renderArchiveJournal(); });
+  nodes.resumeVerified.addEventListener('click', () => {
+    const entries = selectedArchiveEntries();
+    if (!entries.length || nodes.resumeVerified.disabled) return;
+    appendPathList(nodes.resumeDialogFiles, entries);
+    nodes.resumeDialog.showModal();
+  });
+  nodes.resumeDialogClose.addEventListener('click', () => closeDialog(nodes.resumeDialog));
+  nodes.resumeDialogCancel.addEventListener('click', () => closeDialog(nodes.resumeDialog));
+  nodes.resumeDialogConfirm.addEventListener('click', () => {
+    const ids = selectedArchiveEntries().map((entry) => entry.id);
+    void runFileOperation(nodes.resumeDialog, async (signal) => {
+      const result = await reconcileVerifiedQuarantine({sourceRoot: state.sourceRoot, destinationRoot: state.archiveRoot, ids, confirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Rechecking archive integrity')});
+      const removed = result.sourceBytesRemoved ? `${formatBytes(result.sourceBytesRemoved)} source bytes removed after re-verification` : 'No source bytes were removed in this recovery step';
+      const absent = result.sourceBytesAlreadyAbsent ? `; ${formatBytes(result.sourceBytesAlreadyAbsent)} were already absent and are not attributed to Guardian` : '';
+      return {sourceBytesRemoved: result.sourceBytesRemoved, message: `${removed}${absent}. Archive retained; OS free space is not measured.`};
+    });
+  });
+  nodes.restoreSelected.addEventListener('click', () => {
+    const entries = selectedArchiveEntries();
+    if (!entries.length || nodes.restoreSelected.disabled) return;
+    appendPathList(nodes.restoreDialogFiles, entries);
+    nodes.restoreSourceConfirm.checked = false;
+    nodes.restoreDialogConfirm.disabled = true;
+    nodes.restoreDialog.showModal();
+  });
+  nodes.restoreSourceConfirm.addEventListener('change', () => { nodes.restoreDialogConfirm.disabled = !nodes.restoreSourceConfirm.checked || state.operationBusy; });
+  nodes.restoreDialogClose.addEventListener('click', () => closeDialog(nodes.restoreDialog));
+  nodes.restoreDialogCancel.addEventListener('click', () => closeDialog(nodes.restoreDialog));
+  nodes.restoreDialogConfirm.addEventListener('click', () => {
+    if (!nodes.restoreSourceConfirm.checked) return;
+    const ids = selectedArchiveEntries().map((entry) => entry.id);
+    void runFileOperation(nodes.restoreDialog, async (signal) => {
+      const result = await restoreQuarantined({sourceRoot: state.sourceRoot, destinationRoot: state.archiveRoot, ids, confirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Restoring and verifying')});
+      return {restoredBytes: result.restoredBytes, message: `Restored ${formatBytes(result.restoredBytes)} of verified files. Archive copies remain until you explicitly purge them. OS free space is not measured.`};
+    });
+  });
+
+  nodes.purgeSelected.addEventListener('click', () => {
+    const entries = selectedArchiveEntries();
+    if (!entries.length || nodes.purgeSelected.disabled) return;
+    nodes.purgeDialogCount.textContent = String(entries.length);
+    nodes.purgeDialogBytes.textContent = formatBytes(entries.reduce((sum, entry) => sum + entry.sizeBytes, 0));
+    appendPathList(nodes.purgeDialogFiles, entries);
+    nodes.purgeUnderstood.checked = false;
+    nodes.purgePhrase.value = '';
+    nodes.purgeDialogConfirm.disabled = true;
+    nodes.purgeDialog.showModal();
+    nodes.purgePhrase.focus();
+  });
+  const updatePurgeConfirmation = () => {
+    nodes.purgeDialogConfirm.disabled = !nodes.purgeUnderstood.checked || nodes.purgePhrase.value !== 'PURGE' || state.operationBusy;
+  };
+  nodes.purgeUnderstood.addEventListener('change', updatePurgeConfirmation);
+  nodes.purgePhrase.addEventListener('input', updatePurgeConfirmation);
+  nodes.purgeDialogClose.addEventListener('click', () => closeDialog(nodes.purgeDialog));
+  nodes.purgeDialogCancel.addEventListener('click', () => closeDialog(nodes.purgeDialog));
+  nodes.purgeDialogConfirm.addEventListener('click', () => {
+    const ids = selectedArchiveEntries().map((entry) => entry.id);
+    void runFileOperation(nodes.purgeDialog, async (signal) => {
+      const result = await purgeQuarantined({destinationRoot: state.archiveRoot, ids, confirmed: true, typedConfirmation: nodes.purgePhrase.value, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Purging verified archive data')});
+      return {message: `${formatBytes(result.purgedBytes)} of verified file bytes removed from Guardian’s archive. No OS free-space measurement is available.`};
+    });
+  });
+  nodes.cancelFileOperation.addEventListener('click', () => {
+    if (!state.operationController || !state.operationBusy) return;
+    state.operationController.abort();
+    nodes.cancelFileOperation.disabled = true;
+    nodes.cancelFileOperation.textContent = 'Stopping safely…';
   });
 
   updatePickerCapability();

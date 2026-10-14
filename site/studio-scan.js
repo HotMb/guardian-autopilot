@@ -76,10 +76,12 @@ export async function collectImageInventory(entries, {
         path = String(path).replace(/\\/g, '/');
         const record = {
           file: entry.file,
+          handle: entry.handle ?? null,
           name: entry.file.name,
           path,
           folder: folderFromPath(path),
           bytes: entry.file.size,
+          lastModified: entry.file.lastModified ?? 0,
           type,
           src: null,
           duplicateGroup: null,
