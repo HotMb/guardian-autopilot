@@ -20,6 +20,20 @@ const unsupportedRuntimeExtensions = new Set(['.jsx', '.tsx', '.vue', '.svelte',
 const configFilePattern = /(?:^|\/)[^/]+\.config\.[^/]+$/i;
 const configBasenames = new Set(['angular.json', 'project.json', 'workspace.json', 'lerna.json', 'turbo.json', 'webpack.config', 'vite.config', 'rollup.config', 'next.config', 'nuxt.config', 'astro.config']);
 const unsupportedTaskExtensions = new Set(['.sh', '.bash', '.zsh', '.fish', '.bat', '.cmd', '.ps1', '.py', '.pyw']);
+const runtimeConfigurationExtensions = new Set(['.yaml', '.yml', '.toml', '.jsonc', '.json5', '.xml', '.ini', '.conf', '.properties', '.service', '.tf', '.hcl']);
+const supportedJsonConfigurations = new Set(['.guardian/config.json', 'package.json', 'tsconfig.json', 'jsconfig.json']);
+const runtimeConfigurationDirectories = new Set([
+  '.devcontainer', '.vscode', '.github/workflows', '.gitlab', '.circleci', '.buildkite',
+  '.azure', 'deploy', 'deployment', 'deployments', 'infra', 'infrastructure', 'k8s',
+  'kubernetes', 'helm', 'terraform', 'systemd', 'supervisor',
+]);
+const runtimeConfigurationNames = new Set([
+  'procfile', 'dockerfile', 'containerfile', 'jenkinsfile', '.npmrc', '.firebaserc',
+  'vercel.json', 'firebase.json', 'app.yaml', 'app.yml', 'app.json', 'app.jsonc',
+  'render.yaml', 'render.yml', 'fly.toml', 'netlify.toml', 'serverless.yml',
+  'serverless.yaml', 'serverless.json', 'serverless.js', 'serverless.cjs',
+  'serverless.mjs', 'serverless.ts', 'serverless.cts', 'serverless.mts',
+]);
 const safeNodeBuiltins = new Set([
   'assert', 'assert/strict', 'buffer', 'crypto', 'events', 'path', 'querystring',
   'string_decoder', 'timers', 'url', 'util', 'zlib',
@@ -209,9 +223,25 @@ async function validatePackageBoundary(root: string, manifest: RepositoryManifes
 
 async function validateSourceConfiguration(root: string, manifest: RepositoryManifest, blockers: ClosedWorldBlocker[]): Promise<void> {
   for (const file of manifest.files) {
-    const base = file.path.split('/').at(-1)?.toLowerCase() ?? '';
+    const normalizedPath = file.path.toLowerCase();
+    const segments = normalizedPath.split('/');
+    const base = segments.at(-1) ?? '';
+    const extension = extname(base);
+    const inRuntimeConfigurationDirectory = segments.some((segment, index) =>
+      runtimeConfigurationDirectories.has(segments.slice(0, index + 1).join('/')));
+    const genericJsonConfiguration = extension === '.json' && !supportedJsonConfigurations.has(normalizedPath);
+    if (inRuntimeConfigurationDirectory || runtimeConfigurationNames.has(base)
+      || runtimeConfigurationExtensions.has(extension) || genericJsonConfiguration || base.startsWith('.env')) {
+      addBlocker(
+        blockers,
+        'unsupported-runtime-configuration',
+        'Runtime, deployment, environment, or automation configuration is not interpreted by node-application-v1; its declared entrypoints may be outside the source graph.',
+        file.path,
+      );
+      continue;
+    }
     if (unsupportedTaskExtensions.has(extname(base)) || /^(?:makefile|justfile|taskfile(?:\.ya?ml)?|dockerfile)$/i.test(base)
-      || file.path.toLowerCase().startsWith('.github/workflows/')) {
+      || normalizedPath.startsWith('.github/workflows/')) {
       addBlocker(blockers, 'unsupported-command-root', 'Shell, batch, PowerShell, Python, task-runner, Docker, or workflow commands may launch runtime code outside the declared source graph.', file.path);
       continue;
     }

@@ -219,9 +219,9 @@
       <p id="archive-dialog-description">Guardian will stream-copy each selected file, verify every byte, save a local journal, then remove the source entry. If copy or verification fails, the source stays in place.</p>
       <dl class="studio-dialog-metrics"><div><dt>Files selected</dt><dd id="archive-dialog-count">0</dd></div><div><dt>Bytes to archive</dt><dd id="archive-dialog-bytes">0 B</dd></div></dl>
       <ul id="archive-dialog-files" class="studio-dialog-file-list"></ul>
-      <label class="studio-dialog-field" for="archive-reason">Why are these files being archived? <span>Required, 1–300 characters</span><textarea id="archive-reason" maxlength="300" rows="3" autocomplete="off"></textarea></label>
-      <label class="studio-confirm-check"><input id="external-volume-confirm" type="checkbox"><span>I confirm the chosen archive folder is on a different storage volume. Guardian cannot verify this.</span></label>
-      <p class="studio-dialog-warning">The archive keeps these bytes stored. Device free space is not measured. Keep other apps from changing this folder while the operation runs.</p>
+      <label class="studio-dialog-field" for="archive-reason">Why are these files being archived? <span>Required, 1–300 characters</span><textarea id="archive-reason" class="resize-none" maxlength="300" rows="3" autocomplete="off"></textarea></label>
+      <label class="studio-confirm-check"><input id="archive-storage-confirm" type="checkbox"><span>I understand that archive copies continue to use storage, and Guardian cannot verify whether this folder is on a different volume.</span></label>
+      <p class="studio-dialog-warning">On the same volume, archiving does not recover device space; the stored copies must be permanently purged first. Purge is a separate, irreversible action. Guardian does not measure device free space. Keep other apps from changing either folder while the operation runs.</p>
       <div class="studio-dialog-actions"><button id="archive-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="archive-dialog-confirm" class="studio-button studio-button-warning" type="button" disabled>Archive these files</button></div>
     </dialog>
     <dialog id="restore-dialog" class="studio-dialog" aria-labelledby="restore-dialog-title" aria-describedby="restore-dialog-description">
@@ -235,6 +235,7 @@
       <div class="studio-dialog-header"><span class="studio-overline">RECOVERY CHECK</span><button id="resume-dialog-close" class="studio-dialog-close" type="button" aria-label="Close recovery review">×</button></div>
       <h2 id="resume-dialog-title">Reconcile verified archive entries?</h2><p id="resume-dialog-description">Guardian rechecks the stored SHA-256 and bytes. If the original source still exists and matches, it removes that source entry and updates the journal. If the source is already absent, Guardian records the verified archive without claiming who removed it.</p>
       <ul id="resume-dialog-files" class="studio-dialog-file-list"></ul>
+      <label class="studio-confirm-check"><input id="resume-source-confirm" type="checkbox"><span>I confirm that the selected source folder is the original folder for these archived paths.</span></label>
       <p class="studio-dialog-warning">Keep both selected folders unchanged during this check. The verified archive is not removed.</p>
       <div class="studio-dialog-actions"><button id="resume-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="resume-dialog-confirm" class="studio-button studio-button-warning" type="button">Reconcile verified entries</button></div>
     </dialog>

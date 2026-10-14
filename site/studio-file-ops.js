@@ -105,6 +105,70 @@ async function resolveFile(root, path, create = false) {
   for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part, {create});
   return childFile(directory, parts.at(-1), create);
 }
+
+const MAX_SOURCE_SCOPE_ENTRIES = 250_000;
+const MAX_SOURCE_SCOPE_DEPTH = 128;
+function archiveScopeError(message, cause) {
+  const error = new Error(message, cause ? {cause} : undefined);
+  error.code = 'archive-scope';
+  return error;
+}
+
+/** Prove the chosen archive folder is outside the selected source tree before writing there. */
+export async function assertArchiveDestinationOutsideSource(sourceRoot, destinationRoot) {
+  if (sourceRoot?.kind !== 'directory' || destinationRoot?.kind !== 'directory') {
+    throw archiveScopeError('Source and archive must be selected directories; separation could not be verified.');
+  }
+  if (typeof sourceRoot.isSameEntry !== 'function') {
+    throw archiveScopeError('This browser cannot verify archive-folder separation; choose a supported browser.');
+  }
+  const assertDifferent = async (directory) => {
+    if (typeof directory?.isSameEntry !== 'function') {
+      throw archiveScopeError('This browser cannot verify archive-folder separation; choose a supported browser.');
+    }
+    let same;
+    try { same = await directory.isSameEntry(destinationRoot); }
+    catch (error) { throw archiveScopeError('Could not verify archive-folder separation; nothing was changed.', error); }
+    if (same === true) throw archiveScopeError('Archive folder must be outside the selected source folder. Choose a separate folder.');
+    if (same !== false) throw archiveScopeError('Could not prove archive-folder separation; nothing was changed.');
+  };
+
+  await assertDifferent(sourceRoot);
+  const pending = [{directory: sourceRoot, depth: 0}];
+  let visitedEntries = 0;
+  while (pending.length > 0) {
+    const {directory, depth} = pending.pop();
+    let iterator;
+    try {
+      if (typeof directory.values !== 'function') throw new Error('Directory iteration is unavailable');
+      iterator = directory.values();
+    } catch (error) {
+      throw archiveScopeError('Could not inspect the complete source tree to verify archive-folder separation; nothing was changed.', error);
+    }
+    try {
+      for await (const entry of iterator) {
+        visitedEntries += 1;
+        if (visitedEntries > MAX_SOURCE_SCOPE_ENTRIES) {
+          throw archiveScopeError(`Source-tree separation check exceeded ${MAX_SOURCE_SCOPE_ENTRIES} entries; nothing was changed.`);
+        }
+        if (entry?.kind !== 'file' && entry?.kind !== 'directory') {
+          throw archiveScopeError('A source-tree entry could not be identified; archive-folder separation was not proven.');
+        }
+        if (entry?.kind !== 'directory') continue;
+        const childDepth = depth + 1;
+        if (childDepth > MAX_SOURCE_SCOPE_DEPTH) {
+          throw archiveScopeError(`Source-tree separation check exceeded ${MAX_SOURCE_SCOPE_DEPTH} directory levels; nothing was changed.`);
+        }
+        await assertDifferent(entry);
+        pending.push({directory: entry, depth: childDepth});
+      }
+    } catch (error) {
+      if (error?.code === 'archive-scope') throw error;
+      throw archiveScopeError('Could not inspect the complete source tree to verify archive-folder separation; nothing was changed.', error);
+    }
+  }
+}
+
 async function readManifest(destinationRoot, create = false) {
   const quarantine = await destinationRoot.getDirectoryHandle(QUARANTINE_DIRECTORY, {create});
   const data = await quarantine.getDirectoryHandle(DATA_DIRECTORY, {create});
@@ -255,6 +319,7 @@ export async function quarantineFiles({sourceRoot, destinationRoot, records, rea
   if (!confirmed) fail('confirmation', 'Review and confirm the exact file list before archiving.');
   if (!Array.isArray(records) || records.length < 1 || records.length > MAX_QUARANTINE_BATCH) fail('selection', `Select between 1 and ${MAX_QUARANTINE_BATCH} files per operation.`);
   if (!String(reason ?? '').trim() || String(reason).length > 300) fail('reason', 'Add a short reason (1–300 characters) before archiving.');
+  await assertArchiveDestinationOutsideSource(sourceRoot, destinationRoot);
   await Promise.all([assertWritePermission(sourceRoot), assertWritePermission(destinationRoot)]).catch((error) => fail(safeErrorCode(error), 'Write permission is missing or expired. Re-authorize both selected folders; no source file was removed.', error));
   let paths;
   try { paths = records.map(({path}) => validatePath(path).join('/')); }
@@ -280,7 +345,7 @@ export async function quarantineFiles({sourceRoot, destinationRoot, records, rea
     const path = paths[index];
     let entry = storage.manifest.entries.find((item) => item.sourcePath === path && ['interrupted', 'copying', 'verified'].includes(item.status));
     let sourceHandle;
-    try { sourceHandle = record.handle?.kind === 'file' ? record.handle : await resolveFile(sourceRoot, path); }
+    try { sourceHandle = await resolveFile(sourceRoot, path); }
     catch (error) {
       if (notFound(error) && entry?.status === 'verified') {
         try {
@@ -296,10 +361,24 @@ export async function quarantineFiles({sourceRoot, destinationRoot, records, rea
       }
       fail(safeErrorCode(error), `Could not reopen ${path}. No source file was removed.`, error);
     }
+    if (record.handle?.kind === 'file') {
+      let sameHandle = false;
+      try { sameHandle = typeof sourceHandle.isSameEntry === 'function' && await sourceHandle.isSameEntry(record.handle); }
+      catch { /* fail closed below */ }
+      if (!sameHandle) fail('selection', `The selected file handle does not match ${path}. Scan the source folder again.`);
+    }
     let sourceFile;
     try { sourceFile = await sourceHandle.getFile(); } catch (error) { fail(safeErrorCode(error), `Could not read ${path}. No source file was removed.`, error); }
     if (sourceFile.size !== record.bytes || (record.lastModified && sourceFile.lastModified !== record.lastModified)) {
       fail('verification', `${path} changed since the scan. Scan it again before archiving.`, new Error('Source snapshot changed'));
+    }
+    if (!record.file || typeof record.file.slice !== 'function' || !Number.isSafeInteger(record.file.size)) {
+      fail('verification', `${path} has no readable scan snapshot. Scan it again before archiving.`);
+    }
+    try {
+      await verifyFiles(record.file, sourceFile, {signal, onProgress, total: sourceFile.size});
+    } catch (error) {
+      fail(safeErrorCode(error), `${path} no longer matches the bytes shown during the scan. Scan it again before archiving.`, error);
     }
     if (!entry) {
       if (storage.manifest.entries.length >= MAX_MANIFEST_ENTRIES) fail('journal-limit', 'The quarantine journal is full; export or purge old entries first.');
@@ -406,12 +485,17 @@ export async function restoreQuarantined({sourceRoot, destinationRoot, ids, conf
 }
 
 /** Recover a crash after the verified-journal commit; explicit confirmation is still required. */
-export async function reconcileVerifiedQuarantine({sourceRoot, destinationRoot, ids, confirmed = false, signal, onProgress = () => {}, now = () => new Date().toISOString()}) {
+export async function reconcileVerifiedQuarantine({sourceRoot, destinationRoot, ids, confirmed = false, sourceRootConfirmed = false, signal, onProgress = () => {}, now = () => new Date().toISOString()}) {
   if (!confirmed) fail('confirmation', 'Review and confirm the exact interrupted archive entries.');
+  if (!sourceRootConfirmed) fail('confirmation', 'Explicitly confirm that the selected source folder is the original folder for these archive entries.');
   const storage = await readManifest(destinationRoot, false);
   await Promise.all([assertWritePermission(sourceRoot), assertWritePermission(destinationRoot)]).catch((error) => fail(safeErrorCode(error), 'Write permission is missing or expired. Nothing was finalized.', error));
   const entries = ids.map((id) => entryById(storage.manifest, id));
   if (!entries.length || entries.some((entry) => !entry || entry.status !== 'verified')) fail('selection', 'Only verified, interrupted archive entries can be reconciled.');
+  if (typeof sourceRoot?.name !== 'string' || sourceRoot.name === ''
+    || entries.some((entry) => typeof entry.sourceRootName !== 'string' || entry.sourceRootName === '' || entry.sourceRootName !== sourceRoot.name)) {
+    fail('source-root', 'The selected source folder name does not match the original folder recorded in the archive journal. Choose the original source folder.');
+  }
   let sourceBytesRemoved = 0;
   let sourceBytesAlreadyAbsent = 0;
   for (const entry of entries) {

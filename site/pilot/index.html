@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f2ed">
+  <meta name="description" content="Deux pilotes locaux Guardian : revue assistée d’un dépôt JavaScript/TypeScript et bêta guidée d’un inventaire d’images IA.">
+  <title>Deux pilotes locaux — Guardian</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f3f2ed;
+      --surface: #fbfaf7;
+      --ink: #17201d;
+      --muted: #5c6661;
+      --line: #d4d5cd;
+      --lime: #c6f36a;
+      --forest: #20372d;
+      --quiet-green: #e5eadf;
+      --mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+      --sans: Arial, Helvetica, sans-serif;
+      --display: "Arial Black", Arial, Helvetica, sans-serif;
+      font-family: var(--sans);
+      color: var(--ink);
+      background: var(--paper);
+      scrollbar-color: #839087 #e4e5de;
+      scrollbar-width: thin;
+    }
+    * { box-sizing: border-box; }
+    *::-webkit-scrollbar { width: 12px; height: 12px; }
+    *::-webkit-scrollbar-track { background: #e4e5de; }
+    *::-webkit-scrollbar-thumb { background: #839087; border: 3px solid #e4e5de; border-radius: 99px; }
+    *::-webkit-scrollbar-thumb:hover { background: #53665b; }
+    body { margin: 0; min-width: 320px; }
+    a { color: inherit; }
+    a:focus-visible, button:focus-visible, summary:focus-visible {
+      outline: 3px solid #426d1a;
+      outline-offset: 4px;
+      border-radius: 2px;
+    }
+    .skip-link { position: absolute; z-index: 5; top: 8px; left: 8px; padding: 12px 16px; background: var(--lime); transform: translateY(-150%); font-weight: 700; }
+    .skip-link:focus { transform: none; }
+    .shell { width: min(1160px, calc(100% - 48px)); margin-inline: auto; }
+    .site-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--line); }
+    .wordmark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font: 700 16px var(--display); letter-spacing: -.045em; }
+    .mark { width: 25px; height: 25px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; transform: rotate(-8deg); }
+    .mark i { background: var(--forest); border-radius: 1px; }
+    .mark i:nth-child(2), .mark i:nth-child(3) { background: #83b83b; }
+    .wordmark-light { color: #758078; font-weight: 500; }
+    .site-header nav { display: flex; align-items: center; gap: clamp(14px, 3vw, 32px); font-size: 13px; font-weight: 700; }
+    .site-header nav a { text-decoration-thickness: 1px; text-underline-offset: 4px; }
+    .site-header nav a:not(:hover) { text-decoration: none; }
+    .hero { padding-block: clamp(58px, 9vw, 112px) 65px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .78fr); align-items: end; gap: 56px; }
+    .eyebrow, .lane-label, .spec-label, .price-label, .footer-note { font: 500 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .eyebrow { display: flex; align-items: center; gap: 9px; color: #4c5d51; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #78a93e; box-shadow: 0 0 0 3px #78a93e20; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 740px; margin-bottom: 20px; font: 600 clamp(42px, 7vw, 76px)/.98 var(--display); letter-spacing: -.075em; }
+    h1 span { color: #718078; }
+    .hero-copy { max-width: 580px; margin-bottom: 0; color: #4c5650; font-size: 16px; line-height: 1.75; }
+    .hero-rule { max-width: 510px; margin-top: 24px; padding: 13px 16px; border-left: 3px solid var(--lime); background: #e9eae3; color: #35463b; font-size: 13px; line-height: 1.6; }
+    .tracks { border-top: 1px solid #77877b; border-bottom: 1px solid #77877b; background: #e8e9e2; }
+    .tracks-head { padding: 13px 15px; display: flex; justify-content: space-between; gap: 12px; color: #56665a; font: 9px var(--mono); letter-spacing: .06em; }
+    .track { padding: 20px 16px 18px; display: grid; grid-template-columns: 74px 1fr; gap: 13px; align-items: start; background: var(--surface); }
+    .track + .track { border-top: 1px solid var(--line); }
+    .track-code { padding: 5px 6px; color: #52634f; background: var(--quiet-green); font: 9px var(--mono); text-align: center; }
+    .track strong { display: block; font: 600 18px/1.1 var(--display); letter-spacing: -.04em; }
+    .track small { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .section-intro { padding-block: 14px 28px; border-top: 1px solid var(--line); display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+    .section-intro h2 { max-width: 610px; margin-bottom: 0; font: 600 clamp(30px, 4.5vw, 48px)/1.02 var(--display); letter-spacing: -.06em; }
+    .section-intro p { max-width: 300px; margin-bottom: 3px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .offers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid #c8cec4; background: var(--surface); }
+    .offer { min-width: 0; padding: clamp(23px, 4vw, 42px); }
+    .offer + .offer { border-left: 1px solid var(--line); }
+    .offer-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
+    .lane-label { color: #60715e; }
+    .offer-state { padding: 6px 9px; border-radius: 99px; background: var(--quiet-green); color: #35463b; font: 9px var(--mono); }
+    .offer h3 { min-height: 2.1em; margin: 25px 0 12px; font: 600 clamp(24px, 3vw, 33px)/1.05 var(--display); letter-spacing: -.055em; }
+    .offer-lede { min-height: 4.5em; margin-bottom: 23px; color: #4c5650; font-size: 14px; line-height: 1.7; }
+    .offer ul { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+    .offer li { padding: 12px 0; display: grid; grid-template-columns: 20px 1fr; gap: 9px; border-bottom: 1px solid var(--line); color: #35413a; font-size: 12px; line-height: 1.55; }
+    .offer li::before { content: "—"; color: #668649; font: 700 13px var(--mono); }
+    .offer .limit { margin-top: 17px; padding: 13px 14px; background: #f0f0ea; color: #4d5851; font-size: 11px; line-height: 1.65; }
+    .price-row { margin-top: 24px; display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+    .price { font: 600 clamp(28px, 4vw, 40px)/1 var(--display); letter-spacing: -.06em; white-space: nowrap; }
+    .price-label { max-width: 180px; color: #657166; font-size: 8px; line-height: 1.55; text-align: right; }
+    .price-note { min-height: 2.8em; margin: 10px 0 18px; color: #69736c; font-size: 10px; line-height: 1.55; }
+    .button { min-height: 48px; width: 100%; padding: 12px 16px; display: inline-flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid transparent; border-radius: 3px; color: var(--ink); background: var(--lime); cursor: pointer; font: 700 12px var(--sans); text-align: left; transition: background-color .16s ease, transform .16s ease; }
+    .button:hover { background: #b2e84d; transform: translateY(-1px); }
+    .button:active { transform: translateY(0); }
+    .button span { font: 18px var(--mono); }
+    .manual-note { margin: 11px 0 0; color: #66716a; font: 10px/1.55 var(--mono); }
+    .copy-feedback { margin-top: 20px; padding: 16px; border: 1px solid #c6d0bf; background: #eef4e6; }
+    .copy-feedback[hidden], [hidden] { display: none !important; }
+    .copy-feedback p { margin-bottom: 10px; color: #35463b; font-size: 12px; line-height: 1.6; }
+    .copy-feedback pre { max-height: 260px; margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 11px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+    .process { margin-top: 90px; padding-block: 48px 55px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); display: grid; grid-template-columns: .8fr 1.2fr; gap: 55px; }
+    .process h2 { max-width: 390px; margin: 13px 0 0; font: 600 clamp(28px, 4vw, 42px)/1.02 var(--display); letter-spacing: -.06em; }
+    .process-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid #b9c0b7; }
+    .process-list li { padding: 15px 0; display: grid; grid-template-columns: 105px 1fr; gap: 20px; border-bottom: 1px solid #b9c0b7; }
+    .process-list strong { color: #4e6450; font: 10px var(--mono); letter-spacing: .04em; }
+    .process-list span { color: #48534c; font-size: 12px; line-height: 1.6; }
+    .boundary { margin-block: 52px 68px; padding: 25px 27px; display: grid; grid-template-columns: 190px 1fr; gap: 25px; background: var(--forest); color: #f5f6f0; }
+    .boundary h2 { margin: 0; color: var(--lime); font: 600 22px/1.1 var(--display); letter-spacing: -.04em; }
+    .boundary ul { margin: 0; padding-left: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 26px; }
+    .boundary li { padding-left: 3px; color: #d5ddd4; font-size: 11px; line-height: 1.6; }
+    .page-footer { padding-block: 22px 34px; display: flex; justify-content: space-between; align-items: start; gap: 24px; border-top: 1px solid var(--line); }
+    .page-footer p { max-width: 560px; margin: 0; color: var(--muted); font-size: 10px; line-height: 1.7; }
+    .page-footer .footer-note { color: #627264; font-size: 8px; white-space: nowrap; }
+    @media (max-width: 760px) {
+      .shell { width: min(100% - 36px, 560px); }
+      .site-header { min-height: 68px; }
+      .site-header nav { gap: 15px; font-size: 11px; }
+      .hero { grid-template-columns: 1fr; gap: 33px; padding-top: 61px; }
+      .hero h1 { max-width: 620px; }
+      .tracks { max-width: 560px; }
+      .section-intro { display: block; }
+      .section-intro p { margin-top: 12px; }
+      .offers { grid-template-columns: 1fr; }
+      .offer + .offer { border-left: 0; border-top: 1px solid var(--line); }
+      .offer h3, .offer-lede, .price-note { min-height: 0; }
+      .process { grid-template-columns: 1fr; gap: 25px; margin-top: 65px; }
+      .boundary { grid-template-columns: 1fr; gap: 17px; }
+    }
+    @media (max-width: 480px) {
+      .site-header { align-items: flex-start; padding-block: 17px; }
+      .site-header nav { align-items: flex-end; flex-direction: column; gap: 8px; }
+      .site-header nav a { padding: 2px 0; }
+      .offer { padding: 23px 19px; }
+      .price-row { align-items: flex-start; flex-direction: column; }
+      .price-label { max-width: none; text-align: left; }
+      .process-list li { grid-template-columns: 80px 1fr; gap: 11px; }
+      .boundary { padding: 21px 19px; }
+      .boundary ul { grid-template-columns: 1fr; }
+      .page-footer { flex-direction: column; }
+      .page-footer .footer-note { white-space: normal; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+    }
+    @media (forced-colors: active) {
+      .button, .tracks, .track, .offers, .offer, .copy-feedback, .copy-feedback pre { border: 1px solid ButtonText; }
+      .status-dot { forced-color-adjust: none; background: Mark; }
+      .button { forced-color-adjust: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Aller aux offres</a>
+  <header class="site-header shell">
+    <a class="wordmark" href="#top" aria-label="Guardian, accueil des pilotes">
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span>guardian<span class="wordmark-light">/pilotes</span></span>
+    </a>
+    <nav aria-label="Parcours pilotes">
+      <a href="#autopilot">Code</a>
+      <a href="#studio">Images IA</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero shell" id="top" aria-labelledby="hero-title">
+      <div>
+        <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> BÊTA LOCALE · 15 OCTOBRE 2026</p>
+        <h1 id="hero-title">Deux pilotes.<br><span>Vous gardez la main.</span></h1>
+        <p class="hero-copy">Une revue guidée pour un dépôt JavaScript/TypeScript. Une bêta locale pour un inventaire d’images IA. Deux besoins distincts, sans promesse d’automatisation qui n’existe pas encore.</p>
+        <p class="hero-rule">Cette page ne contient ni formulaire ni paiement. Un bouton copie une demande ; vous la collez vous-même dans le canal où vous avez reçu cette page. Rien n’est envoyé automatiquement.</p>
+      </div>
+      <div class="tracks" aria-label="Deux parcours séparés : revue de code et inventaire local d’images">
+        <div class="tracks-head"><span>DEUX PARCOURS</span><span>LOCAL · HUMAIN</span></div>
+        <div class="track"><span class="track-code">CODE / A</span><div><strong>Autopilot</strong><small>Dépôt local → revue des candidats → expérience isolée, si vous l’autorisez</small></div></div>
+        <div class="track"><span class="track-code">IMAGE / B</span><div><strong>Studio</strong><small>Archive locale → inventaire → doublons exacts et métadonnées PNG prises en charge</small></div></div>
+      </div>
+    </section>
+
+    <section class="shell" aria-labelledby="offers-title">
+      <div class="section-intro">
+        <h2 id="offers-title">Choisissez selon votre travail.</h2>
+        <p>Les prix affichés sont des hypothèses de test non validées. Aucun paiement ne peut être effectué depuis cette page.</p>
+      </div>
+
+      <div class="offers">
+        <article class="offer" id="autopilot" aria-labelledby="autopilot-title">
+          <div class="offer-head"><span class="lane-label">CODE / REVUE ASSISTÉE</span><span class="offer-state">LOCAL · UN DÉPÔT</span></div>
+          <h3 id="autopilot-title">Pour un dépôt JavaScript ou TypeScript.</h3>
+          <p class="offer-lede">Une analyse locale et un rapport lisible pour examiner des fichiers candidats sans confier le code à un audit hébergé.</p>
+          <ul>
+            <li>Un dépôt que vous possédez ou êtes autorisé·e à faire examiner.</li>
+            <li>Rapport avec chemins, preuves disponibles, incertitudes et vérifications suivantes.</li>
+            <li>Au plus trois expériences dans des branches isolées, uniquement après votre accord explicite.</li>
+            <li>Commandes de build, typage et tests choisies par vous ; pas de push ni de merge.</li>
+          </ul>
+          <p class="limit"><strong>Limite à connaître.</strong> Une référence absente ne prouve pas qu’un fichier est inutilisé. Aucun effacement ni gain de temps n’est garanti. Les commandes approuvées s’exécutent avec les permissions de votre compte ; elles ne sont pas isolées par un sandbox OS.</p>
+          <!-- {{NEEDS_PROOF}} — 290 EUR est une hypothèse de marché/prix à valider, jamais un tarif établi. -->
+          <div class="price-row"><span class="price">290 €</span><span class="price-label">HYPOTHÈSE DE PRIX PILOTE · NON VALIDÉE</span></div>
+          <p class="price-note">Périmètre, conditions et facturation à confirmer avant tout engagement. Ce montant n’est pas un checkout.</p>
+          <button class="button" type="button" data-copy="autopilot">Copier la demande Autopilot <span aria-hidden="true">↗</span></button>
+          <p class="manual-note">Le message reste dans votre presse-papiers ; collez-le dans le canal où vous avez reçu cette page.</p>
+        </article>
+
+        <article class="offer" id="studio" aria-labelledby="studio-title">
+          <div class="offer-head"><span class="lane-label">IMAGE / BÊTA GUIDÉE</span><span class="offer-state">LOCAL · ACTIONS CONFIRMÉES</span></div>
+          <h3 id="studio-title">Pour une archive d’images IA.</h3>
+          <p class="offer-lede">Une session exploratoire sur votre poste pour examiner l’inventaire, comparer les candidats et choisir vous-même quoi archiver.</p>
+          <ul>
+            <li>Inventaire des formats image pris en charge et repérage des fichiers volumineux.</li>
+            <li>Doublons exacts vérifiés par les octets ; candidats visuels heuristiques séparés, jamais déclarés identiques.</li>
+            <li>Sur un PNG sélectionné, certains champs de génération reconnus et révélés sur demande.</li>
+            <li>Pas de téléversement. Le scan est en lecture seule ; archiver des fichiers choisis demande des droits d’écriture distincts et une confirmation précise.</li>
+          </ul>
+          <p class="limit"><strong>Limite à connaître.</strong> Les métadonnées prises en charge sont limitées au PNG. Guardian ne nettoie rien automatiquement : il copie et vérifie les fichiers choisis avant de retirer leurs originaux ; restauration et purge sont distinctes. Une archive sur le même volume ne libère pas d’espace avant purge et l’espace libre système n’est pas mesuré. Le plan de revue peut être exporté sur demande.</p>
+          <!-- {{NEEDS_PROOF}} — 29 EUR est une hypothèse de marché/prix à valider, jamais un tarif établi. -->
+          <div class="price-row"><span class="price">29 €</span><span class="price-label">HYPOTHÈSE DE PRIX BÊTA · NON VALIDÉE</span></div>
+          <p class="price-note">Session et conditions à confirmer. Aucun paiement ni partage de fichiers depuis cette page.</p>
+          <button class="button" type="button" data-copy="studio">Copier la demande Studio <span aria-hidden="true">↗</span></button>
+          <p class="manual-note">Le message reste dans votre presse-papiers ; collez-le dans le canal où vous avez reçu cette page.</p>
+        </article>
+      </div>
+
+      <div class="copy-feedback" id="copy-feedback" hidden aria-live="polite" aria-atomic="true">
+        <p id="copy-status"></p>
+        <pre id="copy-fallback" tabindex="0" hidden></pre>
+      </div>
+    </section>
+
+    <section class="process shell" aria-labelledby="process-title">
+      <div>
+        <p class="eyebrow">SANS FORMULAIRE CACHÉ</p>
+        <h2 id="process-title">Du premier message à une décision éclairée.</h2>
+      </div>
+      <ol class="process-list">
+        <li><strong>Vous choisissez</strong><span>Code ou archive d’images : le parcours et le public ne sont pas mélangés.</span></li>
+        <li><strong>On vérifie le cadre</strong><span>Besoin, limites, autorisations, commandes éventuelles, conditions et prix sont confirmés avant la session.</span></li>
+        <li><strong>Vous décidez</strong><span>La restitution décrit ce qui a été observé et ce qui reste incertain. Aucun changement n’est appliqué sans accord distinct.</span></li>
+      </ol>
+    </section>
+
+    <aside class="boundary shell" aria-labelledby="boundary-title">
+      <h2 id="boundary-title">Ce que la page ne fait pas</h2>
+      <ul>
+        <li>Elle ne transmet aucun message et ne collecte aucune candidature.</li>
+        <li>Elle ne prend aucun paiement et n’active pas Stripe en production.</li>
+        <li>Elle ne nettoie rien automatiquement et ne garantit pas de récupération d’espace ou de compatibilité universelle.</li>
+        <li>Elle ne demande ni code source, ni images, ni secrets à téléverser.</li>
+      </ul>
+    </aside>
+  </main>
+
+  <footer class="page-footer shell">
+    <a class="wordmark" href="#top" aria-label="Retour en haut de la page">
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span>guardian<span class="wordmark-light">/pilotes</span></span>
+    </a>
+    <p>Les pilotes sont des offres exploratoires, pas un SaaS finalisé. Vérifiez le périmètre, les conditions et le mode de facturation avant tout engagement. Ne collez aucun secret dans votre demande.</p>
+    <span class="footer-note">15 OCTOBRE 2026 · BROUILLON LOCAL</span>
+  </footer>
+
+  <script>
+    const requests = {
+      autopilot: "Bonjour, je souhaite discuter du pilote Guardian Autopilot pour un dépôt JavaScript/TypeScript.\n\nMon besoin : [à préciser]\n\nJe comprends que l’analyse produit une revue explicable et ne garantit aucune suppression. Tout essai isolé, limité à trois candidats maximum, exige mon accord explicite et des commandes de vérification choisies par moi. Le prix affiché est une hypothèse non validée ; aucun paiement n’est pris sur cette page.\n\nJe ne joins ni code privé, ni secret, ni donnée client.",
+      studio: "Bonjour, je souhaite discuter de la bêta locale Guardian Studio pour une archive d’images IA.\n\nOutil utilisé (facultatif) : [Stable Diffusion WebUI / ComfyUI / autre]\nCe que je voudrais examiner : [à préciser]\n\nJe comprends que Studio scanne localement, vérifie les doublons exacts, propose des candidats visuels heuristiques et lit certains champs PNG pris en charge. Aucun nettoyage n’est automatique. L’archivage exige des permissions séparées et ma confirmation des chemins ; les copies sont vérifiées avant retrait des originaux. La restauration et la purge sont distinctes. Guardian ne mesure pas l’espace libre système. Le prix affiché est une hypothèse non validée ; aucun paiement n’est pris sur cette page.\n\nJe n’envoie ni images, ni prompts, ni chemin privé dans ce message."
+    };
+
+    const feedback = document.getElementById("copy-feedback");
+    const status = document.getElementById("copy-status");
+    const fallback = document.getElementById("copy-fallback");
+
+    for (const button of document.querySelectorAll("[data-copy]")) {
+      button.addEventListener("click", async () => {
+        const message = requests[button.dataset.copy];
+        if (!message) return;
+        feedback.hidden = false;
+        fallback.hidden = true;
+        fallback.textContent = "";
+
+        try {
+          if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") throw new Error("Clipboard unavailable");
+          await navigator.clipboard.writeText(message);
+          status.textContent = "Demande copiée localement. Collez-la dans le canal où vous avez reçu cette page ; elle n’a pas été envoyée.";
+        } catch {
+          status.textContent = "La copie automatique n’est pas disponible ici. Sélectionnez ce texte et copiez-le, puis collez-le dans le canal où vous avez reçu cette page. Rien n’a été envoyé.";
+          fallback.textContent = message;
+          fallback.hidden = false;
+          fallback.focus();
+        }
+      });
+    }
+  </script>
+</body>
+</html>

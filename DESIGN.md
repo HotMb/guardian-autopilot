@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: Guardian Studio
-description: A quiet, local-first workbench for reviewing generated-image storage without changing files.
+description: A quiet, local-first workbench for reviewing generated-image storage. Scans are read-only; archive, restore, and purge require separate user confirmation.
 colors:
   forest: "#20372d"
   lime: "#c6f36a"

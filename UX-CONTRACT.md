@@ -22,6 +22,18 @@ No account, permission-role, billing, or legal flow is part of Studio's current 
 
 ## Canonical UI map
 
+The component map below uses the five-column schema required by the strict interface audit. The detailed flow ownership map that follows remains the product-specific source of truth.
+
+| Capability | Canonical owner | Source of truth | Allowed variants | Verification |
+|---|---|---|---|---|
+| Table Selection | Manual review state in site/studio.js | state.selectedForPlan and the selection rules in this contract | List and contact-sheet controls share manual selection; archive journal rows keep a separate selection | tests/studio-contact-sheet.test.mjs and tests/studio-file-ops.test.mjs |
+| Select/Listbox | No native select or custom listbox is used | Folder picker and labeled search/filter controls in site/studio.html | Keep browser directory pickers and buttons; introduce a listbox only with a defined search need | tests/studio-contact-sheet.test.mjs |
+| Date | No date or time input is used | File timestamps are informational scan metadata | No date-picker variant in the current interface | tests/studio-contact-sheet.test.mjs |
+| Form | Archive reason and purge confirmation controls in site/studio.html and site/studio.js | Required reason, separate acknowledgement, and typed purge rules in this contract | Native fields inside app-owned dialogs; no hosted form submission | tests/studio-file-ops.test.mjs |
+| Scrollbar | Global tokens in site/styles.css; scoped overflow in site/studio.css | Design tokens and table, journal, preview, and dialog scroll surfaces in DESIGN.md | Standards-based global color/width with browser fallback; scoped overflow only where content requires it | tests/studio-contact-sheet.test.mjs |
+| Toast | No toast component; #studio-notice and operation status are persistent live regions | Notice and progress behavior in this contract | Inline status with text and aria-live; no disappearing success toast | tests/studio-contact-sheet.test.mjs and tests/studio-file-ops.test.mjs |
+| CRUD | Local file-operation engine in site/studio-file-ops.js | Archive, restore, purge, and recovery rules in this contract | Separate dialogs and permissions for each operation; no HTTP mutation route | tests/studio-file-ops.test.mjs and tests/studio-archive-destination.test.mjs |
+
 | Capability | Owner | Behavior and verification |
 |---|---|---|
 | Image list and contact sheet | `site/studio.html` + `site/studio.js` | The labeled List / Contact sheet buttons are a single-choice presentation control with `aria-pressed` state. Both layouts project the same sorted, filtered page of 40 images and preserve inspector, search, folder/view filters, pagination, and manual review selection. The contact sheet uses local previews and keeps each complete path, name, size, and signal visible. |

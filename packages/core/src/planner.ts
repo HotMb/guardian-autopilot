@@ -59,6 +59,19 @@ function sourceFile(path: string): boolean {
   return dot >= 0 && sourceExtensions.has(path.slice(dot).toLowerCase());
 }
 
+function testFile(path: string): boolean {
+  const normalized = path.replace(/\\/g, '/');
+  return /(^|\/)(?:__tests__|tests?)(\/|$)/i.test(normalized)
+    || /(?:^|\.)(?:test|spec)\.[^/]+$/i.test(normalized);
+}
+
+function frameworkEntrypoint(path: string): boolean {
+  const normalized = path.replace(/\\/g, '/');
+  if (/^(?:src\/)?pages\/.+\.[cm]?[jt]sx?$/i.test(normalized)) return true;
+  return /^(?:src\/)?app\/.+\/(?:page|layout|route|template|default|loading|error|global-error|not-found|forbidden|unauthorized)\.[cm]?[jt]sx?$/i.test(normalized)
+    || /^(?:src\/)?app\/(?:page|layout|route|template|default|loading|error|global-error|not-found|forbidden|unauthorized)\.[cm]?[jt]sx?$/i.test(normalized);
+}
+
 function incomingFiles(graph: ReferenceGraph): Set<string> {
   return new Set(graph.edges.map((edge) => edge.to));
 }
@@ -113,11 +126,11 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
 
   for (const file of manifest.files) {
     const positiveProof = closedWorldAnalysis.proofs.get(file.path);
-    if (positiveProof !== undefined) {
+    if (positiveProof !== undefined && sourceFile(file.path) && !testFile(file.path) && !frameworkEntrypoint(file.path)) {
       candidates.push(makeCandidate('closed-world-unreachable', file.path, [positiveProof], policy));
       continue;
     }
-    if (stringReferences.unreadableFiles.length > 0 || !sourceFile(file.path) || entryFiles.has(file.path) || incoming.has(file.path) || observedAtRuntime.has(file.path) || publicFiles.has(file.path) || stringReferenced.has(file.path) || belongsToInvalidPackage(file.path, packageEntrypoints.invalidManifests)) continue;
+    if (stringReferences.unreadableFiles.length > 0 || !sourceFile(file.path) || testFile(file.path) || frameworkEntrypoint(file.path) || entryFiles.has(file.path) || incoming.has(file.path) || observedAtRuntime.has(file.path) || publicFiles.has(file.path) || stringReferenced.has(file.path) || belongsToInvalidPackage(file.path, packageEntrypoints.invalidManifests)) continue;
     candidates.push(makeCandidate('unreferenced-file', file.path, [
       {type: 'no_import_references', confidence: 0.99, details: 'No local static import or export targets this file'},
     ], policy));
@@ -125,7 +138,7 @@ export async function planRepository(rootDir: string, options: PlanOptions = {})
 
   for (const group of duplicates) {
     for (const path of group.duplicates) {
-      if (stringReferences.unreadableFiles.length > 0 || observedAtRuntime.has(path)) continue;
+      if (stringReferences.unreadableFiles.length > 0 || testFile(path) || frameworkEntrypoint(path) || observedAtRuntime.has(path)) continue;
       if (publicFiles.has(path) || stringReferenced.has(path) || belongsToInvalidPackage(path, packageEntrypoints.invalidManifests)) continue;
       const evidence: Evidence[] = [
         {type: 'no_import_references', confidence: incoming.has(path) ? 0.2 : 0.99},

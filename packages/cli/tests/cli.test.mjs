@@ -324,12 +324,12 @@ test('review refuses to write its checklist inside the repository', async () => 
 
 test('review refuses candidates protected by built-in safeguards', async () => {
   const root = await fixture();
-  await writeFile(join(root, 'src', 'unused.test.ts'), 'export const testHelper = true;\n');
+  await writeFile(join(root, 'src', 'unused.config.ts'), 'export const protectedConfig = true;\n');
   await git(root, 'add', '.');
-  await git(root, 'commit', '-qm', 'add a protected test file');
+  await git(root, 'commit', '-qm', 'add a protected config file');
 
   await assert.rejects(
-    () => exec(process.execPath, [cli, 'review', root, '--path', 'src/unused.test.ts']),
+    () => exec(process.execPath, [cli, 'review', root, '--path', 'src/unused.config.ts']),
     /protected candidate cannot receive a human review/i,
   );
   assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');

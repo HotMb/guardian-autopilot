@@ -28,8 +28,8 @@ if (packageJson.private !== false || packageJson.publishConfig?.access !== 'publ
 if (packageJson.scripts?.prepack !== 'npm run build') {
   throw new Error('package.json must build before packing');
 }
-if (!Array.isArray(packageJson.files) || !packageJson.files.includes('dist') || !packageJson.files.includes('integrations/claude-plugin')) {
-  throw new Error('package.json files must include dist and integrations/claude-plugin');
+if (!Array.isArray(packageJson.files) || !packageJson.files.includes('dist') || !packageJson.files.includes('integrations/claude-plugin') || !packageJson.files.includes('site')) {
+  throw new Error('package.json files must include dist, integrations/claude-plugin, and site');
 }
 if (pluginManifest.name !== packageJson.name || pluginManifest.version !== packageJson.version) {
   throw new Error('Claude plugin metadata must match package metadata');
@@ -40,6 +40,13 @@ if (mcpConfig.mcpServers?.guardian?.command !== 'guardian' || JSON.stringify(mcp
 
 for (const path of [
   'dist/cli.js',
+  'dist/studio.js',
+  'site/studio.html',
+  'site/studio.css',
+  'site/studio.js',
+  'site/studio-demo/demo-cabin.png',
+  'site/studio-demo/demo-observatory.png',
+  'site/studio-demo/demo-explorer.png',
   'integrations/claude-plugin/.claude-plugin/plugin.json',
   'integrations/claude-plugin/.mcp.json',
   'integrations/claude-plugin/hooks/hooks.json',
@@ -54,7 +61,7 @@ const help = spawnSync(process.execPath, [resolve(projectRoot, 'dist/cli.js'), '
   encoding: 'utf8',
   windowsHide: true,
 });
-if (help.status !== 0 || !help.stdout.includes('guardian mcp')) {
+if (help.status !== 0 || !help.stdout.includes('guardian mcp') || !help.stdout.includes('guardian studio')) {
   throw new Error('Built Guardian CLI did not pass its read-only help smoke test');
 }
 

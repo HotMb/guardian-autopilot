@@ -135,7 +135,7 @@ test('allows only explicit safe node-prefixed built-ins and blocks command roots
       const result = await analyzeClosedWorld(root);
       assert.equal(result.complete, false);
       assert.equal(result.proofs.size, 0);
-      assert.ok(result.blockers.some((item) => ['unsupported-external-module', 'unsupported-command-root'].includes(item.code)), JSON.stringify(result.blockers));
+      assert.ok(result.blockers.some((item) => ['unsupported-external-module', 'unsupported-command-root', 'unsupported-runtime-configuration'].includes(item.code)), JSON.stringify(result.blockers));
     });
   }
 });
@@ -193,12 +193,49 @@ test('blocks unsupported framework/source configuration and TypeScript path alia
   const angular = await repository({sourceConfig: {'angular.json': '{"projects":{}}'}});
   const angularResult = await analyzeClosedWorld(angular);
   assert.equal(angularResult.complete, false);
-  assert.ok(angularResult.blockers.some((item) => item.code === 'unsupported-source-config'));
+  assert.ok(angularResult.blockers.some((item) => ['unsupported-source-config', 'unsupported-runtime-configuration'].includes(item.code)));
 
   const aliases = await repository({sourceConfig: {'tsconfig.json': JSON.stringify({compilerOptions: {baseUrl: '.', paths: {'@/*': ['src/*']}}})}});
   const aliasesResult = await analyzeClosedWorld(aliases);
   assert.equal(aliasesResult.complete, false);
   assert.ok(aliasesResult.blockers.some((item) => item.code === 'unsupported-source-config'));
+});
+
+test('fails closed when deployment, runtime, IDE, or unclassified configuration can declare entrypoints', async () => {
+  const configPaths = [
+    'vercel.json',
+    'Procfile',
+    'wrangler.toml',
+    'wrangler.json',
+    'render.yaml',
+    'fly.toml',
+    'railway.json',
+    'netlify.toml',
+    'serverless.yml',
+    'firebase.json',
+    'app.yaml',
+    'deployment.json',
+    '.firebaserc',
+    '.npmrc',
+    '.env.production',
+    '.devcontainer/devcontainer.json',
+    '.vscode/tasks.json',
+    'config/otherwise-unlisted.json',
+    'config/otherwise-unlisted.yml',
+    'config/otherwise-unlisted.toml',
+  ];
+  const sourceConfig = Object.fromEntries(configPaths.map((path) => [path, '{}\n']));
+  const root = await repository({
+    files: {'src/orphan.ts': 'export const unused = true;\n'},
+    sourceConfig,
+  });
+
+  const result = await analyzeClosedWorld(root);
+  assert.equal(result.complete, false);
+  assert.equal(result.proofs.size, 0);
+  for (const path of configPaths) {
+    assert.ok(result.blockers.some((item) => item.code === 'unsupported-runtime-configuration' && item.path === path), `${path}: ${JSON.stringify(result.blockers)}`);
+  }
 });
 
 test('fails closed on dirty checkouts and symlinks', async (t) => {

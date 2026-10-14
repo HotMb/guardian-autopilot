@@ -23,6 +23,71 @@ test('plans unreferenced files as review-only and never auto-authorizes them', a
   assert.equal(report.knip.status, 'unavailable');
 });
 
+test('does not propose convention-discovered test files as unreferenced production code', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-test-files-'));
+  await mkdir(join(root, 'tests'), {recursive: true});
+  await mkdir(join(root, 'src', '__tests__'), {recursive: true});
+  await writeFile(join(root, 'src', 'index.ts'), 'export {};\n');
+  await writeFile(join(root, 'tests', 'billing.test.ts'), 'export const testCase = true;\n');
+  await writeFile(join(root, 'src', '__tests__', 'billing.spec.tsx'), 'export const testCase = true;\n');
+  await writeFile(join(root, 'src', 'unused.ts'), 'export const unused = true;\n');
+
+  const report = await planRepository(root, {entryFiles: ['src/index.ts'], knipExecutable: 'not-installed'});
+
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'tests/billing.test.ts'), false);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/__tests__/billing.spec.tsx'), false);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/unused.ts'), true);
+});
+
+test('excludes test/spec suffixes outside test directories from unreferenced and duplicate candidates', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-test-suffixes-'));
+  await mkdir(join(root, 'src'), {recursive: true});
+  await writeFile(join(root, 'src', 'index.ts'), "import './a-fixture';\n");
+  await writeFile(join(root, 'src', 'a-fixture.ts'), 'export {};\n');
+  await writeFile(join(root, 'src', 'billing.test.ts'), 'export {};\n');
+  await writeFile(join(root, 'src', 'dashboard.spec.tsx'), 'export {};\n');
+  await writeFile(join(root, 'src', 'types.test.d.ts'), 'export {};\n');
+  await writeFile(join(root, 'src', 'unused.ts'), 'export const unused = true;\n');
+
+  const report = await planRepository(root, {entryFiles: ['src/index.ts'], knipExecutable: 'not-installed'});
+  const testPaths = ['src/billing.test.ts', 'src/dashboard.spec.tsx', 'src/types.test.d.ts'];
+
+  for (const path of testPaths) {
+    assert.equal(report.candidates.some((candidate) => candidate.path === path), false, `${path} must not be proposed`);
+  }
+  assert.equal(report.duplicates.some((group) => group.duplicates.some((path) => testPaths.includes(path))), true);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'src/unused.ts'), true);
+});
+
+test('protects convention-discovered Next.js route entrypoints from both candidate types', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-next-entrypoints-'));
+  await mkdir(join(root, 'app', 'dashboard'), {recursive: true});
+  await mkdir(join(root, 'src', 'app', 'settings'), {recursive: true});
+  await mkdir(join(root, 'pages', 'api'), {recursive: true});
+  await mkdir(join(root, 'src', 'pages'), {recursive: true});
+  await writeFile(join(root, 'a-canonical.tsx'), 'export default function Page() { return null; }\n');
+  await writeFile(join(root, 'app', 'page.tsx'), 'export default function Page() { return null; }\n');
+  await writeFile(join(root, 'app', 'layout.tsx'), 'export default function Layout({children}) { return children; }\n');
+  await writeFile(join(root, 'app', 'dashboard', 'page.tsx'), 'export default function Dashboard() { return null; }\n');
+  await writeFile(join(root, 'src', 'app', 'settings', 'route.ts'), 'export async function GET() { return new Response(); }\n');
+  await writeFile(join(root, 'pages', 'index.tsx'), 'export default function Home() { return null; }\n');
+  await writeFile(join(root, 'pages', 'api', 'health.ts'), 'export default function health() { return null; }\n');
+  await writeFile(join(root, 'src', 'pages', 'account.tsx'), 'export default function Account() { return null; }\n');
+  await writeFile(join(root, 'app', 'helper.ts'), 'export const helper = true;\n');
+
+  const report = await planRepository(root, {entryFiles: [], knipExecutable: 'not-installed'});
+  const routePaths = [
+    'app/page.tsx', 'app/layout.tsx', 'app/dashboard/page.tsx', 'src/app/settings/route.ts',
+    'pages/index.tsx', 'pages/api/health.ts', 'src/pages/account.tsx',
+  ];
+
+  for (const path of routePaths) {
+    assert.equal(report.candidates.some((candidate) => candidate.path === path), false, `${path} must not be proposed`);
+  }
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'app/helper.ts'), true);
+  assert.equal(report.candidates.some((candidate) => candidate.path === 'app/page.tsx' && candidate.kind === 'exact-duplicate'), false);
+});
+
 test('plans exact duplicates without treating the hash as positive proof', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cleancode-planner-duplicates-'));
   await writeFile(join(root, 'canonical.ts'), 'same content\n');
