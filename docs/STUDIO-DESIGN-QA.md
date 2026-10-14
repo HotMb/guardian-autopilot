@@ -1,13 +1,13 @@
 # Guardian Studio — verification report
 
 **Date:** 14 October 2026
-**Scope:** Local AI-image inventory, metadata review, and opt-in archive/restore/purge beta.
+**Scope:** Browser Studio plus Windows desktop packaging for local AI-image inventory and opt-in archive/restore/purge.
 **Design source:** [`../DESIGN.md`](../DESIGN.md)
 **Interaction contract:** [`../UX-CONTRACT.md`](../UX-CONTRACT.md)
 
 ## Verification status
 
-The local file-operation module and the synthetic inventory/metadata suites pass. The TypeScript build and JavaScript syntax checks pass. The static Studio content assertion passes. The browser could render an existing Studio demo tab on port 8767, but its copy did not match the current source, so it is not accepted as a current-build smoke test. A server started from this checkout on port 8765, but the browser timed out when connecting to it. The listener-backed HTTP suite therefore remains unverified. No user folder, real image, browser file permission, or destructive UI action was used.
+The full repository suite passed: 317 tests passed and one OS-dependent test was skipped. The desktop protocol/security tests, desktop package verifier, CLI package verifier, and Windows x64 Squirrel installer build passed. The installer is unsigned. The browser environment could render an existing Studio demo tab on port 8767, but its copy did not match the current source; a server from this checkout on port 8765 timed out from that separate browser environment. The installed app has not yet been manually opened through its full folder-permission and archive flow. No user folder, real image, browser file permission, or destructive UI action was used.
 
 ## Automated checks
 
@@ -17,19 +17,24 @@ The local file-operation module and the synthetic inventory/metadata suites pass
 | TypeScript build | Passed: `npm run build` |
 | JavaScript syntax | Passed: `site/studio.js`, `site/studio-file-ops.js`, `site/studio-scan.js`, and file-operation tests |
 | Static Studio content assertion | Passed: one test, run without opening a listener |
+| Desktop origin and protocol security | Passed: 5 tests; exact origin, asset allowlist, headers, GET-only handling, and disabled desktop watcher |
+| Desktop package verifier | Passed: isolated renderer settings, resource layout, and Squirrel configuration |
+| npm CLI package verification | Passed: CLI and CleanCode packages |
+| Windows x64 installer build | Passed: unsigned Squirrel installer generated |
 | Listener-backed local HTTP/security checks | Not verified: browser timed out against the server started from this checkout |
-| Full repository test chain | Not run in this verification pass |
+| Full repository test chain | Passed: 317 tests; one OS-dependent test skipped |
 | Visual/browser smoke | Incomplete: an existing stale demo rendered; the current checkout could not be reached from the browser |
+| Packaged desktop manual smoke | Not run: no folder permission or file operation was exercised through the installed app |
 
 The synthetic file-operation suite covers chunked SHA-256, exact-copy verification, source preservation on copy failure, explicit confirmation and permission checks, path validation, archive collisions and unknown data folders, resumable interruption states, attribution of already-absent bytes, restore conflicts and source-folder confirmation, retained archive copies, typed purge confirmation, and cancellation.
 
 ## Browser smoke limitation
 
-The current checkout's server was started on `127.0.0.1:8765` and printed its listening URL, but the separate browser environment returned `ERR_CONNECTION_TIMED_OUT` for that address. An existing demo tab at `127.0.0.1:8767` did render the synthetic collection and archive panel, but it exposed stale copy and was not treated as a validation of this checkout. No non-loopback binding was used. A future end-to-end smoke check should use only a disposable folder containing synthetic images. It should verify the UI, permission denial, a confirmed archive to a separate folder, restore, and a purge only after checking the recovered files. Do not use a personal collection for first-run validation.
+The current checkout's browser server was started on `127.0.0.1:8765` and printed its listening URL, but the separate browser environment returned `ERR_CONNECTION_TIMED_OUT` for that address. An existing demo tab at `127.0.0.1:8767` rendered stale copy and was not treated as validation of this checkout. The desktop protocol handler is covered by automated tests, but its packaged window and filesystem permissions still need a manual smoke check. Use only a disposable folder containing synthetic images: verify the UI, permission denial, a confirmed archive to a separate folder, restore, retained archive copy, and a purge after checking the recovered files. Do not use a personal collection for first-run validation.
 
 ## Product and safety limits
 
-- Studio serves a fixed local asset allowlist on IPv4 loopback. It does not expose a file-upload route; selected image bytes and metadata are processed in the browser.
+- Browser Studio serves a fixed local asset allowlist on IPv4 loopback. Desktop Studio serves the same fixed assets from the secure `guardian://studio` origin. Neither exposes a file-upload route; selected image bytes and metadata are processed in the local Chromium renderer.
 - Folder inventory and the compatibility picker remain read-only. Archive actions require separate write permissions, a complete scan, a manually selected bounded batch, exact path review, and a stated reason.
 - Archive bytes are copied and byte/hash verified before source removal. A local journal is stored in the selected archive folder. If a source is already absent during recovery, its bytes are reported separately and are not newly attributed to Guardian.
 - Restore preflights for an existing target and retains the archive copy after success. Purge requires a second acknowledgement, the exact typed word `PURGE`, and another integrity check.
@@ -40,8 +45,9 @@ The current checkout's server was started on `127.0.0.1:8765` and printed its li
 
 ## Human validation still required
 
-- Open Studio in a supported Chromium desktop browser and inspect the synthetic demo at desktop and narrow widths.
+- Open the packaged Windows app and inspect the synthetic demo, folder permission denial, and filesystem access on a disposable synthetic folder.
+- Open browser Studio in a supported Chromium desktop browser and inspect the synthetic demo at desktop and narrow widths.
 - With a disposable synthetic folder only, verify scan and permissions; archive one manually selected file to a different folder; compare bytes; restore it; confirm the archived copy remains; then test purge on synthetic data.
 - Verify keyboard focus and screen-reader labels for every dialog, permission denial, cancellation, interrupted recovery, and error states.
-- Run the loopback HTTP security tests and the full repository suite in an environment that permits a temporary `127.0.0.1` listener.
+- Run the loopback HTTP security tests in an environment that permits a temporary `127.0.0.1` listener; rerun the suite after changes.
 - Do not enable real-user cleanup or call this production-safe until browser testing covers supported browsers and the residual concurrent-folder-change limitation is acceptable.

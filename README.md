@@ -14,7 +14,7 @@ Guardian is a local-first toolkit for inspecting repositories and testing bounde
 
 ## Requirements
 
-- Node.js 20 or later
+- Node.js 20 or later for the CLI and running from source
 - npm
 - Git for worktree-based cleanup and GitHub checkout analysis
 
@@ -43,6 +43,14 @@ npm run build
 node dist/cli.js studio
 ```
 
+Run the Guardian Studio desktop app from a source checkout on Windows with Node.js 22.13 or later:
+
+```powershell
+npm run desktop
+```
+
+Build the Windows installer with `npm run desktop:make`. The installer is currently unsigned; Windows may show an unknown-publisher warning. A signed installer and macOS/Linux packages are not available yet. Packaged desktop use does not require users to install Node.js. The desktop app currently supports the same browser-backed folder selection, scanning, archive, restore, and purge flows as Studio; its optional CLI folder watcher is not included in the desktop app.
+
 To watch one local image-generation folder while Studio is open, pass its path explicitly:
 
 ```bash
@@ -55,7 +63,7 @@ On PowerShell, quote paths that contain spaces:
 node dist/cli.js studio --watch "C:\Users\you\Pictures\ComfyUI"
 ```
 
-Then open the printed `127.0.0.1` address in a supported Chromium-based desktop browser. Studio starts with clearly labeled synthetic data. Browser scanning requests read access only. The optional watcher reads metadata from its CLI-selected folder on the same computer and shows new/changed files plus images of at least 10 MiB. This is a human review queue, not automatic cleanup; the watcher never moves or deletes a file. The compatibility folder picker remains read-only. The optional archive workflow separately asks for source write permission and a user-chosen archive folder; it is disabled unless the browser exposes the required local file APIs.
+For the browser version, open the printed `127.0.0.1` address in a supported Chromium-based desktop browser. Studio starts with clearly labeled synthetic data. Browser scanning requests read access only. The optional watcher reads metadata from its CLI-selected folder on the same computer and shows new/changed files plus images of at least 10 MiB. This is a human review queue, not automatic cleanup; the watcher never moves or deletes a file. The compatibility folder picker remains read-only. The optional archive workflow separately asks for source write permission and a user-chosen archive folder; it is disabled unless the browser exposes the required local file APIs.
 
 Archive is never automatic: select up to 20 exact paths, add a reason, and confirm them in a dialog. Guardian copies in 1 MiB chunks, verifies byte equality and a streaming SHA-256, records the operation in `.guardian-quarantine/manifest.json`, then removes the source entry. Failed/cancelled copies keep the source. Restore stops when the target already exists at its preflight check and retains the verified archive copy; a failed write may leave a partial target that must be inspected before retrying. Permanent purge is separate and requires an acknowledgement plus typing `PURGE`. The archive journal contains sensitive relative paths and reasons and stays in the selected local folder; it is not uploaded. Guardian reports only verified bytes removed from the chosen source/archive, never operating-system free space. If the archive is on the same volume, total device storage is not reduced until archive copies are purged.
 

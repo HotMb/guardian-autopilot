@@ -1,5 +1,7 @@
 node_modules/
 dist/
+packages/desktop/out/
+packages/desktop/.webpack/
 .guardian/
 !.guardian/
 .guardian/*

@@ -1,0 +1,46 @@
+name: Guardian Studio desktop artifact
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run project tests
+        run: npm test
+
+      - name: Verify CLI package
+        run: npm run verify:package
+
+      - name: Verify desktop package
+        run: npm run verify:desktop
+
+      - name: Build Windows installer
+        run: npm run desktop:make
+
+      - name: Upload unsigned installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-studio-windows-x64-unsigned
+          path: packages/desktop/out/make/squirrel.windows/x64/*
+          if-no-files-found: error
+          retention-days: 14

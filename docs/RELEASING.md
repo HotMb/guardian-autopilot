@@ -12,6 +12,19 @@ The workflow also runs `npm run verify:package`. This read-only smoke test check
 
 The release workflow requires only repository read access plus the short-lived OIDC and attestation permissions used by GitHub Actions. It does not need an npm token.
 
+## Build Guardian Studio for Windows
+
+The desktop app is a separate Electron workspace. From a Windows checkout with Node.js 22.13+ and npm installed, run:
+
+```powershell
+npm ci
+npm run desktop:make
+```
+
+The x64 Squirrel installer and its update package are written to `packages/desktop/out/make/squirrel.windows/x64/`. Running `npm run desktop` starts the app from source; installing the packaged app does not require Node.js. The `Guardian Studio desktop artifact` workflow builds the same unsigned x64 installer on pushes to `main` and `codex/**` and retains it as a downloadable workflow artifact for 14 days.
+
+These artifacts are for testing. The Windows installer is unsigned, may show an unknown-publisher warning, and must not be presented as a trusted public release. Code signing, macOS/Linux installers, auto-updates, and public distribution remain separate release work. The desktop app keeps file access in the local Chromium renderer and uses the existing explicit permission and confirmation flow; its CLI-only folder watcher is not included.
+
 ## Manual npm publication
 
 The package is now explicitly configured as a public package, but normal pushes and version tags still do not publish it. Publication is available only through the separate `Publish npm package` workflow:

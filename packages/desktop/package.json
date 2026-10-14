@@ -1,0 +1,26 @@
+{
+  "name": "@guardian-autopilot/desktop",
+  "version": "0.1.0",
+  "productName": "Guardian Studio",
+  "private": true,
+  "author": "Guardian Autopilot",
+  "description": "Local-first review of generated-image storage.",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-forge package",
+    "make": "electron-forge make"
+  },
+  "config": {
+    "forge": "./forge.config.mjs"
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.1"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^8.0.1",
+    "@electron-forge/maker-squirrel": "^8.0.1",
+    "electron": "^44.7.2"
+  }
+}

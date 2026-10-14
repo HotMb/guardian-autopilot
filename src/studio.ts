@@ -1,5 +1,5 @@
 import {createReadStream} from 'node:fs';
-import {stat} from 'node:fs/promises';
+import {readFile, stat} from 'node:fs/promises';
 import {createServer, IncomingMessage, Server, ServerResponse} from 'node:http';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -66,6 +66,80 @@ async function serveAsset(pathname: string, response: ServerResponse): Promise<v
   } catch {
     send(response, 404, 'Not found');
   }
+}
+
+const protocolSecurityHeaders = {
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
+
+function protocolText(status: number, body: string, contentType = 'text/plain; charset=utf-8'): Response {
+  return new Response(body, {status, headers: {...protocolSecurityHeaders, 'Content-Type': contentType}});
+}
+
+/** Serve only Guardian's bundled UI through the desktop app's secure custom protocol. */
+export function createStudioProtocolHandler(watcher?: StudioWatcher): (request: Request) => Promise<Response> {
+  return async (request) => {
+    let requestUrl: URL;
+    try { requestUrl = new URL(request.url); }
+    catch { return protocolText(400, 'Bad request'); }
+
+    if (requestUrl.protocol !== 'guardian:' || requestUrl.hostname !== 'studio' || requestUrl.port !== '' || requestUrl.username !== '' || requestUrl.password !== '') {
+      return protocolText(404, 'Not found');
+    }
+    if (request.method !== 'GET') return protocolText(405, 'Method not allowed');
+    if (requestUrl.search !== '' || requestUrl.hash !== '') return protocolText(404, 'Not found');
+
+    if (requestUrl.pathname === '/api/watch/status') {
+      const status = watcher?.getSnapshot() ?? {
+        enabled: false,
+        mode: 'off',
+        folder: null,
+        scannedAt: null,
+        entriesScanned: 0,
+        imageCount: 0,
+        candidateCount: 0,
+        newCount: 0,
+        largeCount: 0,
+        pendingCount: 0,
+        partial: false,
+        truncated: false,
+        candidates: [],
+        notice: null,
+      };
+      return new Response(JSON.stringify(status), {
+        status: 200,
+        headers: {
+          ...protocolSecurityHeaders,
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+        },
+      });
+    }
+
+    const asset = assets.get(requestUrl.pathname);
+    if (!asset) return protocolText(404, 'Not found');
+    const absolutePath = join(siteRoot, asset.file);
+    try {
+      const info = await stat(absolutePath);
+      if (!info.isFile()) return protocolText(404, 'Not found');
+      return new Response(await readFile(absolutePath), {
+        status: 200,
+        headers: {
+          ...protocolSecurityHeaders,
+          'Content-Type': asset.type,
+          'Content-Length': String(info.size),
+          'Content-Security-Policy': requestUrl.pathname === '/'
+            ? "default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+            : "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+        },
+      });
+    } catch {
+      return protocolText(404, 'Not found');
+    }
+  };
 }
 
 function handleRequest(server: Server, request: IncomingMessage, response: ServerResponse, watcher?: StudioWatcher): void {
