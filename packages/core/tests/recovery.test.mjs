@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile as execFileCallback} from 'node:child_process';
-import {mkdtemp, rm, rmdir, writeFile} from 'node:fs/promises';
+import {mkdtemp, realpath, rm, rmdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
@@ -48,7 +48,7 @@ async function addWorktree(root, worktrees, {pathPrefix = 'cleancode-wt-', neste
   await rmdir(empty);
   await git(root, 'branch', backup, 'HEAD');
   await git(root, 'worktree', 'add', '-b', branch, empty, 'HEAD');
-  const item = {path: empty, branch, backup, container: nested ? container : undefined};
+  const item = {path: await realpath(empty), branch, backup, container: nested ? container : undefined};
   worktrees.push(item);
   return item;
 }
