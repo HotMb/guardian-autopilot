@@ -1,5 +1,5 @@
 import {execFile as execFileCallback} from 'node:child_process';
-import {lstat, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {lstat, mkdtemp, realpath, rm, writeFile} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import {isAbsolute, join, relative, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -45,7 +45,14 @@ async function assertCleanRepository(root: string): Promise<void> {
   } catch (error) {
     throw new Error(`Transaction requires a Git repository: ${errorMessage(error)}`);
   }
-  if (resolve(topLevel) !== root) throw new Error('Transaction root must be the Git repository root');
+  let canonicalRoot: string;
+  let canonicalTopLevel: string;
+  try {
+    [canonicalRoot, canonicalTopLevel] = await Promise.all([realpath(root), realpath(topLevel)]);
+  } catch (error) {
+    throw new Error(`Transaction root could not be verified: ${errorMessage(error)}`);
+  }
+  if (canonicalTopLevel !== canonicalRoot) throw new Error('Transaction root must be the Git repository root');
   const status = (await runGit(root, ['status', '--porcelain=v1', '--untracked-files=all'])).stdout.trim();
   if (status) throw new Error('Transaction requires a clean Git workspace; commit or stash local changes first');
 }

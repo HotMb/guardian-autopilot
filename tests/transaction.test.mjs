@@ -36,6 +36,20 @@ test('creates a dry-run diff in an isolated worktree and leaves the source untou
   } finally { await rm(root, {recursive: true, force: true}); }
 });
 
+test('accepts a Windows path alias for the Git repository root', {skip: process.platform !== 'win32'}, async () => {
+  const root = await makeRepo();
+  const file = join(root, 'duplicate.png');
+  try {
+    await writeFile(file, 'duplicate');
+    await commitAll(root);
+    const rootAlias = root.toLowerCase();
+    const result = await runCleanupTransaction(rootAlias, {files: ['duplicate.png']});
+
+    assert.equal(result.status, 'dry-run');
+    assert.equal(await readFile(file, 'utf8'), 'duplicate');
+  } finally { await rm(root, {recursive: true, force: true}); }
+});
+
 test('applies a verified transaction only when dry-run is disabled', async () => {
   const root = await makeRepo();
   const file = join(root, 'duplicate.png');
