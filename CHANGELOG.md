@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Documented Guardian's as-built Studio and CleanCode architecture, intentional stack differences, and deferred hosted capabilities.
+- Added an architecture contract check for workspace package boundaries and wired it into the full test command.
 - Added the CleanCode shared contracts, guarded state machine, repository manifest, reference graph, policy engine, duplicate analysis, Knip adapter, planner, verifier, and isolated worktree executor.
 - Added append-only JSONL audit events and compare-and-swap undo receipts for crash-safe cleanup recovery.
 - Added CleanCode CLI commands for read-only discovery, analysis, planning, and guarded `apply --dry-run` / apply execution.
