@@ -79,7 +79,7 @@ Use a three-part desktop layout: collection navigation, a flexible sortable file
 - Make important controls at least 44px high. Keep text at 12px or larger.
 - At 200% zoom, let the page reflow; only the image table may scroll horizontally.
 - Respect reduced motion and preserve borders, focus, and text in forced-colors mode.
-- Keep archive confirmation, restore, and permanent purge distinct.
+- Keep archive selection, restore, and permanent purge distinct. Show paths and sizes inline before archive and deletion.
 ## Shapes
 
 Use square, fine-bordered panels and 3px control corners, with pill badges only for short status labels. Avoid floating-card stacks and ornamental shadows.
@@ -92,7 +92,7 @@ Hover and focus use clear contrast; focus-visible retains a high-contrast browse
 
 ### Buttons and actions
 
-Primary is lime with dark text; secondary is paper/surface with a fine border. Reversible archive uses a warning/outline treatment; permanent purge uses a visually distinct danger treatment only in its final confirmation. The review plan remains informational.
+Primary is lime with dark text; secondary is paper/surface with a fine border. Archiving uses the primary action; permanent deletion uses a visually distinct danger action beside its inline path/size review and acknowledgement. The review plan remains informational.
 
 ### Navigation and data display
 
@@ -100,7 +100,7 @@ Use labeled navigation, real buttons for sorting and filters, and semantic table
 
 ### Forms and overlays
 
-Use a user-activated browser directory picker in read-only mode, with a multiple-file directory input fallback. Request source write access only after a separate user click; the fallback remains read-only. Search is local and has an explicit clear button. Use app-owned dialogs for exact archive review, restore confirmation, and typed irreversible purge. Keep review plans in memory for the current tab only; persist only the explicit local archive journal and its data in the user-chosen folder.
+Use a user-activated browser directory picker in read-only mode, with a multiple-file directory input fallback. Request source write access only when the user activates Archive selection; the fallback remains read-only. Create a marked `Corbeille` inside the selected source folder and exclude it from scans. Search is local and has an explicit clear button. Show exact archive and deletion paths inline; keep focused dialogs for restore and interrupted-operation recovery. Keep review plans in memory for the current tab only; persist the explicit local archive journal and its data inside Corbeille.
 
 ### Iconography
 
@@ -112,7 +112,7 @@ Motion is limited to brief hover and selected-state feedback. Respect `prefers-r
 
 ### Content and data visualization
 
-Use plain language: “Exact duplicate” means identical file bytes. “Visual candidate” means a low-resolution perceptual-hash pattern fell within the review threshold; it is a heuristic, not proof that images are interchangeable. “Candidate size” is not recovered storage; Guardian does not measure operating-system free space. Report only verified source/archive bytes changed by the explicit operation. Explain that same-volume archive does not reduce total device storage until purge. Never expose embedded prompts until the user explicitly opens the metadata disclosure.
+Use plain language: “Exact duplicate” means identical file bytes. “Visual candidate” means a low-resolution perceptual-hash pattern fell within the review threshold; it is a heuristic, not proof that images are interchangeable. “Candidate size” is not recovered storage; Guardian does not measure operating-system free space. Report only verified source/Corbeille bytes changed by the explicit operation. Explain that archiving keeps copies on the device until permanent deletion. Never expose embedded prompts until the user explicitly opens the metadata disclosure.
 
 ## Do's and Don'ts
 

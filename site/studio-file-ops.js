@@ -1,9 +1,12 @@
 export const QUARANTINE_DIRECTORY = '.guardian-quarantine';
+export const TRASH_DIRECTORY = 'Corbeille';
 export const MAX_QUARANTINE_BATCH = 20;
 const MANIFEST_NAME = 'manifest.json';
 const DATA_DIRECTORY = 'items';
 export const QUARANTINE_MARKER = '.guardian-quarantine-marker';
 const QUARANTINE_MARKER_CONTENT = 'Guardian Studio quarantine data directory v1';
+const TRASH_MARKER = '.guardian-studio-trash-marker';
+const TRASH_MARKER_CONTENT = 'Guardian Studio Corbeille v1';
 const CHUNK_BYTES = 1024 * 1024;
 const MAX_MANIFEST_ENTRIES = 5000;
 
@@ -93,7 +96,7 @@ function throwIfCancelled(signal) { if (cancelled(signal)) throw new DOMExceptio
 function validatePath(path) {
   const raw = String(path ?? '');
   const parts = raw.split('/');
-  if (!raw || raw.includes('\\') || raw.startsWith('/') || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\0') || /[<>:"|?*]/.test(part) || part === QUARANTINE_DIRECTORY)) {
+  if (!raw || raw.includes('\\') || raw.startsWith('/') || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\0') || /[<>:"|?*]/.test(part) || part.toLowerCase() === QUARANTINE_DIRECTORY.toLowerCase()) || parts[0]?.toLowerCase() === TRASH_DIRECTORY.toLowerCase()) {
     throw new Error('Unsafe or protected path');
   }
   return parts;
@@ -106,66 +109,62 @@ async function resolveFile(root, path, create = false) {
   return childFile(directory, parts.at(-1), create);
 }
 
-const MAX_SOURCE_SCOPE_ENTRIES = 250_000;
-const MAX_SOURCE_SCOPE_DEPTH = 128;
 function archiveScopeError(message, cause) {
   const error = new Error(message, cause ? {cause} : undefined);
   error.code = 'archive-scope';
   return error;
 }
 
-/** Prove the chosen archive folder is outside the selected source tree before writing there. */
-export async function assertArchiveDestinationOutsideSource(sourceRoot, destinationRoot) {
-  if (sourceRoot?.kind !== 'directory' || destinationRoot?.kind !== 'directory') {
-    throw archiveScopeError('Source and archive must be selected directories; separation could not be verified.');
-  }
-  if (typeof sourceRoot.isSameEntry !== 'function') {
-    throw archiveScopeError('This browser cannot verify archive-folder separation; choose a supported browser.');
-  }
-  const assertDifferent = async (directory) => {
-    if (typeof directory?.isSameEntry !== 'function') {
-      throw archiveScopeError('This browser cannot verify archive-folder separation; choose a supported browser.');
-    }
-    let same;
-    try { same = await directory.isSameEntry(destinationRoot); }
-    catch (error) { throw archiveScopeError('Could not verify archive-folder separation; nothing was changed.', error); }
-    if (same === true) throw archiveScopeError('Archive folder must be outside the selected source folder. Choose a separate folder.');
-    if (same !== false) throw archiveScopeError('Could not prove archive-folder separation; nothing was changed.');
-  };
+/** True only for a Corbeille created or initialized by Guardian Studio. */
+export async function isGuardianTrashDirectory(directoryHandle) {
+  if (directoryHandle?.kind !== 'directory' || directoryHandle.name?.toLowerCase() !== TRASH_DIRECTORY.toLowerCase()) return false;
+  try {
+    const marker = await childFile(directoryHandle, TRASH_MARKER);
+    return (await (await marker.getFile()).text()) === TRASH_MARKER_CONTENT;
+  } catch (error) { if (notFound(error)) return false; throw error; }
+}
 
-  await assertDifferent(sourceRoot);
-  const pending = [{directory: sourceRoot, depth: 0}];
-  let visitedEntries = 0;
-  while (pending.length > 0) {
-    const {directory, depth} = pending.pop();
-    let iterator;
+/** Create Corbeille only when absent or empty; never claim a user folder containing data. */
+export async function ensureGuardianTrashDirectory(sourceRoot) {
+  if (sourceRoot?.kind !== 'directory' || typeof sourceRoot.getDirectoryHandle !== 'function') {
+    throw archiveScopeError('Choose a readable source folder before creating Corbeille.');
+  }
+  await assertWritePermission(sourceRoot).catch((error) => fail(safeErrorCode(error), 'Grant write access to the selected folder before creating Corbeille.', error));
+  let trash;
+  try { trash = await sourceRoot.getDirectoryHandle(TRASH_DIRECTORY, {create: true}); }
+  catch (error) { fail('archive-scope', 'Guardian could not create Corbeille in the selected folder. No image was changed.', error); }
+  if (!await isGuardianTrashDirectory(trash)) {
+    let occupied = false;
     try {
-      if (typeof directory.values !== 'function') throw new Error('Directory iteration is unavailable');
-      iterator = directory.values();
-    } catch (error) {
-      throw archiveScopeError('Could not inspect the complete source tree to verify archive-folder separation; nothing was changed.', error);
-    }
+      if (typeof trash.values !== 'function') throw new Error('Folder contents cannot be checked');
+      for await (const _entry of trash.values()) { occupied = true; break; }
+    } catch (error) { fail('archive-scope', 'Guardian could not verify that Corbeille is empty. No image was changed.', error); }
+    if (occupied) fail('archive-scope', 'A folder named Corbeille already contains files and is not managed by Guardian. Rename it before using the archive.');
     try {
-      for await (const entry of iterator) {
-        visitedEntries += 1;
-        if (visitedEntries > MAX_SOURCE_SCOPE_ENTRIES) {
-          throw archiveScopeError(`Source-tree separation check exceeded ${MAX_SOURCE_SCOPE_ENTRIES} entries; nothing was changed.`);
-        }
-        if (entry?.kind !== 'file' && entry?.kind !== 'directory') {
-          throw archiveScopeError('A source-tree entry could not be identified; archive-folder separation was not proven.');
-        }
-        if (entry?.kind !== 'directory') continue;
-        const childDepth = depth + 1;
-        if (childDepth > MAX_SOURCE_SCOPE_DEPTH) {
-          throw archiveScopeError(`Source-tree separation check exceeded ${MAX_SOURCE_SCOPE_DEPTH} directory levels; nothing was changed.`);
-        }
-        await assertDifferent(entry);
-        pending.push({directory: entry, depth: childDepth});
-      }
-    } catch (error) {
-      if (error?.code === 'archive-scope') throw error;
-      throw archiveScopeError('Could not inspect the complete source tree to verify archive-folder separation; nothing was changed.', error);
-    }
+      const marker = await childFile(trash, TRASH_MARKER, true);
+      await writeText(marker, TRASH_MARKER_CONTENT);
+    } catch (error) { fail('archive-scope', 'Guardian could not mark Corbeille safely. No image was changed.', error); }
+  }
+  if (!await isGuardianTrashDirectory(trash)) fail('archive-scope', 'Corbeille does not have a valid Guardian marker. No image was changed.');
+  return trash;
+}
+
+/** Prove that destinationRoot is the Guardian-managed Corbeille directly inside sourceRoot. */
+export async function assertGuardianTrashDestination(sourceRoot, destinationRoot) {
+  if (sourceRoot?.kind !== 'directory' || destinationRoot?.kind !== 'directory' || destinationRoot.name?.toLowerCase() !== TRASH_DIRECTORY.toLowerCase()) {
+    throw archiveScopeError('Archive must use Guardian’s Corbeille inside the selected source folder.');
+  }
+  if (typeof sourceRoot.getDirectoryHandle !== 'function' || typeof destinationRoot.isSameEntry !== 'function') {
+    throw archiveScopeError('This browser cannot verify Guardian’s Corbeille identity; nothing was changed.');
+  }
+  let expected;
+  try { expected = await sourceRoot.getDirectoryHandle(TRASH_DIRECTORY); }
+  catch (error) { throw archiveScopeError('Corbeille is missing from the selected source folder. Reselect the original folder; nothing was changed.', error); }
+  let same;
+  try { same = await expected.isSameEntry(destinationRoot); }
+  catch (error) { throw archiveScopeError('Could not verify Corbeille identity; nothing was changed.', error); }
+  if (same !== true || !await isGuardianTrashDirectory(expected)) {
+    throw archiveScopeError('The selected Corbeille does not match the Guardian-managed folder in this source. Nothing was changed.');
   }
 }
 
@@ -315,11 +314,11 @@ export async function isProtectedQuarantineDirectory(directoryHandle) {
 }
 
 /** Copy, verify, persist the verified hash, then and only then remove the source. */
-export async function quarantineFiles({sourceRoot, destinationRoot, records, reason, confirmed = false, signal, onProgress = () => {}, onResult = () => {}, idFactory = () => crypto.randomUUID(), now = () => new Date().toISOString()}) {
+export async function quarantineFiles({sourceRoot, destinationRoot, records, reason = 'Manually reviewed in Guardian Studio', confirmed = false, signal, onProgress = () => {}, onResult = () => {}, idFactory = () => crypto.randomUUID(), now = () => new Date().toISOString()}) {
   if (!confirmed) fail('confirmation', 'Review and confirm the exact file list before archiving.');
   if (!Array.isArray(records) || records.length < 1 || records.length > MAX_QUARANTINE_BATCH) fail('selection', `Select between 1 and ${MAX_QUARANTINE_BATCH} files per operation.`);
-  if (!String(reason ?? '').trim() || String(reason).length > 300) fail('reason', 'Add a short reason (1–300 characters) before archiving.');
-  await assertArchiveDestinationOutsideSource(sourceRoot, destinationRoot);
+  if (!String(reason ?? '').trim() || String(reason).length > 300) fail('reason', 'The archive note is not valid.');
+  await assertGuardianTrashDestination(sourceRoot, destinationRoot);
   await Promise.all([assertWritePermission(sourceRoot), assertWritePermission(destinationRoot)]).catch((error) => fail(safeErrorCode(error), 'Write permission is missing or expired. Re-authorize both selected folders; no source file was removed.', error));
   let paths;
   try { paths = records.map(({path}) => validatePath(path).join('/')); }
@@ -451,6 +450,7 @@ export async function quarantineFiles({sourceRoot, destinationRoot, records, rea
 /** Restore only after a no-conflict preflight; keep the verified archive copy until explicit purge. */
 export async function restoreQuarantined({sourceRoot, destinationRoot, ids, confirmed = false, signal, onProgress = () => {}, now = () => new Date().toISOString()}) {
   if (!confirmed) fail('confirmation', 'Review and confirm the exact restore list.');
+  await assertGuardianTrashDestination(sourceRoot, destinationRoot);
   const storage = await readManifest(destinationRoot, false);
   await Promise.all([assertWritePermission(sourceRoot), assertWritePermission(destinationRoot)]).catch((error) => fail(safeErrorCode(error), 'Write permission is missing or expired. The archive was not removed.', error));
   const entries = ids.map((id) => entryById(storage.manifest, id));
@@ -488,6 +488,7 @@ export async function restoreQuarantined({sourceRoot, destinationRoot, ids, conf
 export async function reconcileVerifiedQuarantine({sourceRoot, destinationRoot, ids, confirmed = false, sourceRootConfirmed = false, signal, onProgress = () => {}, now = () => new Date().toISOString()}) {
   if (!confirmed) fail('confirmation', 'Review and confirm the exact interrupted archive entries.');
   if (!sourceRootConfirmed) fail('confirmation', 'Explicitly confirm that the selected source folder is the original folder for these archive entries.');
+  await assertGuardianTrashDestination(sourceRoot, destinationRoot);
   const storage = await readManifest(destinationRoot, false);
   await Promise.all([assertWritePermission(sourceRoot), assertWritePermission(destinationRoot)]).catch((error) => fail(safeErrorCode(error), 'Write permission is missing or expired. Nothing was finalized.', error));
   const entries = ids.map((id) => entryById(storage.manifest, id));
@@ -525,9 +526,12 @@ export async function reconcileVerifiedQuarantine({sourceRoot, destinationRoot, 
   return {sourceBytesRemoved, sourceBytesAlreadyAbsent, manifest: storage.manifest};
 }
 
-/** Irreversible purge; typed confirmation and user confirmation are both mandatory. */
-export async function purgeQuarantined({destinationRoot, ids, confirmed = false, typedConfirmation = '', signal, onProgress = () => {}, now = () => new Date().toISOString()}) {
-  if (!confirmed || typedConfirmation !== 'PURGE') fail('confirmation', 'Permanent purge needs both confirmations and the exact word PURGE.');
+/** Irreversible purge; the page must require a separate, explicit user confirmation. */
+export async function purgeQuarantined({destinationRoot, ids, confirmed = false, signal, onProgress = () => {}, now = () => new Date().toISOString()}) {
+  if (!confirmed) fail('confirmation', 'Confirm permanent deletion after reviewing the listed Corbeille files.');
+  if (destinationRoot?.name?.toLowerCase() !== TRASH_DIRECTORY.toLowerCase() || !await isGuardianTrashDirectory(destinationRoot)) {
+    fail('archive-scope', 'Permanent deletion is limited to Guardian-managed Corbeille data.');
+  }
   const storage = await readManifest(destinationRoot, false);
   await assertWritePermission(destinationRoot).catch((error) => fail(safeErrorCode(error), 'Write permission is missing or expired. No quarantine file was purged.', error));
   const entries = ids.map((id) => entryById(storage.manifest, id));

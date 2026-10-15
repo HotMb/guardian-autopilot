@@ -1,7 +1,7 @@
 import {parsePngGenerationMetadata} from './studio-metadata.js';
 import {buildReviewPlan, collectImageInventory, findExactDuplicateGroups} from './studio-scan.js';
 import {findVisualSimilarityGroups} from './studio-similarity.js';
-import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFiles, reconcileVerifiedQuarantine, restoreQuarantined, isProtectedQuarantineDirectory, QUARANTINE_DIRECTORY} from './studio-file-ops.js';
+import {assertGuardianTrashDestination, ensureGuardianTrashDirectory, isGuardianTrashDirectory, loadQuarantine, purgeQuarantined, quarantineErrorMessage, quarantineFiles, reconcileVerifiedQuarantine, restoreQuarantined, isProtectedQuarantineDirectory, QUARANTINE_DIRECTORY, TRASH_DIRECTORY} from './studio-file-ops.js';
 
 (() => {
   const LARGE_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -75,12 +75,10 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     preview: $('preview-image'), previewFrame: $('preview-frame'), previewUnavailable: $('preview-unavailable'), index: $('inspector-index'), badges: $('detail-badges'),
     name: $('inspector-heading'), path: $('detail-path'), size: $('detail-size'), type: $('detail-type'), folder: $('detail-folder'), metadata: $('detail-metadata'), metadataContent: $('metadata-content'),
     planEstimate: $('plan-estimate'), spaceFreed: $('space-freed'), planExplainer: $('plan-explainer'), createPlan: $('create-plan'), cleanupAction: $('cleanup-action'), cleanupLimitation: $('cleanup-limitation'), planResult: $('review-plan'),
-    enableSourceWrite: $('enable-source-write'), chooseQuarantine: $('choose-quarantine'), archiveStatus: $('archive-operation-status'), archiveProgress: $('archive-operation-progress'), fileOpTrack: $('file-op-progress'), fileOpProgressFill: $('file-op-progress-fill'), fileOpProgressCopy: $('file-op-progress-copy'), cancelFileOperation: $('cancel-file-operation'),
-    archiveJournalCopy: $('archive-journal-copy'), archiveEntryList: $('archive-entry-list'), archivePagination: $('archive-pagination'), archivePrevious: $('archive-previous'), archiveNext: $('archive-next'), archivePageCopy: $('archive-page-copy'), resumeVerified: $('resume-verified'), restoreSelected: $('restore-selected'), purgeSelected: $('purge-selected'),
-    archiveDialog: $('archive-dialog'), archiveDialogClose: $('archive-dialog-close'), archiveDialogCancel: $('archive-dialog-cancel'), archiveDialogConfirm: $('archive-dialog-confirm'), archiveDialogCount: $('archive-dialog-count'), archiveDialogBytes: $('archive-dialog-bytes'), archiveDialogFiles: $('archive-dialog-files'), archiveReason: $('archive-reason'), archiveStorageConfirm: $('archive-storage-confirm'),
+    archiveSelectionCount: $('archive-selection-count'), archiveSelectionBytes: $('archive-selection-bytes'), archiveSelectionFiles: $('archive-selection-files'), archiveStatus: $('archive-operation-status'), archiveProgress: $('archive-operation-progress'), fileOpTrack: $('file-op-progress'), fileOpProgressFill: $('file-op-progress-fill'), fileOpProgressCopy: $('file-op-progress-copy'), cancelFileOperation: $('cancel-file-operation'),
+    archiveJournalCopy: $('archive-journal-copy'), archiveEntryList: $('archive-entry-list'), archivePagination: $('archive-pagination'), archivePrevious: $('archive-previous'), archiveNext: $('archive-next'), archivePageCopy: $('archive-page-copy'), resumeVerified: $('resume-verified'), restoreSelected: $('restore-selected'), purgeSelected: $('purge-selected'), purgeCount: $('purge-count'), purgeBytes: $('purge-bytes'), purgeFiles: $('purge-files'), purgeUnderstood: $('purge-understood'),
     restoreDialog: $('restore-dialog'), restoreDialogClose: $('restore-dialog-close'), restoreDialogCancel: $('restore-dialog-cancel'), restoreDialogConfirm: $('restore-dialog-confirm'), restoreDialogFiles: $('restore-dialog-files'), restoreSourceConfirm: $('restore-source-confirm'),
     resumeDialog: $('resume-dialog'), resumeDialogClose: $('resume-dialog-close'), resumeDialogCancel: $('resume-dialog-cancel'), resumeDialogConfirm: $('resume-dialog-confirm'), resumeDialogFiles: $('resume-dialog-files'), resumeSourceConfirm: $('resume-source-confirm'),
-    purgeDialog: $('purge-dialog'), purgeDialogClose: $('purge-dialog-close'), purgeDialogCancel: $('purge-dialog-cancel'), purgeDialogConfirm: $('purge-dialog-confirm'), purgeDialogCount: $('purge-dialog-count'), purgeDialogBytes: $('purge-dialog-bytes'), purgeDialogFiles: $('purge-dialog-files'), purgeUnderstood: $('purge-understood'), purgePhrase: $('purge-phrase'),
     notice: $('studio-notice'),
     watchState: $('watch-state'), watchSummary: $('watch-summary'), watchCounts: $('watch-counts'), watchNewCount: $('watch-new-count'), watchLargeCount: $('watch-large-count'), watchPendingCount: $('watch-pending-count'), watchCandidates: $('watch-candidates'), watchEmpty: $('watch-empty'), watchChecked: $('watch-checked'), watchRefresh: $('watch-refresh'),
   };
@@ -398,7 +396,7 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     checkbox.className = 'studio-review-check';
     checkbox.type = 'checkbox';
     checkbox.checked = state.selectedForPlan.has(record.id);
-    checkbox.disabled = state.scanning;
+    checkbox.disabled = state.scanning || state.operationBusy;
     checkbox.setAttribute('aria-label', `Add ${record.path} to review candidates`);
     checkbox.addEventListener('change', () => {
       setReviewSelection(record, checkbox.checked, row);
@@ -501,7 +499,7 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     checkbox.className = 'studio-review-check';
     checkbox.type = 'checkbox';
     checkbox.checked = state.selectedForPlan.has(record.id);
-    checkbox.disabled = state.scanning;
+    checkbox.disabled = state.scanning || state.operationBusy;
     checkbox.setAttribute('aria-label', `Add ${record.path} to review candidates`);
     checkbox.addEventListener('change', () => setReviewSelection(record, checkbox.checked, card));
     const labelText = document.createElement('span');
@@ -597,6 +595,8 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
   }
 
   function updateCounts() {
+    nodes.chooseFolder.disabled = state.scanning || state.operationBusy;
+    for (const checkbox of document.querySelectorAll('.studio-review-check')) checkbox.disabled = state.scanning || state.operationBusy;
     const duplicates = state.records.filter((record) => record.duplicateGroup);
     const similar = state.records.filter((record) => record.similarGroup);
     const large = state.records.filter((record) => record.bytes >= LARGE_IMAGE_BYTES);
@@ -628,32 +628,28 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     nodes.planExplainer.textContent = state.selectedForPlan.size === 0
       ? 'Review exact matches, visual candidates, or large images by hand. Nothing is chosen automatically.'
       : `${state.selectedForPlan.size} selected file${state.selectedForPlan.size === 1 ? '' : 's'} · candidate size only. OS free space is not measured.`;
-    const archiveReady = state.sourceRoot && state.archiveRoot && state.sourceWriteGranted && state.archiveWriteGranted
+    renderArchiveSelectionReview();
+    const archiveReady = state.sourceRoot && directoryPickerAvailable()
       && state.inventoryComplete && !state.partial && !state.scanning && !state.operationBusy
       && state.selectedForPlan.size > 0 && state.selectedForPlan.size <= 20
       && state.records.filter((record) => state.selectedForPlan.has(record.id)).every((record) => !record.isDemo);
     nodes.cleanupAction.disabled = !archiveReady;
-    nodes.cleanupAction.textContent = state.selectedForPlan.size > 20 ? 'Select up to 20 files per operation' : 'Review archive selection';
-    nodes.enableSourceWrite.disabled = !state.sourceRoot || !directoryPickerAvailable() || state.scanning || state.operationBusy || state.sourceWriteGranted;
-    nodes.enableSourceWrite.textContent = state.sourceWriteGranted ? 'Source write permission granted' : 'Allow source write access';
-    nodes.chooseQuarantine.disabled = !state.sourceRoot || !directoryPickerAvailable() || state.scanning || state.operationBusy;
-    nodes.chooseQuarantine.textContent = state.archiveRoot ? 'Change archive folder' : 'Choose archive folder';
+    nodes.cleanupAction.textContent = state.selectedForPlan.size > 20 ? 'Select up to 20 files per operation' : 'Archive selection';
     updateArchiveActionButtons();
   }
 
   function updateArchiveActionButtons() {
     const chosen = state.archiveEntries.filter((entry) => state.selectedArchiveIds.has(entry.id));
-    const resumeReady = chosen.length > 0 && chosen.every((entry) => entry.status === 'verified') && state.sourceRoot && state.sourceWriteGranted && state.archiveWriteGranted;
-    const restoreReady = chosen.length > 0 && chosen.every((entry) => entry.status === 'quarantined') && state.sourceRoot && state.sourceWriteGranted && state.archiveWriteGranted;
-    const purgeReady = chosen.length > 0 && chosen.every((entry) => ['quarantined', 'restored', 'purging'].includes(entry.status)) && state.archiveRoot && state.archiveWriteGranted;
+    const resumeReady = chosen.length > 0 && chosen.every((entry) => entry.status === 'verified') && state.sourceRoot && state.archiveRoot;
+    const restoreReady = chosen.length > 0 && chosen.every((entry) => entry.status === 'quarantined') && state.sourceRoot && state.archiveRoot;
     nodes.resumeVerified.disabled = !resumeReady || state.operationBusy;
     nodes.restoreSelected.disabled = !restoreReady || state.operationBusy;
-    nodes.purgeSelected.disabled = !purgeReady || state.operationBusy;
+    updatePurgeAction();
   }
 
   function renderArchiveJournal() {
     const pageSize = 20;
-    const entries = state.archiveEntries;
+    const entries = state.archiveEntries.filter((entry) => entry.status !== 'purged');
     const pages = Math.max(1, Math.ceil(entries.length / pageSize));
     state.archivePage = Math.min(state.archivePage, pages - 1);
     const start = state.archivePage * pageSize;
@@ -665,7 +661,7 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.checked = state.selectedArchiveIds.has(entry.id);
-      checkbox.disabled = !['quarantined', 'restored', 'verified', 'purging'].includes(entry.status) || !state.archiveWriteGranted || state.operationBusy;
+      checkbox.disabled = !['quarantined', 'restored', 'verified', 'purging'].includes(entry.status) || state.operationBusy;
       checkbox.setAttribute('aria-label', `Select ${entry.sourcePath} (${entry.status})`);
       checkbox.addEventListener('change', () => {
         if (checkbox.checked) state.selectedArchiveIds.add(entry.id); else state.selectedArchiveIds.delete(entry.id);
@@ -678,7 +674,7 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     }
     if (entries.length === 0) {
       const empty = document.createElement('p'); empty.className = 'studio-archive-empty';
-      empty.textContent = state.archiveRoot ? 'No archived files in this local journal.' : 'No archive folder selected.';
+      empty.textContent = state.archiveRoot ? 'Corbeille is empty.' : 'Corbeille will appear here after you archive files.';
       fragment.append(empty);
     }
     nodes.archiveEntryList.replaceChildren(fragment);
@@ -686,10 +682,31 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     nodes.archivePrevious.disabled = state.archivePage <= 0;
     nodes.archiveNext.disabled = state.archivePage >= pages - 1;
     nodes.archivePageCopy.textContent = `${state.archivePage + 1} / ${pages}`;
+    const retainedCopies = entries.filter((entry) => ['quarantined', 'restored', 'verified', 'purging'].includes(entry.status)).length;
     nodes.archiveJournalCopy.textContent = state.archiveRoot
-      ? `${entries.length.toLocaleString('en')} journal entries · paths, reasons, and hashes are stored locally in the selected archive folder and are not uploaded.`
-      : 'Choose an archive folder to open its local journal. Paths and hashes remain in that folder and are not uploaded.';
+      ? retainedCopies === 0
+        ? `Corbeille is empty. ${state.archiveEntries.length.toLocaleString('en')} local operation records remain on this device.`
+        : `${retainedCopies.toLocaleString('en')} file copies in Corbeille · ${state.archiveEntries.length.toLocaleString('en')} local operation records stay on this device.`
+      : 'Guardian creates Corbeille inside the selected folder after you grant write access.';
     updateArchiveActionButtons();
+  }
+
+  function renderArchiveSelectionReview() {
+    const records = selectedRecords();
+    nodes.archiveSelectionCount.textContent = `${records.length} file${records.length === 1 ? '' : 's'}`;
+    nodes.archiveSelectionBytes.textContent = formatBytes(records.reduce((sum, record) => sum + record.bytes, 0));
+    if (records.length) appendPathList(nodes.archiveSelectionFiles, records);
+    else nodes.archiveSelectionFiles.replaceChildren(Object.assign(document.createElement('li'), {textContent: 'Select files in the list to review them here.'}));
+  }
+
+  function updatePurgeAction() {
+    const purgeable = state.archiveEntries.filter((entry) => ['quarantined', 'restored', 'purging'].includes(entry.status));
+    nodes.purgeCount.textContent = String(purgeable.length);
+    nodes.purgeBytes.textContent = formatBytes(purgeable.reduce((sum, entry) => sum + entry.sizeBytes, 0));
+    if (purgeable.length) appendPathList(nodes.purgeFiles, purgeable);
+    else nodes.purgeFiles.replaceChildren(Object.assign(document.createElement('li'), {textContent: 'Corbeille is empty.'}));
+    nodes.purgeUnderstood.disabled = purgeable.length === 0 || state.operationBusy;
+    nodes.purgeSelected.disabled = purgeable.length === 0 || !state.archiveRoot || !nodes.purgeUnderstood.checked || state.operationBusy;
   }
 
   function setArchiveStatus(message, tone = 'info') {
@@ -721,24 +738,18 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     container.replaceChildren(fragment);
   }
 
-  function fillArchiveDialog() {
-    const records = selectedRecords();
-    nodes.archiveDialogCount.textContent = String(records.length);
-    nodes.archiveDialogBytes.textContent = formatBytes(records.reduce((sum, record) => sum + record.bytes, 0));
-    appendPathList(nodes.archiveDialogFiles, records);
-    nodes.archiveReason.value = '';
-    nodes.archiveStorageConfirm.checked = false;
-    nodes.archiveDialogConfirm.disabled = true;
-    nodes.archiveDialog.showModal();
-    nodes.archiveReason.focus();
-  }
-
   async function refreshArchiveJournal() {
-    if (!state.archiveRoot) return;
+    if (!state.archiveRoot) {
+      state.archiveEntries = [];
+      state.selectedArchiveIds.clear();
+      renderArchiveJournal();
+      return;
+    }
     try {
       const journal = await loadQuarantine(state.archiveRoot);
       state.archiveEntries = [...journal.entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       state.selectedArchiveIds = new Set([...state.selectedArchiveIds].filter((id) => state.archiveEntries.some((entry) => entry.id === id && ['quarantined', 'restored', 'verified', 'purging'].includes(entry.status))));
+      nodes.purgeUnderstood.checked = false;
       renderArchiveJournal();
     } catch (error) {
       state.archiveEntries = [];
@@ -747,8 +758,8 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     }
   }
 
-  async function runFileOperation(dialog, work) {
-    if (state.operationBusy) return;
+  async function runFileOperation(dialog, work, alreadyLocked = false) {
+    if (state.operationBusy && !alreadyLocked) return;
     state.operationBusy = true;
     state.operationController = new AbortController();
     nodes.archiveProgress.hidden = false;
@@ -757,14 +768,11 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     nodes.fileOpProgressFill.style.width = '0%';
     nodes.fileOpTrack.removeAttribute('aria-valuenow');
     setArchiveStatus('Operation in progress. Keep this tab open; stopping is honored only at safe checkpoints.');
-    for (const button of dialog.querySelectorAll('button')) button.disabled = true;
-    for (const active of [nodes.archiveDialog, nodes.restoreDialog, nodes.resumeDialog, nodes.purgeDialog]) {
-      active.addEventListener('cancel', (event) => { if (state.operationBusy) event.preventDefault(); }, {once: true});
-    }
+    if (dialog) for (const button of dialog.querySelectorAll('button')) button.disabled = true;
     updateCounts();
     try {
       const result = await work(state.operationController.signal);
-      dialog.close();
+      dialog?.close();
       setArchiveStatus(result.message);
       state.selectedArchiveIds.clear();
       await refreshArchiveJournal();
@@ -787,7 +795,7 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
       state.operationController = null;
       nodes.archiveProgress.hidden = true;
       nodes.cancelFileOperation.textContent = 'Stop safely';
-      for (const button of dialog.querySelectorAll('button')) button.disabled = false;
+      if (dialog) for (const button of dialog.querySelectorAll('button')) button.disabled = false;
       updateCounts();
     }
   }
@@ -1015,10 +1023,8 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
           if (shouldStop()) return;
           const path = parentPath ? `${parentPath}/${handle.name}` : handle.name;
           if (handle.kind === 'directory') {
-            yield {kind: 'directory', path};
-            yield* visit(handle, path);
-          } else if (handle.kind === 'directory') {
             if (handle.name === QUARANTINE_DIRECTORY) continue;
+            if (!parentPath && handle.name.toLowerCase() === TRASH_DIRECTORY.toLowerCase() && await isGuardianTrashDirectory(handle)) continue;
             yield {kind: 'directory', path};
             yield* visit(handle, path);
           } else if (handle.kind === 'file') {
@@ -1267,14 +1273,23 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
   }
 
   async function scanEntries(entries, {source, knownTotal = 0, rootHandle = null} = {}) {
-    if (rootHandle && (rootHandle.name === QUARANTINE_DIRECTORY || await isProtectedQuarantineDirectory(rootHandle))) {
-      setNotice('Guardian will not scan its quarantine data directory as a source. Choose the original image folder.', 'error');
+    if (rootHandle && (rootHandle.name.toLowerCase() === QUARANTINE_DIRECTORY.toLowerCase() || rootHandle.name.toLowerCase() === TRASH_DIRECTORY.toLowerCase() || await isProtectedQuarantineDirectory(rootHandle) || await isGuardianTrashDirectory(rootHandle))) {
+      setNotice('Guardian will not scan its protected archive folder as a source. Choose the original image folder.', 'error');
       return;
     }
-    const keepWriteGrant = Boolean(rootHandle && rootHandle === state.sourceRoot && state.sourceWriteGranted);
+    const previousSourceRoot = state.sourceRoot;
+    const previousTrash = state.archiveRoot;
+    const keepWriteGrant = Boolean(rootHandle && rootHandle === previousSourceRoot && state.sourceWriteGranted);
+    const previousArchiveWrite = state.archiveWriteGranted;
+    const existingTrash = rootHandle ? await findGuardianTrashDirectory(rootHandle) : null;
     const token = startScanState();
     state.sourceRoot = rootHandle;
     state.sourceWriteGranted = keepWriteGrant;
+    state.archiveRoot = existingTrash;
+    state.archiveWriteGranted = Boolean(existingTrash && existingTrash === previousTrash && rootHandle === previousSourceRoot && previousArchiveWrite);
+    if (rootHandle !== previousSourceRoot) state.archiveEntries = [];
+    state.selectedArchiveIds.clear();
+    if (state.archiveRoot) void refreshArchiveJournal(); else renderArchiveJournal();
     let inventory;
     try {
       inventory = await collectImageInventory(entries, {
@@ -1380,6 +1395,42 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     return typeof window.showDirectoryPicker === 'function';
   }
 
+  async function findGuardianTrashDirectory(sourceRoot) {
+    if (typeof sourceRoot?.getDirectoryHandle !== 'function') return null;
+    try {
+      const trash = await sourceRoot.getDirectoryHandle(TRASH_DIRECTORY);
+      return await isGuardianTrashDirectory(trash) ? trash : null;
+    } catch (error) {
+      if (error?.name === 'NotFoundError') return null;
+      throw error;
+    }
+  }
+
+  async function requestWriteAccess(handle, label) {
+    if (!handle || typeof handle.queryPermission !== 'function' || typeof handle.requestPermission !== 'function') {
+      throw Object.assign(new Error(`This browser cannot grant write access to ${label}.`), {code: 'permission'});
+    }
+    let permission = await handle.queryPermission({mode: 'readwrite'});
+    if (permission !== 'granted') permission = await handle.requestPermission({mode: 'readwrite'});
+    if (permission !== 'granted') throw Object.assign(new Error(`Write access to ${label} was not granted. No image was changed.`), {code: 'permission'});
+  }
+
+  async function prepareWritableTrash({createIfMissing = false} = {}) {
+    const sourceRoot = state.sourceRoot;
+    if (!sourceRoot) throw Object.assign(new Error('Choose a source folder first.'), {code: 'selection'});
+    await requestWriteAccess(sourceRoot, 'the selected folder');
+    let destinationRoot = state.archiveRoot;
+    if (!destinationRoot && createIfMissing) destinationRoot = await ensureGuardianTrashDirectory(sourceRoot);
+    if (!destinationRoot) throw Object.assign(new Error('Corbeille has not been created in this folder yet.'), {code: 'selection'});
+    await assertGuardianTrashDestination(sourceRoot, destinationRoot);
+    await requestWriteAccess(destinationRoot, 'Corbeille');
+    if (state.sourceRoot !== sourceRoot) throw Object.assign(new Error('The selected source folder changed. Nothing was changed.'), {code: 'selection'});
+    state.sourceWriteGranted = true;
+    state.archiveRoot = destinationRoot;
+    state.archiveWriteGranted = true;
+    return {sourceRoot, destinationRoot};
+  }
+
   function directoryInputAvailable() {
     return typeof HTMLInputElement !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype;
   }
@@ -1402,12 +1453,12 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
   }
 
   nodes.chooseFolder.addEventListener('click', async () => {
-    if (state.scanning) return;
+    if (state.scanning || state.operationBusy) return;
     if (!directoryPickerAvailable()) { nodes.folderInput.click(); return; }
     try {
       const root = await window.showDirectoryPicker({mode: 'read'});
-      if (root.name === QUARANTINE_DIRECTORY) {
-        setNotice('Guardian will not scan its quarantine folder as a source. Choose the original image folder.', 'error');
+      if (root.name.toLowerCase() === QUARANTINE_DIRECTORY.toLowerCase() || root.name.toLowerCase() === TRASH_DIRECTORY.toLowerCase() || await isProtectedQuarantineDirectory(root) || await isGuardianTrashDirectory(root)) {
+        setNotice('Guardian will not scan its protected archive folder as a source. Choose the original image folder.', 'error');
         return;
       }
       state.sourceBytesRemoved = null;
@@ -1523,106 +1574,71 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     setNotice(`Exported ${selected.length.toLocaleString('en')} candidates (${formatBytes(candidateBytes)}). Guardian has freed 0 B; no files were changed.`);
   });
 
-  nodes.enableSourceWrite.addEventListener('click', async () => {
-    const root = state.sourceRoot;
-    if (!root || typeof root.requestPermission !== 'function') return;
-    try {
-      const permission = await root.requestPermission({mode: 'readwrite'});
-      state.sourceWriteGranted = permission === 'granted';
-      setArchiveStatus(state.sourceWriteGranted
-        ? 'Source write access granted for this browser session. Archiving still requires a separate archive folder and exact-file confirmation.'
-        : 'Source write access was not granted. Scanning and review remain available; archive is disabled.');
-    } catch {
-      state.sourceWriteGranted = false;
-      setArchiveStatus('The browser did not grant source write access. No source file was changed.', 'error');
-    }
-    updateCounts();
-  });
-
-  nodes.chooseQuarantine.addEventListener('click', async () => {
-    if (!directoryPickerAvailable() || !state.sourceRoot || state.operationBusy) return;
-    try {
-      const selected = await window.showDirectoryPicker({mode: 'readwrite'});
-      if (selected.name === QUARANTINE_DIRECTORY || await isProtectedQuarantineDirectory(selected)) {
-        state.archiveRoot = null;
-        state.archiveWriteGranted = false;
-        state.archiveEntries = [];
-        state.selectedArchiveIds.clear();
-        setArchiveStatus('Choose a normal archive folder, not Guardian’s protected quarantine data folder.', 'error');
-        updateCounts();
-        return;
-      }
-      await assertArchiveDestinationOutsideSource(state.sourceRoot, selected);
-      state.archiveRoot = selected;
-      state.archiveWriteGranted = await selected.queryPermission({mode: 'readwrite'}) === 'granted';
-      state.archivePage = 0;
-      state.selectedArchiveIds.clear();
-      if (!state.archiveWriteGranted) setArchiveStatus('Archive-folder write access was not granted. Choose it again or authorize it; no file was changed.', 'error');
-      else setArchiveStatus('Archive folder selected outside the source folder. Guardian cannot verify its storage volume. Archive copies continue to use storage; on the same volume, archiving does not recover device space until the copies are permanently purged.');
-      await refreshArchiveJournal();
-    } catch (error) {
-      if (error?.name !== 'AbortError') {
-        state.archiveRoot = null;
-        state.archiveWriteGranted = false;
-        state.archiveEntries = [];
-        state.selectedArchiveIds.clear();
-        setArchiveStatus('Guardian could not verify that this archive folder is outside the source folder. Choose a separate folder; nothing was changed.', 'error');
-      }
-    }
-    updateCounts();
-  });
-
   nodes.cleanupAction.addEventListener('click', async () => {
-    if (nodes.cleanupAction.disabled) return;
+    if (nodes.cleanupAction.disabled || state.operationBusy) return;
+    const sourceRoot = state.sourceRoot;
+    const records = selectedRecords();
+    const selectedIds = records.map((record) => record.id).sort();
+    if (!records.length || records.length > 20 || records.some((record) => record.isDemo)) return;
+    state.operationBusy = true;
+    updateCounts();
+    setArchiveStatus('Requesting permission and preparing Corbeille. No image will be moved until its archived copy is verified.');
+    let handedOff = false;
     try {
-      await assertArchiveDestinationOutsideSource(state.sourceRoot, state.archiveRoot);
-    } catch {
-      state.archiveRoot = null;
-      state.archiveWriteGranted = false;
-      state.archiveEntries = [];
-      state.selectedArchiveIds.clear();
-      setArchiveStatus('Guardian could not verify that this archive folder is outside the source folder. Choose a separate folder; archive is disabled.', 'error');
-      updateCounts();
-      return;
+      const prepared = await prepareWritableTrash({createIfMissing: true});
+      const currentIds = selectedRecords().map((record) => record.id).sort();
+      if (prepared.sourceRoot !== sourceRoot || state.sourceRoot !== sourceRoot || JSON.stringify(currentIds) !== JSON.stringify(selectedIds)) {
+        throw Object.assign(new Error('The selected folder or files changed during permission setup. Review the selection again; no image was changed.'), {code: 'selection'});
+      }
+      handedOff = true;
+      void runFileOperation(null, async (signal) => {
+        await assertGuardianTrashDestination(sourceRoot, prepared.destinationRoot);
+        const result = await quarantineFiles({sourceRoot, destinationRoot: prepared.destinationRoot, records, confirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, progress.phase === 'copy' ? 'Copying to Corbeille' : 'Verifying archived copy')});
+        const absent = result.sourceBytesAlreadyAbsent ? ` ${formatBytes(result.sourceBytesAlreadyAbsent)} more bytes were already absent and are not attributed to Guardian.` : '';
+        return {sourceBytesRemoved: result.sourceBytesRemoved, message: `${formatBytes(result.sourceBytesRemoved)} of verified file bytes moved into Corbeille.${absent} You can restore these copies or delete them permanently from the separate Corbeille section. Device free space is not measured.`};
+      }, true);
+    } catch (error) {
+      setArchiveStatus(quarantineErrorMessage(error), 'error');
+      await refreshArchiveJournal();
+    } finally {
+      if (!handedOff) {
+        state.operationBusy = false;
+        updateCounts();
+      }
     }
-    fillArchiveDialog();
   });
   const closeDialog = (dialog) => { if (dialog.open && !state.operationBusy) dialog.close(); };
-  nodes.archiveDialogClose.addEventListener('click', () => closeDialog(nodes.archiveDialog));
-  nodes.archiveDialogCancel.addEventListener('click', () => closeDialog(nodes.archiveDialog));
-  const updateArchiveConfirmation = () => {
-    nodes.archiveDialogConfirm.disabled = nodes.archiveReason.value.trim().length === 0 || !nodes.archiveStorageConfirm.checked || state.operationBusy;
-  };
-  nodes.archiveReason.addEventListener('input', updateArchiveConfirmation);
-  nodes.archiveStorageConfirm.addEventListener('change', updateArchiveConfirmation);
-  nodes.archiveDialogConfirm.addEventListener('click', async () => {
-    if (!nodes.archiveReason.value.trim() || !nodes.archiveStorageConfirm.checked || state.operationBusy) return;
+  for (const active of [nodes.restoreDialog, nodes.resumeDialog]) {
+    active.addEventListener('cancel', (event) => { if (state.operationBusy) event.preventDefault(); });
+  }
+
+  async function startGuardianTrashOperation(ids, dialog, work) {
+    if (!ids.length || state.operationBusy) return;
     const sourceRoot = state.sourceRoot;
-    const destinationRoot = state.archiveRoot;
+    const expectedIds = [...ids].sort();
+    state.operationBusy = true;
+    updateCounts();
+    setArchiveStatus('Checking folder permission and Guardian Corbeille before changing files.');
+    let handedOff = false;
     try {
-      await assertArchiveDestinationOutsideSource(sourceRoot, destinationRoot);
-    } catch {
-      state.archiveRoot = null;
-      state.archiveWriteGranted = false;
-      state.archiveEntries = [];
-      state.selectedArchiveIds.clear();
-      setArchiveStatus('Guardian could not verify that this archive folder is outside the source folder. Choose a separate folder; nothing was changed.', 'error');
-      closeDialog(nodes.archiveDialog);
-      updateCounts();
-      return;
+      const prepared = await prepareWritableTrash();
+      const currentIds = expectedIds.filter((id) => state.archiveEntries.some((entry) => entry.id === id));
+      if (state.sourceRoot !== sourceRoot || prepared.sourceRoot !== sourceRoot
+        || JSON.stringify(currentIds) !== JSON.stringify(expectedIds)) {
+        throw Object.assign(new Error('The selected folder or Corbeille records changed. Review them again; nothing was changed.'), {code: 'selection'});
+      }
+      handedOff = true;
+      void runFileOperation(dialog, (signal) => work({sourceRoot, destinationRoot: prepared.destinationRoot, ids: expectedIds, signal}), true);
+    } catch (error) {
+      setArchiveStatus(quarantineErrorMessage(error), 'error');
+      await refreshArchiveJournal();
+    } finally {
+      if (!handedOff) {
+        state.operationBusy = false;
+        updateCounts();
+      }
     }
-    if (state.sourceRoot !== sourceRoot || state.archiveRoot !== destinationRoot) {
-      setArchiveStatus('The selected source or archive folder changed during the safety check. Review the folders again; nothing was changed.', 'error');
-      return;
-    }
-    const records = selectedRecords();
-    void runFileOperation(nodes.archiveDialog, async (signal) => {
-      await assertArchiveDestinationOutsideSource(sourceRoot, destinationRoot);
-      const result = await quarantineFiles({sourceRoot, destinationRoot, records, reason: nodes.archiveReason.value.trim(), confirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, progress.phase === 'copy' ? 'Copying' : 'Verifying')});
-      const absent = result.sourceBytesAlreadyAbsent ? ` ${formatBytes(result.sourceBytesAlreadyAbsent)} more bytes were already absent and are not attributed to Guardian.` : '';
-      return {sourceBytesRemoved: result.sourceBytesRemoved, message: `${formatBytes(result.sourceBytesRemoved)} of verified file bytes removed from the selected source.${absent} Verified archive copies remain stored in the selected folder. Guardian cannot verify the storage volume or measure device free space; on the same volume, source space is not recovered until the archive copies are permanently purged.`};
-    });
-  });
+  }
 
   nodes.archivePrevious.addEventListener('click', () => { state.archivePage = Math.max(0, state.archivePage - 1); renderArchiveJournal(); });
   nodes.archiveNext.addEventListener('click', () => { state.archivePage += 1; renderArchiveJournal(); });
@@ -1640,8 +1656,8 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
   nodes.resumeDialogConfirm.addEventListener('click', () => {
     if (!nodes.resumeSourceConfirm.checked) return;
     const ids = selectedArchiveEntries().map((entry) => entry.id);
-    void runFileOperation(nodes.resumeDialog, async (signal) => {
-      const result = await reconcileVerifiedQuarantine({sourceRoot: state.sourceRoot, destinationRoot: state.archiveRoot, ids, confirmed: true, sourceRootConfirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Rechecking archive integrity')});
+    void startGuardianTrashOperation(ids, nodes.resumeDialog, async ({sourceRoot, destinationRoot, signal}) => {
+      const result = await reconcileVerifiedQuarantine({sourceRoot, destinationRoot, ids, confirmed: true, sourceRootConfirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Rechecking archive integrity')});
       const removed = result.sourceBytesRemoved ? `${formatBytes(result.sourceBytesRemoved)} source bytes removed after re-verification` : 'No source bytes were removed in this recovery step';
       const absent = result.sourceBytesAlreadyAbsent ? `; ${formatBytes(result.sourceBytesAlreadyAbsent)} were already absent and are not attributed to Guardian` : '';
       return {sourceBytesRemoved: result.sourceBytesRemoved, message: `${removed}${absent}. Archive retained; OS free space is not measured.`};
@@ -1661,36 +1677,20 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
   nodes.restoreDialogConfirm.addEventListener('click', () => {
     if (!nodes.restoreSourceConfirm.checked) return;
     const ids = selectedArchiveEntries().map((entry) => entry.id);
-    void runFileOperation(nodes.restoreDialog, async (signal) => {
-      const result = await restoreQuarantined({sourceRoot: state.sourceRoot, destinationRoot: state.archiveRoot, ids, confirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Restoring and verifying')});
+    void startGuardianTrashOperation(ids, nodes.restoreDialog, async ({sourceRoot, destinationRoot, signal}) => {
+      const result = await restoreQuarantined({sourceRoot, destinationRoot, ids, confirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Restoring and verifying')});
       return {restoredBytes: result.restoredBytes, message: `Restored ${formatBytes(result.restoredBytes)} of verified files. Archive copies remain until you explicitly purge them. OS free space is not measured.`};
     });
   });
 
+  nodes.purgeUnderstood.addEventListener('change', updatePurgeAction);
   nodes.purgeSelected.addEventListener('click', () => {
-    const entries = selectedArchiveEntries();
-    if (!entries.length || nodes.purgeSelected.disabled) return;
-    nodes.purgeDialogCount.textContent = String(entries.length);
-    nodes.purgeDialogBytes.textContent = formatBytes(entries.reduce((sum, entry) => sum + entry.sizeBytes, 0));
-    appendPathList(nodes.purgeDialogFiles, entries);
-    nodes.purgeUnderstood.checked = false;
-    nodes.purgePhrase.value = '';
-    nodes.purgeDialogConfirm.disabled = true;
-    nodes.purgeDialog.showModal();
-    nodes.purgePhrase.focus();
-  });
-  const updatePurgeConfirmation = () => {
-    nodes.purgeDialogConfirm.disabled = !nodes.purgeUnderstood.checked || nodes.purgePhrase.value !== 'PURGE' || state.operationBusy;
-  };
-  nodes.purgeUnderstood.addEventListener('change', updatePurgeConfirmation);
-  nodes.purgePhrase.addEventListener('input', updatePurgeConfirmation);
-  nodes.purgeDialogClose.addEventListener('click', () => closeDialog(nodes.purgeDialog));
-  nodes.purgeDialogCancel.addEventListener('click', () => closeDialog(nodes.purgeDialog));
-  nodes.purgeDialogConfirm.addEventListener('click', () => {
-    const ids = selectedArchiveEntries().map((entry) => entry.id);
-    void runFileOperation(nodes.purgeDialog, async (signal) => {
-      const result = await purgeQuarantined({destinationRoot: state.archiveRoot, ids, confirmed: true, typedConfirmation: nodes.purgePhrase.value, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Purging verified archive data')});
-      return {message: `${formatBytes(result.purgedBytes)} of verified file bytes removed from Guardian’s archive. No OS free-space measurement is available.`};
+    const entries = state.archiveEntries.filter((entry) => ['quarantined', 'restored', 'purging'].includes(entry.status));
+    if (!nodes.purgeUnderstood.checked || !entries.length || nodes.purgeSelected.disabled) return;
+    const ids = entries.map((entry) => entry.id);
+    void startGuardianTrashOperation(ids, null, async ({destinationRoot, ids, signal}) => {
+      const result = await purgeQuarantined({destinationRoot, ids, confirmed: true, signal, onProgress: (progress) => setFileOperationProgress(progress, 'Deleting verified Corbeille copies')});
+      return {message: `${formatBytes(result.purgedBytes)} of verified file bytes permanently deleted from Corbeille. Device free space is not measured.`};
     });
   });
   nodes.cancelFileOperation.addEventListener('click', () => {

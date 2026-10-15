@@ -185,12 +185,13 @@
           </dl>
           <p class="studio-plan-explainer" id="plan-explainer">Choose exact duplicates or large images for a human review plan. Candidate size is not recovered disk space.</p>
           <button id="create-plan" class="studio-button studio-button-primary studio-plan-action" type="button" disabled>Export review plan</button>
-          <div class="studio-write-controls">
-            <button id="enable-source-write" class="studio-button studio-button-secondary studio-plan-action" type="button" disabled>Allow source write access</button>
-            <button id="choose-quarantine" class="studio-button studio-button-secondary studio-plan-action" type="button" disabled>Choose archive folder</button>
+          <p class="studio-cleanup-note" id="cleanup-limitation">Choose files yourself. Guardian shows their exact paths and sizes here before archiving. The first archive action asks your browser for write access and creates a Corbeille folder in the selected folder.</p>
+          <div class="studio-inline-review" aria-labelledby="archive-selection-heading">
+            <h3 id="archive-selection-heading">Files selected to archive</h3>
+            <p><span id="archive-selection-count">0 files</span> · <span id="archive-selection-bytes">0 B</span></p>
+            <ul id="archive-selection-files" class="studio-inline-file-list"><li>Select files in the list to review them here.</li></ul>
           </div>
-          <p class="studio-cleanup-note" id="cleanup-limitation">Archive needs a Chromium-based browser, a folder selected with the directory picker, and separate write permission. The compatibility picker stays read-only. No files are chosen automatically.</p>
-          <button id="cleanup-action" class="studio-button studio-button-primary studio-plan-action" type="button" disabled>Review archive selection</button>
+          <button id="cleanup-action" class="studio-button studio-button-primary studio-plan-action" type="button" disabled>Archive selection</button>
           <div id="archive-operation-status" class="studio-archive-status" aria-live="polite" hidden></div>
           <div id="archive-operation-progress" class="studio-archive-progress" hidden>
             <div class="studio-progress-track" id="file-op-progress" role="progressbar" aria-label="File operation progress"><span id="file-op-progress-fill"></span></div>
@@ -200,9 +201,9 @@
           <div id="review-plan" class="studio-review-result" hidden></div>
         </section>
         <section class="studio-archive-card" aria-labelledby="archive-heading">
-          <div class="studio-plan-title"><span class="studio-plan-square" aria-hidden="true"></span><p class="studio-overline">LOCAL JOURNAL</p></div>
-          <h2 id="archive-heading">Archive &amp; recovery</h2>
-          <p class="studio-cleanup-note" id="archive-journal-copy">Choose an archive folder to open its local journal. Paths and hashes remain in that folder and are not uploaded.</p>
+          <div class="studio-plan-title"><span class="studio-plan-square" aria-hidden="true"></span><p class="studio-overline">LOCAL RECYCLE BIN</p></div>
+          <h2 id="archive-heading">Corbeille</h2>
+          <p class="studio-cleanup-note" id="archive-journal-copy">Guardian creates Corbeille inside the selected folder after you grant write access. Archived files stay on this device and can be restored or deleted permanently.</p>
           <div id="archive-entry-list" class="studio-archive-entry-list" aria-live="polite"></div>
           <div id="archive-pagination" class="studio-archive-pagination" hidden>
             <button id="archive-previous" class="studio-button studio-button-secondary" type="button">Previous</button>
@@ -212,23 +213,19 @@
           <div class="studio-archive-actions">
             <button id="resume-verified" class="studio-button studio-button-warning" type="button" disabled>Review interrupted archive</button>
             <button id="restore-selected" class="studio-button studio-button-secondary" type="button" disabled>Review restore</button>
-            <button id="purge-selected" class="studio-button studio-button-danger" type="button" disabled>Review permanent purge</button>
           </div>
+          <section class="studio-inline-purge" aria-labelledby="purge-heading">
+            <h3 id="purge-heading">Delete permanently</h3>
+            <p>Guardian verifies and permanently deletes only the managed copies listed here. This cannot be undone.</p>
+            <dl class="studio-inline-metrics"><div><dt>Files in Corbeille</dt><dd id="purge-count">0</dd></div><div><dt>Stored size</dt><dd id="purge-bytes">0 B</dd></div></dl>
+            <ul id="purge-files" class="studio-inline-file-list"><li>Corbeille is empty.</li></ul>
+            <label class="studio-confirm-check"><input id="purge-understood" type="checkbox"><span>I reviewed these paths and understand this permanently deletes the listed copies.</span></label>
+            <button id="purge-selected" class="studio-button studio-button-danger" type="button" disabled>Delete permanently</button>
+          </section>
         </section>
         <p class="studio-inspector-foot">No canonical copy is chosen automatically.</p>
       </aside>
     </div>
-    <dialog id="archive-dialog" class="studio-dialog" aria-labelledby="archive-dialog-title" aria-describedby="archive-dialog-description">
-      <div class="studio-dialog-header"><span class="studio-overline">REVERSIBLE ARCHIVE</span><button id="archive-dialog-close" class="studio-dialog-close" type="button" aria-label="Close archive review">×</button></div>
-      <h2 id="archive-dialog-title">Review exact files</h2>
-      <p id="archive-dialog-description">Guardian will stream-copy each selected file, verify every byte, save a local journal, then remove the source entry. If copy or verification fails, the source stays in place.</p>
-      <dl class="studio-dialog-metrics"><div><dt>Files selected</dt><dd id="archive-dialog-count">0</dd></div><div><dt>Bytes to archive</dt><dd id="archive-dialog-bytes">0 B</dd></div></dl>
-      <ul id="archive-dialog-files" class="studio-dialog-file-list"></ul>
-      <label class="studio-dialog-field" for="archive-reason">Why are these files being archived? <span>Required, 1–300 characters</span><textarea id="archive-reason" class="resize-none" maxlength="300" rows="3" autocomplete="off"></textarea></label>
-      <label class="studio-confirm-check"><input id="archive-storage-confirm" type="checkbox"><span>I understand that archive copies continue to use storage, and Guardian cannot verify whether this folder is on a different volume.</span></label>
-      <p class="studio-dialog-warning">On the same volume, archiving does not recover device space; the stored copies must be permanently purged first. Purge is a separate, irreversible action. Guardian does not measure device free space. Keep other apps from changing either folder while the operation runs.</p>
-      <div class="studio-dialog-actions"><button id="archive-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="archive-dialog-confirm" class="studio-button studio-button-warning" type="button" disabled>Archive these files</button></div>
-    </dialog>
     <dialog id="restore-dialog" class="studio-dialog" aria-labelledby="restore-dialog-title" aria-describedby="restore-dialog-description">
       <div class="studio-dialog-header"><span class="studio-overline">RESTORE</span><button id="restore-dialog-close" class="studio-dialog-close" type="button" aria-label="Close restore review">×</button></div>
       <h2 id="restore-dialog-title">Restore selected files?</h2><p id="restore-dialog-description">Guardian verifies the archived bytes and checks that each original path is absent before writing. If a path already exists at that check, restore stops. The browser cannot make the check and write atomic, so keep both folders unchanged. A verified archive copy is retained until you explicitly purge it.</p>
@@ -243,16 +240,6 @@
       <label class="studio-confirm-check"><input id="resume-source-confirm" type="checkbox"><span>I confirm that the selected source folder is the original folder for these archived paths.</span></label>
       <p class="studio-dialog-warning">Keep both selected folders unchanged during this check. The verified archive is not removed.</p>
       <div class="studio-dialog-actions"><button id="resume-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="resume-dialog-confirm" class="studio-button studio-button-warning" type="button">Reconcile verified entries</button></div>
-    </dialog>
-    <dialog id="purge-dialog" class="studio-dialog studio-dialog-danger" aria-labelledby="purge-dialog-title" aria-describedby="purge-dialog-description">
-      <div class="studio-dialog-header"><span class="studio-overline">IRREVERSIBLE</span><button id="purge-dialog-close" class="studio-dialog-close" type="button" aria-label="Close purge review">×</button></div>
-      <h2 id="purge-dialog-title">Permanently purge archive copies?</h2><p id="purge-dialog-description">This permanently removes the selected files from Guardian’s archive. It cannot be undone. It does not remove any restored copy in your source folder.</p>
-      <dl class="studio-dialog-metrics"><div><dt>Files selected</dt><dd id="purge-dialog-count">0</dd></div><div><dt>Archive bytes to remove</dt><dd id="purge-dialog-bytes">0 B</dd></div></dl>
-      <ul id="purge-dialog-files" class="studio-dialog-file-list"></ul>
-      <label class="studio-confirm-check"><input id="purge-understood" type="checkbox"><span>I understand this permanently removes these archive copies.</span></label>
-      <label class="studio-dialog-field" for="purge-phrase">Type <code>PURGE</code> to confirm<input id="purge-phrase" type="text" maxlength="5" autocomplete="off" spellcheck="false"></label>
-      <p class="studio-dialog-warning">Guardian reports only the archive file bytes it removes. Operating-system free space is not measured.</p>
-      <div class="studio-dialog-actions"><button id="purge-dialog-cancel" class="studio-button studio-button-secondary" type="button">Cancel</button><button id="purge-dialog-confirm" class="studio-button studio-button-danger" type="button" disabled>Purge permanently</button></div>
     </dialog>
   </body>
 </html>

@@ -16,9 +16,11 @@ test('Studio explains the local review flow and keeps optional monitoring out of
   assert.match(html, /<details class="studio-watch-panel">\s*<summary class="studio-watch-heading">/);
   assert.match(html, /id="watch-state"/);
   assert.match(html, /id="watch-summary" role="status" aria-live="polite"/);
-  assert.match(html, /No files are chosen automatically/);
-  assert.match(html, /Allow source write access/);
-  assert.match(html, /Review archive selection/);
+  assert.match(html, /No canonical copy is chosen automatically/);
+  assert.match(html, /id="archive-selection-files"/);
+  assert.match(html, /id="cleanup-action"[^>]*>Archive selection/);
+  assert.match(html, /<h2 id="archive-heading">Corbeille<\/h2>/);
+  assert.match(html, /id="purge-selected"[^>]*>Delete permanently/);
 });
 
 test('Studio keeps keyboard focus, touch targets, narrow layouts, and reduced motion in its visual contract', async () => {

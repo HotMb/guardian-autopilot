@@ -3,7 +3,7 @@ import {lstat, readdir, realpath} from 'node:fs/promises';
 import {basename, extname, relative, resolve} from 'node:path';
 
 const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.svg']);
-const ignoredDirectories = new Set(['.git', 'node_modules', '.next', 'dist', 'build', 'coverage', '.guardian', '.guardian-quarantine']);
+const ignoredDirectories = new Set(['.git', 'node_modules', '.next', 'dist', 'build', 'coverage', '.guardian', '.guardian-quarantine', 'corbeille']);
 const DEFAULT_LARGE_IMAGE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_ENTRIES = 250_000;
 const DEFAULT_QUEUE_LIMIT = 100;
@@ -69,7 +69,7 @@ function relativePath(root: string, path: string): string {
 export async function createStudioWatcher(rootDir: string, options: StudioWatcherOptions = {}): Promise<StudioWatcher> {
   const requestedRoot = resolve(rootDir);
   const rootInfo = await lstat(requestedRoot);
-  if (['.guardian', '.guardian-quarantine'].includes(basename(requestedRoot).toLowerCase())) throw new Error('Guardian system folders cannot be watched as image sources');
+  if (['.guardian', '.guardian-quarantine', 'corbeille'].includes(basename(requestedRoot).toLowerCase())) throw new Error('Guardian system folders cannot be watched as image sources');
   if (rootInfo.isSymbolicLink()) throw new Error('The watched folder must not be a symbolic link: ' + requestedRoot);
   if (!rootInfo.isDirectory()) throw new Error('The watched path must be a directory: ' + requestedRoot);
   const root = await realpath(requestedRoot);
@@ -163,7 +163,7 @@ export async function createStudioWatcher(rootDir: string, options: StudioWatche
             return;
           }
           const fullPath = resolve(directory, entry.name);
-          if (entry.isSymbolicLink() || (entry.isDirectory() && ignoredDirectories.has(entry.name))) continue;
+          if (entry.isSymbolicLink() || (entry.isDirectory() && ignoredDirectories.has(entry.name.toLowerCase()))) continue;
           if (entry.isDirectory()) {
             await walk(fullPath);
             continue;

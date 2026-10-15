@@ -4,7 +4,7 @@
 
 ## Session proposée
 
-Une session guidée où le créateur utilise Studio sur son propre ordinateur et choisit lui-même un dossier de test. Le scan reste en lecture seule. L’archivage est une opération distincte et facultative : l’utilisateur accorde séparément l’écriture sur la source et un dossier d’archive hors de la source, examine les chemins exacts, puis confirme. Guardian copie les fichiers, vérifie leurs octets et son journal avant de retirer les originaux sélectionnés. Une restauration est possible ; la purge de l’archive est une action séparée et irréversible.
+Une session guidée où le créateur utilise Studio sur son propre ordinateur et choisit lui-même un dossier de test. Le scan reste en lecture seule. L’archivage est une opération distincte et facultative : l’utilisateur sélectionne des fichiers, lit leurs chemins et tailles dans la page, puis lance l’archivage. Après autorisation d’écriture, Guardian crée `Corbeille` dans le dossier sélectionné, copie et vérifie les fichiers et son journal avant de retirer les originaux sélectionnés. Une restauration est possible ; la suppression définitive dans Corbeille est une action séparée, avec liste et case de confirmation en ligne.
 
 Les images et métadonnées sont lues localement. Si l’utilisateur archive des fichiers, leurs copies et le journal contenant chemins, raisons, tailles et hashes persistent dans le dossier d’archive choisi. Rien n’est téléversé ; la page de lancement ne reçoit aucun fichier.
 
@@ -23,7 +23,7 @@ Les métadonnées des JPEG, WebP et autres formats ne sont pas analysées. Les c
 
 ## Limites à annoncer
 
-- Aucun scan ne modifie les images et aucune suppression automatique n’existe. L’archivage confirmé retire de la source uniquement les fichiers sélectionnés, après copie et vérification ; restauration et purge restent des actions séparées.
+- Aucun scan ne modifie les images et aucune suppression automatique n’existe. L’archivage retire de la source uniquement les fichiers sélectionnés après copie et vérification dans Corbeille ; restauration et suppression définitive restent des actions séparées.
 - Un doublon exact signifie mêmes octets, pas même apparence ou même valeur artistique.
 - Les « fichiers volumineux » et les estimations d’espace ne sont pas des économies réalisées.
 - Il n’y a pas d’index global des prompts ni de catalogue persistant. Le plan de revue peut être exporté sur demande ; le journal et les copies d’archive persistent uniquement dans le dossier choisi.

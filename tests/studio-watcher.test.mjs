@@ -20,10 +20,12 @@ test('local Studio watcher lists large and newly generated images without writin
   let watcher;
   try {
     await mkdir(join(root, 'exports'), {recursive: true});
+    await mkdir(join(root, 'Corbeille'), {recursive: true});
     await mkdir(join(root, '.guardian-quarantine'), {recursive: true});
     await writeFile(join(root, 'exports', 'large.png'), Buffer.from('12345'));
     await writeFile(join(root, 'small.jpg'), Buffer.from('123'));
     await writeFile(join(root, '.guardian-quarantine', 'hidden.png'), Buffer.from('123456789'));
+    await writeFile(join(root, 'Corbeille', 'archived.png'), Buffer.from('1234567890'));
     await writeFile(join(root, 'notes.txt'), 'not an image');
     const original = await readFile(join(root, 'exports', 'large.png'));
 
@@ -53,7 +55,7 @@ test('local Studio watcher lists large and newly generated images without writin
     assert.equal(updated.pendingCount, 0);
     assert.equal(updated.candidates.find((candidate) => candidate.path === 'exports/generated-new.png')?.isNew, true);
     assert.deepEqual(await readFile(join(root, 'exports', 'large.png')), original);
-    assert.deepEqual((await readdir(root)).sort(), ['.guardian-quarantine', 'exports', 'notes.txt', 'small.jpg']);
+    assert.deepEqual((await readdir(root)).sort(), ['.guardian-quarantine', 'Corbeille', 'exports', 'notes.txt', 'small.jpg']);
   } finally {
     watcher?.close();
     await rm(root, {recursive: true, force: true});
@@ -79,10 +81,12 @@ test('local Studio watcher marks inventory coverage partial at its entry cap', a
 
 test('local Studio watcher refuses Guardian archive folders as watch roots', async () => {
   const parent = await mkdtemp(join(tmpdir(), 'guardian-studio-watch-protected-'));
-  const root = join(parent, '.guardian-quarantine');
   try {
-    await mkdir(root);
-    await assert.rejects(createStudioWatcher(root), /system folders cannot be watched/);
+    for (const name of ['.guardian-quarantine', 'Corbeille']) {
+      const root = join(parent, name);
+      await mkdir(root);
+      await assert.rejects(createStudioWatcher(root), /system folders cannot be watched/);
+    }
   } finally {
     await rm(parent, {recursive: true, force: true});
   }

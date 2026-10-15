@@ -73,7 +73,7 @@ Les parcours décrits sont locaux. La page de lancement ne collecte ni ne transm
 
 **« Studio reconnaît les images similaires et récupère de l’espace ? »**
 
-Il propose des candidats visuels heuristiques pour certains formats, pas une reconnaissance sémantique. Les doublons exacts sont vérifiés par les octets. Il ne nettoie rien automatiquement : tu peux archiver une sélection après permissions séparées et confirmation des chemins ; les copies sont vérifiées avant le retrait des originaux. Restauration et purge sont distinctes. Guardian ne choisit pas quelle image a une valeur et ne mesure pas l’espace libre du système.
+Il propose des candidats visuels heuristiques pour certains formats, pas une reconnaissance sémantique. Les doublons exacts sont vérifiés par les octets. Il ne nettoie rien automatiquement : tu sélectionnes les fichiers, vérifies leurs chemins et tailles, puis autorises l’écriture sur le dossier choisi. Guardian copie et vérifie dans une Corbeille locale avant de retirer les originaux. Restauration et suppression définitive sont distinctes. Guardian ne choisit pas quelle image a une valeur et ne mesure pas l’espace libre du système.
 
 **« Pourquoi payer avant que le SaaS soit fini ? »**
 

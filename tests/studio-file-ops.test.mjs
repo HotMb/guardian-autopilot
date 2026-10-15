@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import test from 'node:test';
 import {
-  IncrementalSha256, assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined, quarantineFiles,
+  IncrementalSha256, assertGuardianTrashDestination, ensureGuardianTrashDirectory, TRASH_DIRECTORY, loadQuarantine, purgeQuarantined, quarantineFiles,
   quarantineErrorMessage, reconcileVerifiedQuarantine, restoreQuarantined, isProtectedQuarantineDirectory,
 } from '../site/studio-file-ops.js';
 
@@ -60,7 +60,11 @@ async function hasFile(root, path) {
   try { let parent = root; const parts = path.split('/'); for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part); await parent.getFileHandle(parts.at(-1)); return true; }
   catch (error) { if (error.name === 'NotFoundError') return false; throw error; }
 }
-function roots() { return {source: new MemoryDirectoryHandle('source'), archive: new MemoryDirectoryHandle('archive')}; }
+async function roots() {
+  const source = new MemoryDirectoryHandle('source');
+  const archive = await ensureGuardianTrashDirectory(source);
+  return {source, archive};
+}
 const idFactory = (() => { let id = 0; return () => `item-${++id}`; })();
 const makeRecord = (path, contents, lastModified = 10, handle) => {
   const name = path.split('/').at(-1);
@@ -79,7 +83,7 @@ test('incremental SHA-256 matches standard vectors and a multi-chunk synthetic f
 });
 
 test('quarantines only after streamed copy and byte/hash verification, with durable local journal', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const original = Buffer.from('synthetic image fixture');
   await putFile(source, 'exports/image.png', original);
   const result = await quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('exports/image.png', original)], reason: 'Verified synthetic duplicate', confirmed: true, idFactory});
@@ -92,7 +96,7 @@ test('quarantines only after streamed copy and byte/hash verification, with dura
 });
 
 test('rejects a file handle that does not identify the selected source path', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const selected = await putFile(source, 'same.png', 'current source bytes');
   const otherRoot = new MemoryDirectoryHandle('other');
   const unrelated = await putFile(otherRoot, 'same.png', 'current source bytes');
@@ -105,7 +109,7 @@ test('rejects a file handle that does not identify the selected source path', as
 });
 
 test('compares live bytes with the immutable scan snapshot before creating an archive item', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const sourceHandle = await putFile(source, 'changed.png', 'live bytes');
   const scanned = makeRecord('changed.png', 'scan bytes');
   assert.equal(scanned.bytes, await sourceHandle.getFile().then((file) => file.size), 'fixture keeps size and timestamp unchanged');
@@ -117,37 +121,49 @@ test('compares live bytes with the immutable scan snapshot before creating an ar
   assert.equal((await loadQuarantine(archive)).entries.length, 0);
 });
 
-test('archive destination must be outside the source tree and the check fails closed', async () => {
+test('archive destination must be the marked Corbeille child of the selected source', async () => {
   const source = new MemoryDirectoryHandle('source');
   await putFile(source, 'keep.png', 'source data');
-  await assert.rejects(assertArchiveDestinationOutsideSource(source, source), {code: 'archive-scope'});
+  const trash = await ensureGuardianTrashDirectory(source);
+  assert.equal(trash.name, TRASH_DIRECTORY);
+  await assert.rejects(assertGuardianTrashDestination(source, source), {code: 'archive-scope'});
   await assert.rejects(
     quarantineFiles({sourceRoot: source, destinationRoot: source, records: [makeRecord('keep.png', 'source data')], reason: 'test', confirmed: true}),
     {code: 'archive-scope'},
   );
 
   const nestedArchive = await source.getDirectoryHandle('nested-archive', {create: true});
-  await assert.rejects(assertArchiveDestinationOutsideSource(source, nestedArchive), {code: 'archive-scope'});
+  await assert.rejects(assertGuardianTrashDestination(source, nestedArchive), {code: 'archive-scope'});
   await assert.rejects(
     quarantineFiles({sourceRoot: source, destinationRoot: nestedArchive, records: [makeRecord('keep.png', 'source data')], reason: 'test', confirmed: true}),
     {code: 'archive-scope'},
   );
-  assert.equal(nestedArchive.children.size, 0, 'no quarantine directory is created inside the source');
+  assert.equal(nestedArchive.children.size, 0, 'no Guardian archive data is written to an arbitrary folder');
   assert.equal(await hasFile(source, 'keep.png'), true);
+  await assertGuardianTrashDestination(source, trash);
 
   const unsupported = new MemoryDirectoryHandle('unsupported');
   unsupported.values = undefined;
-  const {archive} = roots();
-  await assert.rejects(assertArchiveDestinationOutsideSource(unsupported, archive), {code: 'archive-scope'});
+  const {archive} = await roots();
+  await assert.rejects(assertGuardianTrashDestination(unsupported, archive), {code: 'archive-scope'});
   await assert.rejects(
     quarantineFiles({sourceRoot: unsupported, destinationRoot: archive, records: [makeRecord('keep.png', 'source data')], reason: 'test', confirmed: true}),
     {code: 'archive-scope'},
   );
-  assert.equal(archive.children.size, 0, 'archive remains untouched if source-tree separation cannot be proven');
+  assert.equal(archive.children.has('.guardian-quarantine'), false, 'archive remains untouched when Corbeille identity cannot be verified');
+});
+
+test('Corbeille refuses to adopt an existing non-empty user folder', async () => {
+  const source = new MemoryDirectoryHandle('source');
+  const existing = await source.getDirectoryHandle(TRASH_DIRECTORY, {create: true});
+  await putFile(existing, 'keep.png', 'user-owned data');
+  await assert.rejects(ensureGuardianTrashDirectory(source), {code: 'archive-scope'});
+  assert.equal(await hasFile(source, 'Corbeille/keep.png'), true);
+  assert.equal(existing.children.has('.guardian-studio-trash-marker'), false);
 });
 
 test('a failed archive write leaves the source intact and records an interrupted item', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const original = Buffer.from('never remove this synthetic file');
   await putFile(source, 'image.webp', original);
   MemoryFileHandle.failWrites = true;
@@ -165,7 +181,7 @@ test('a failed archive write leaves the source intact and records an interrupted
 });
 
 test('requires explicit review confirmation, a short reason, and a bounded exact selection', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   await putFile(source, 'a.png', 'abc');
   await assert.rejects(quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('a.png', 'abc')], reason: 'test'}), {code: 'confirmation'});
   await assert.rejects(quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('a.png', 'abc')], reason: '', confirmed: true}), {code: 'reason'});
@@ -174,17 +190,19 @@ test('requires explicit review confirmation, a short reason, and a bounded exact
 });
 
 test('write permission denial and path traversal fail closed', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const sourceFile = await putFile(source, 'images/a.png', 'abc');
   source.permission = 'denied';
   await assert.rejects(quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('images/a.png', 'abc')], reason: 'test', confirmed: true}), {code: 'permission'});
   source.permission = 'granted';
   await assert.rejects(quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('../images/a.png', 'abc')], reason: 'test', confirmed: true}), (error) => error.code === 'selection');
+  await assert.rejects(quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('Corbeille/archive.png', 'abc')], reason: 'test', confirmed: true}), (error) => error.code === 'selection');
+  await assert.rejects(quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('corbeille/archive.png', 'abc')], reason: 'test', confirmed: true}), (error) => error.code === 'selection');
   assert.equal(await sourceFile.getFile().then((file) => file.size), 3);
 });
 
 test('restores verified archive bytes without overwriting a conflicting original path', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const original = 'restore this synthetic image';
   await putFile(source, 'folder/a.png', original);
   const archived = await quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('folder/a.png', original)], reason: 'test', confirmed: true, idFactory});
@@ -207,31 +225,32 @@ test('restores verified archive bytes without overwriting a conflicting original
 });
 
 test('restore requires an explicitly reselected source folder matching the journal', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   await putFile(source, 'a.png', 'same-name folder identity check');
   const bytes = Buffer.byteLength('same-name folder identity check');
   const result = await quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('a.png', 'same-name folder identity check')], reason: 'test', confirmed: true, idFactory});
   const other = new MemoryDirectoryHandle('different-source');
-  await assert.rejects(restoreQuarantined({sourceRoot: other, destinationRoot: archive, ids: [result.manifest.entries[0].id], confirmed: true}), {code: 'source-root'});
+  await assert.rejects(restoreQuarantined({sourceRoot: other, destinationRoot: archive, ids: [result.manifest.entries[0].id], confirmed: true}), {code: 'archive-scope'});
   assert.equal(await hasFile(archive, `.guardian-quarantine/items/${result.manifest.entries[0].id}.bin`), true);
 });
 
-test('restore failure retains its quarantine copy and purge requires typed double confirmation', async () => {
-  const {source, archive} = roots();
+test('restore failure retains its Corbeille copy and purge requires a separate explicit confirmation', async () => {
+  const {source, archive} = await roots();
   await putFile(source, 'a.png', 'purge only by explicit request');
   const purgedText = 'purge only by explicit request';
   const result = await quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('a.png', purgedText)], reason: 'test', confirmed: true, idFactory});
   const id = result.manifest.entries[0].id;
-  await assert.rejects(purgeQuarantined({destinationRoot: archive, ids: [id], confirmed: true, typedConfirmation: 'purge'}), {code: 'confirmation'});
+  await assert.rejects(purgeQuarantined({destinationRoot: archive, ids: [id]}), {code: 'confirmation'});
   assert.equal(await hasFile(archive, `.guardian-quarantine/items/${id}.bin`), true);
-  const purged = await purgeQuarantined({destinationRoot: archive, ids: [id], confirmed: true, typedConfirmation: 'PURGE'});
+  await assert.rejects(purgeQuarantined({destinationRoot: new MemoryDirectoryHandle(TRASH_DIRECTORY), ids: [id], confirmed: true}), {code: 'archive-scope'});
+  const purged = await purgeQuarantined({destinationRoot: archive, ids: [id], confirmed: true});
   assert.equal(purged.purgedBytes, Buffer.byteLength(purgedText));
   assert.equal(await hasFile(archive, `.guardian-quarantine/items/${id}.bin`), false);
   assert.equal(purged.manifest.entries[0].status, 'purged');
 });
 
 test('cooperative cancellation during copy leaves the original and a resumable journal record', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const content = new Uint8Array(1024 * 1024 + 20).fill(17);
   await putFile(source, 'large.png', content);
   const controller = new AbortController();
@@ -241,7 +260,7 @@ test('cooperative cancellation during copy leaves the original and a resumable j
 });
 
 test('a journal failure after source removal is recovered without falsely attributing missing bytes', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const text = 'verified before this journal fault';
   await putFile(source, 'recover.png', text);
   MemoryFileHandle.manifestWrites = 0;
@@ -259,7 +278,7 @@ test('a journal failure after source removal is recovered without falsely attrib
 });
 
 test('reconciles a verified archive by rechecking and removing only the unchanged source', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   const text = 'same bytes remain after a failed remove attempt';
   const sourceHandle = await putFile(source, 'pending.png', text);
   const removeEntry = source.removeEntry.bind(source);
@@ -278,7 +297,7 @@ test('reconciles a verified archive by rechecking and removing only the unchange
   const otherHandle = await putFile(otherSource, 'pending.png', text);
   await assert.rejects(
     reconcileVerifiedQuarantine({sourceRoot: otherSource, destinationRoot: archive, ids: [journal.entries[0].id], confirmed: true, sourceRootConfirmed: true}),
-    {code: 'source-root'},
+    {code: 'archive-scope'},
   );
   assert.equal(await otherHandle.getFile().then((file) => file.text()), text, 'a mismatched source root is left intact');
   const reconciled = await reconcileVerifiedQuarantine({sourceRoot: source, destinationRoot: archive, ids: [journal.entries[0].id], confirmed: true, sourceRootConfirmed: true});
@@ -289,7 +308,7 @@ test('reconciles a verified archive by rechecking and removing only the unchange
 });
 
 test('a pre-existing random archive payload collision is never opened for writing', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   await putFile(source, 'seed.png', 'seed');
   await quarantineFiles({sourceRoot: source, destinationRoot: archive, records: [makeRecord('seed.png', 'seed')], reason: 'test', confirmed: true, idFactory: () => 'seed-id'});
   const original = 'source remains safe';
@@ -303,7 +322,7 @@ test('a pre-existing random archive payload collision is never opened for writin
 });
 
 test('quarantine data has a verified marker and refuses an unrecognized data folder', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   await putFile(source, 'safe.png', 'keep original');
   const quarantine = await archive.getDirectoryHandle('.guardian-quarantine', {create: true});
   const items = await quarantine.getDirectoryHandle('items', {create: true});
@@ -315,7 +334,7 @@ test('quarantine data has a verified marker and refuses an unrecognized data fol
 });
 
 test('does not claim a pre-existing unknown archive data folder as Guardian quarantine', async () => {
-  const {source, archive} = roots();
+  const {source, archive} = await roots();
   await putFile(source, 'safe.png', 'keep original');
   const items = await (await archive.getDirectoryHandle('.guardian-quarantine', {create: true})).getDirectoryHandle('items', {create: true});
   await putFile(items, 'customer-data.bin', 'unrelated bytes');
