@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile as execFileCallback} from 'node:child_process';
-import {mkdtemp, rm, rmdir, writeFile} from 'node:fs/promises';
+import {mkdtemp, realpath, rm, rmdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -47,7 +47,7 @@ async function addWorktree(root, worktrees) {
   await rmdir(path);
   await git(root, 'branch', backup, 'HEAD');
   await git(root, 'worktree', 'add', '-b', branch, path, 'HEAD');
-  const item = {path, branch, backup};
+  const item = {path: await realpath(path), branch, backup};
   worktrees.push(item);
   return item;
 }
