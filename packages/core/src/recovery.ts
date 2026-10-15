@@ -76,17 +76,23 @@ function guardianBranch(branch: string): {suffix: string; backupBranchName: stri
   return {suffix: match[1], backupBranchName: `cleancode/backup-${match[1]}`};
 }
 
-function isTempWorktreePath(path: string, tempRoot: string): boolean {
+async function isTempWorktreePath(path: string, tempRoot: string): Promise<boolean> {
   const absolute = resolve(path);
-  if (normalizedPath(dirname(absolute)) !== normalizedPath(tempRoot)) return false;
   if (!/^cleancode-wt-.+$/i.test(basename(absolute))) return false;
-  if (normalizedPath(absolute) === normalizedPath(tempRoot)) return false;
-  return true;
+  try {
+    const [worktreeParent, realTempRoot] = await Promise.all([
+      realpath(dirname(absolute)),
+      realpath(tempRoot),
+    ]);
+    return normalizedPath(worktreeParent) === normalizedPath(realTempRoot);
+  } catch {
+    return false;
+  }
 }
 
 async function inspectWorktree(root: string, entry: RegisteredWorktree, tempRoot: string): Promise<InterruptedWorktree | undefined> {
   if (entry.branch === undefined || guardianBranch(entry.branch) === undefined) return undefined;
-  if (!isTempWorktreePath(entry.path, tempRoot)) return undefined;
+  if (!await isTempWorktreePath(entry.path, tempRoot)) return undefined;
 
   const identity = guardianBranch(entry.branch);
   if (identity === undefined) return undefined;
