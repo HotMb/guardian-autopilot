@@ -609,8 +609,8 @@ import {assertArchiveDestinationOutsideSource, loadQuarantine, purgeQuarantined,
     nodes.duplicateCount.textContent = new Intl.NumberFormat('en').format(duplicates.length);
     nodes.spaceFreedTotal.textContent = state.sourceBytesRemoved === null ? 'Not measured' : formatBytes(state.sourceBytesRemoved);
     nodes.sourceBytesCaption.textContent = state.sourceBytesRemoved === null
-      ? 'OS free space is not measured'
-      : 'verified bytes removed from selected source; OS free space not measured';
+      ? 'No archive operation yet; device space is not measured'
+      : 'Bytes removed after archive verification; device free space is not measured.';
     if (state.records.length > 0 && state.records.every((record) => record.isDemo)) nodes.duplicateMethod.textContent = 'Synthetic example matches';
     else if (state.scanning) nodes.duplicateMethod.textContent = `${state.scanStats?.hashedFiles ?? 0} of ${state.scanStats?.candidateFiles ?? 0} candidate files hashed`;
     else if (!state.scanStats) nodes.duplicateMethod.textContent = 'No local scan yet';

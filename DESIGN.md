@@ -47,7 +47,7 @@ omitted:
 
 ### Creative North Star
 
-An artist's archive desk: a dense contact sheet, a calm paper workspace, and a single bright lime marker that makes review state unmistakable. The app is a product tool, not a marketing page.
+A quiet archive desk for creators: a calm paper workspace, a readable file list, and a clear lime marker for human review. Studio stays focused on finding and comparing local image files.
 
 ### Product context and register
 
@@ -56,10 +56,10 @@ An artist's archive desk: a dense contact sheet, a calm paper workspace, and a s
 - **Locale(s) and language policy:** English for this MVP, matching the selected mock and existing Guardian site. No locale switching is implemented.
 - **Usage scene:** Desktop browser on the creator's own machine, often with many image files and a need to compare previews and paths.
 - **Register:** Product utility. The existing Guardian wordmark and palette are retained.
-- **Memorable signature:** Storage totals and actual operating-system free space remain distinct above a compact, sortable contact-sheet table; the selected image preview and lime marker support a human-controlled review and verified archive.
+- **Memorable signature:** Storage totals stay separate from operating-system free space. Large previews, visible file paths, and a lime selection state support human review before a verified archive.
 - **Restraint:** No automatic cleanup, probability/percent similarity score, cloud account, or decorative dashboard metric. Visual groups are low-resolution heuristic candidates only. Permanent purge remains separate from recoverable archive. Never claim or infer operating-system free space from file byte counts.
 - **Anti-references:** Generic SaaS gradient dashboards, image galleries that conceal file paths, and any claim that the perceptual-hash hint performs semantic or AI similarity analysis.
-- **Token ownership/runtime mapping:** `site/styles.css` owns the existing palette and type stacks; `site/studio.css` consumes its custom properties. This file mirrors those accepted values and documents Studio-specific geometry. No token generator is used.
+- **Token ownership/runtime mapping:** site/styles.css owns shared brand colors; site/studio.css owns Studio type and local contrast tokens. DESIGN.md records those values and the responsive geometry. No token generator is used.
 
 ## Colors
 
@@ -67,12 +67,19 @@ The canonical values come from `site/styles.css`: paper `#f3f2ed`, surface `#fbf
 
 ## Typography
 
-Use the existing display stack (`Arial Black`, Arial, Helvetica), practical Arial body copy, and a system monospace stack for paths, counts, and file metadata. Keep long paths readable by wrapping or exposing a copy action; do not rely on hover-only disclosure.
+Use the system UI font stack for headings and body copy, plus system monospace for paths and file metadata. Body text starts at 12px; key copy is 14px or larger. Keep paths readable by wrapping them, never through hover-only disclosure.
 
 ## Layout
 
-Use a desktop archive layout: persistent narrow navigation, a flexible sortable file list, and a selected-file inspector. At narrow widths, navigation becomes a horizontally scrollable labeled row and the inspector moves below the list. Tables may scroll horizontally when column relationships require it; the page itself remains naturally scrollable. Keep image aspect ratios reserved to prevent layout shift.
+Use a three-part desktop layout: collection navigation, a flexible sortable file list, and a selected-file inspector. Below 1180px, move the inspector beneath the list. At intermediate widths, show summary metrics in a 2x2 grid. Below 960px, stack the workspace. At narrow widths, keep navigation labeled and scrollable. Tables may scroll horizontally; the page remains naturally scrollable. Preserve image aspect ratios.
 
+## Accessibility and scale
+
+- Use visible focus, semantic controls, keyboard operation, and live scan status.
+- Make important controls at least 44px high. Keep text at 12px or larger.
+- At 200% zoom, let the page reflow; only the image table may scroll horizontally.
+- Respect reduced motion and preserve borders, focus, and text in forced-colors mode.
+- Keep archive confirmation, restore, and permanent purge distinct.
 ## Shapes
 
 Use square, fine-bordered panels and 3px control corners, with pill badges only for short status labels. Avoid floating-card stacks and ornamental shadows.

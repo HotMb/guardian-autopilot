@@ -7,7 +7,7 @@ This contract records interface behavior only. Product scope and privacy constra
 - Audience: creators who locally generate and curate images, especially Stable Diffusion WebUI and ComfyUI users.
 - Primary job: understand local AI-image storage consumption, then inspect supported generation metadata and review exact byte-identical files plus heuristic visual-variant candidates before making a human decision.
 - Active locale: English (`en`).
-- Accessibility baseline: semantic HTML, keyboard operation, visible focus, live scan status, reduced motion, and responsive page/document scrolling.
+- Accessibility baseline: semantic HTML, keyboard operation, visible focus, live scan status, reduced motion, 44px important targets, 12px minimum text, and responsive page scrolling. At 200% zoom, only the file table may scroll horizontally.
 - Product boundary: Studio is a local image-archive tool with an optional one-folder watcher started from the CLI. Watch and browser scans are read-only; archive/restore/purge remain separately authorized local file operations. CleanCode remains a separate product capability.
 
 ## Business and privacy sources
@@ -63,7 +63,7 @@ The component map below uses the five-column schema required by the strict inter
 
 | Operation | Pending | Success / feedback | Failure or cancellation |
 |---|---|---|---|
-| Watch one local folder | User passes one folder to `guardian studio --watch` at launch | Show new/changed and at least 10 MiB image candidates; only names, relative paths, byte counts, and times are sent to the same-origin Studio page | Watcher is off by default. Partial coverage, periodic polling fallback, pending file stability, queue truncation, and no-candidate states are visible; no file is modified. |
+| Watch one local folder | User passes one folder to guardian studio --watch | Show new/changed and at least 10 MiB image candidates; only names, relative paths, byte counts, and times are sent to the same-origin Studio page | Watcher is off by default. Its current state stays visible in the optional expandable panel. Partial coverage, periodic polling fallback, pending file stability, queue truncation, and no-candidate states are visible; no file is modified. |
 | Choose local folder | User-selected read-only picker; no remote upload | Show inventory counts/bytes and largest files retained for review | Empty selection preserves the current view; read errors are reported and coverage becomes partial. |
 | Scan duplicate candidates | Progressive local inventory, exact-byte pass, then bounded visual-hint pass; Stop scan available | Same-size candidates are SHA-256 grouped and byte-compared before being called exact. PNG/JPEG/WebP/AVIF perceptual hashes create a separate candidate view; GIF/SVG are skipped and pair-cap, decode, worker, or cancellation limits are visible. Visual hints never imply interchangeability or select files. |
 | Change list/contact-sheet layout | Activate the labeled presentation button | Replace only the visual layout for the same current page; preserve filters, search, sort, inspector item, and manual review checks | Keep the same page and selection when switching either way; keyboard focus stays on the activated control. Similar candidates appear side by side only as human-review hints, with full paths visible. |

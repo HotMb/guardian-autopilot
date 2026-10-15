@@ -28,7 +28,7 @@
           <p class="studio-overline">YOUR COLLECTION</p>
           <button class="studio-button studio-button-primary studio-folder-button" id="choose-folder" type="button">Choose a folder</button>
           <input class="studio-visually-hidden" id="folder-input" type="file" webkitdirectory multiple aria-label="Choose a local folder to scan">
-          <button class="studio-text-button studio-folder-fallback" id="folder-fallback" type="button" hidden>Use compatibility picker</button>
+          <button class="studio-text-button studio-folder-fallback" id="folder-fallback" type="button" hidden>Use basic folder picker (read-only)</button>
           <p class="studio-sidebar-note" id="folder-capability">Checking local folder support…</p>
           <p class="studio-sidebar-note" id="folder-status">Demo collection · nothing on your device has been read.</p>
         </div>
@@ -37,9 +37,9 @@
           <p class="studio-overline">REVIEW</p>
           <button class="studio-nav-item is-active" type="button" data-view="all" aria-current="page"><span>All images</span><span class="studio-count" id="count-all">0</span></button>
           <button class="studio-nav-item" type="button" data-view="duplicates"><span>Exact duplicates</span><span class="studio-count" id="count-duplicates">0</span></button>
-          <button class="studio-nav-item" type="button" data-view="similar"><span>Similar candidates</span><span class="studio-count" id="count-similar">0</span></button>
+          <button class="studio-nav-item" type="button" data-view="similar"><span>Visual suggestions</span><span class="studio-count" id="count-similar">0</span></button>
           <button class="studio-nav-item" type="button" data-view="large"><span>Large images</span><span class="studio-count" id="count-large">0</span></button>
-          <button class="studio-nav-item" type="button" data-view="plan"><span>Review plan</span><span class="studio-count" id="count-plan">0</span></button>
+          <button class="studio-nav-item" type="button" data-view="plan"><span>Review selection</span><span class="studio-count" id="count-plan">0</span></button>
         </nav>
 
         <section class="studio-folders" aria-labelledby="folders-heading">
@@ -53,12 +53,12 @@
         </div>
       </aside>
 
-      <main class="studio-main" id="studio-main">
+      <main class="studio-main" id="studio-main" tabindex="-1">
         <div class="studio-page-heading">
           <div>
-            <p class="studio-overline">CREATOR ARCHIVE <span class="studio-heading-dot" aria-hidden="true">/</span> LOCAL</p>
-            <h1>Find where the image storage went.</h1>
-            <p class="studio-page-lede" id="scope-copy">Scan creator-output folders locally. Review exact repeats and the largest images before deciding what to keep.</p>
+            <p class="studio-overline">YOUR AI IMAGE LIBRARY <span class="studio-heading-dot" aria-hidden="true">/</span> LOCAL</p>
+            <h1>See what is filling your image library.</h1>
+            <p class="studio-page-lede" id="scope-copy">Scan a folder on your computer. Review exact duplicates, visual suggestions, and large images. You decide what to archive.</p>
           </div>
           <div class="studio-heading-meta"><span class="studio-status-dot" aria-hidden="true"></span><span id="scan-state">Demo ready</span></div>
         </div>
@@ -67,32 +67,37 @@
           <article class="studio-stat"><span class="studio-stat-label">IMAGE FILES</span><strong id="total-assets">0</strong><span id="asset-caption">in this collection</span></article>
           <article class="studio-stat"><span class="studio-stat-label">IMAGE STORAGE</span><strong id="images-size">0 B</strong><span id="storage-caption">image bytes only</span></article>
           <article class="studio-stat studio-stat-accent"><span class="studio-stat-label">EXACT DUPLICATE FILES</span><strong id="duplicate-count">0</strong><span id="duplicate-method">SHA-256 and byte comparison</span></article>
-          <article class="studio-stat"><span class="studio-stat-label">SOURCE BYTES REMOVED</span><strong id="space-freed-total">Not measured</strong><span id="source-bytes-caption">OS free space is not measured</span></article>
+          <article class="studio-stat"><span class="studio-stat-label">SOURCE BYTES REMOVED</span><strong id="space-freed-total">Not measured</strong><span id="source-bytes-caption">No archive operation yet; device space is not measured</span></article>
         </section>
-        <p class="studio-limit-note" id="scan-limit-copy">Guardian counts image bytes across the selected folder and keeps up to 10,000 largest images for review. Exact duplicate hashing is limited to 64 MiB per file. Visual candidates use local raster thumbnails; GIF and SVG are skipped. They are review hints, never proof that files can be replaced. Archive needs separate write permission and your confirmation for every selected file.</p>
+        <details class="studio-scan-disclosure">
+          <summary>What the scan checks</summary>
+          <p class="studio-limit-note" id="scan-limit-copy">Guardian counts image bytes across the selected folder and keeps up to 10,000 largest images for review. Exact duplicate hashing is limited to 64 MiB per file. Visual candidates use local raster thumbnails; GIF and SVG are skipped. They are review hints, never proof that files can be replaced. Archive needs separate write permission and your confirmation for every selected file.</p>
+        </details>
 
-        <section class="studio-watch-panel" aria-labelledby="watch-heading">
-          <div class="studio-watch-heading">
+        <details class="studio-watch-panel">
+          <summary class="studio-watch-heading">
             <div>
-              <p class="studio-overline">LOCAL WATCH</p>
+              <p class="studio-overline">OPTIONAL MONITORING</p>
               <h2 id="watch-heading">Generation folder watch</h2>
             </div>
             <span class="studio-watch-pill" id="watch-state">Checking</span>
+          </summary>
+          <div class="studio-watch-content">
+            <p class="studio-watch-summary" id="watch-summary" role="status" aria-live="polite">Checking local watcher status…</p>
+            <div class="studio-watch-counts" id="watch-counts" hidden>
+              <span><strong id="watch-new-count">0</strong> new or changed</span>
+              <span><strong id="watch-large-count">0</strong> above the large-image threshold</span>
+              <span><strong id="watch-pending-count">0</strong> still settling</span>
+              <span id="watch-checked" aria-live="off">Not checked yet</span>
+            </div>
+            <ul class="studio-watch-list" id="watch-candidates" aria-label="Local image candidates for human review"></ul>
+            <p class="studio-watch-empty" id="watch-empty">The watcher is off. Start Guardian Studio with <code>guardian studio --watch &lt;image-folder&gt;</code> to monitor one local folder.</p>
+            <div class="studio-watch-footer">
+              <p>New files and images at least 10 MiB are review signals only. Guardian does not decide what to keep or change files automatically. Choose the same folder below to inspect images; archiving still uses its separate permission and confirmation flow.</p>
+              <button class="studio-button studio-button-secondary" id="watch-refresh" type="button">Refresh status</button>
+            </div>
           </div>
-          <p class="studio-watch-summary" id="watch-summary" role="status" aria-live="polite">Checking local watcher status…</p>
-          <div class="studio-watch-counts" id="watch-counts" hidden>
-            <span><strong id="watch-new-count">0</strong> new or changed</span>
-            <span><strong id="watch-large-count">0</strong> above the large-image threshold</span>
-            <span><strong id="watch-pending-count">0</strong> still settling</span>
-            <span id="watch-checked" aria-live="off">Not checked yet</span>
-          </div>
-          <ul class="studio-watch-list" id="watch-candidates" aria-label="Local image candidates for human review"></ul>
-          <p class="studio-watch-empty" id="watch-empty">The watcher is off. Start Guardian Studio with <code>guardian studio --watch &lt;image-folder&gt;</code> to monitor one local folder.</p>
-          <div class="studio-watch-footer">
-            <p>New files and images at least 10 MiB are review signals only. Guardian does not decide what to keep or change files automatically. Choose the same folder below to inspect images; archiving still uses its separate permission and confirmation flow.</p>
-            <button class="studio-button studio-button-secondary" id="watch-refresh" type="button">Refresh status</button>
-          </div>
-        </section>
+        </details>
 
         <section class="studio-files-panel" aria-labelledby="files-heading">
           <div class="studio-panel-top">
@@ -175,7 +180,7 @@
           <div class="studio-plan-title"><span class="studio-plan-square" aria-hidden="true"></span><p class="studio-overline">YOUR DECISION</p></div>
           <h2 id="plan-heading">Review candidates</h2>
           <dl class="studio-plan-metrics">
-            <div><dt>Selected candidate size</dt><dd id="plan-estimate">0 B</dd></div>
+            <div><dt>Selected file size</dt><dd id="plan-estimate">0 B</dd></div>
             <div><dt>OS free space</dt><dd id="space-freed">Not measured</dd></div>
           </dl>
           <p class="studio-plan-explainer" id="plan-explainer">Choose exact duplicates or large images for a human review plan. Candidate size is not recovered disk space.</p>
