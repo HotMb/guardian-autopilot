@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {constants} from 'node:fs';
+import type {Dirent} from 'node:fs';
 import {lstat, open, readdir} from 'node:fs/promises';
 import {relative, resolve} from 'node:path';
 
@@ -14,6 +15,9 @@ export type DiscoveryError = {
   path: string;
   message: string;
 };
+
+export type DirectoryReader = (path: string) => Promise<Dirent[]>;
+export type ManifestProgress = (completed: number, total: number) => void;
 
 export type DiscoveryResult = {
   root: string;
@@ -31,6 +35,7 @@ export type RepositoryManifest = {
   schemaVersion: 1;
   root: string;
   files: ManifestFile[];
+  errors?: DiscoveryError[];
 };
 
 export const DEFAULT_IGNORE_PATTERNS = [
@@ -76,7 +81,11 @@ function discoveryOptions(options: DiscoveryOptions): Required<DiscoveryOptions>
   };
 }
 
-export async function discoverRepository(rootDir: string, options: DiscoveryOptions = {}): Promise<DiscoveryResult> {
+export async function discoverRepository(
+  rootDir: string,
+  options: DiscoveryOptions = {},
+  readDirectory: DirectoryReader = (path) => readdir(path, {withFileTypes: true}),
+): Promise<DiscoveryResult> {
   const root = resolve(rootDir);
   const configuration = discoveryOptions(options);
   const rootStats = await lstat(root);
@@ -87,7 +96,7 @@ export async function discoverRepository(rootDir: string, options: DiscoveryOpti
   async function walk(directory: string): Promise<void> {
     let entries;
     try {
-      entries = await readdir(directory, {withFileTypes: true});
+      entries = await readDirectory(directory);
     } catch (error) {
       errors.push({path: reportPath(relative(root, directory)), message: error instanceof Error ? error.message : String(error)});
       return;
@@ -99,6 +108,7 @@ export async function discoverRepository(rootDir: string, options: DiscoveryOpti
       if (ignored(relativePath, configuration.ignore)) continue;
       if (entry.isSymbolicLink()) {
         if (configuration.symlinks === 'error') throw new Error(`Symlink encountered: ${relativePath}`);
+        errors.push({path: relativePath, message: 'Symlink skipped; target usage was not analyzed.'});
         continue;
       }
       if (entry.isDirectory()) {
@@ -139,14 +149,34 @@ function hashFile(path: string): Promise<string> {
   })();
 }
 
-export async function buildManifest(rootDir: string, options: DiscoveryOptions = {}): Promise<RepositoryManifest> {
-  const discovery = await discoverRepository(rootDir, options);
-  const files: ManifestFile[] = [];
-  for (const path of discovery.files) {
-    const absolute = resolve(discovery.root, path);
-    const details = await lstat(absolute);
-    if (details.isSymbolicLink() || !details.isFile()) throw new Error(`Manifest entry is not a regular file: ${path}`);
-    files.push({path, bytes: details.size, sha256: await hashFile(absolute)});
+export async function buildManifest(
+  rootDir: string,
+  options: DiscoveryOptions = {},
+  readDirectory?: DirectoryReader,
+  onProgress?: ManifestProgress,
+): Promise<RepositoryManifest> {
+  const discovery = await discoverRepository(rootDir, options, readDirectory);
+  const files: ManifestFile[] = new Array(discovery.files.length);
+  const total = discovery.files.length;
+  const progressInterval = Math.max(1, Math.ceil(total / 20));
+  let next = 0;
+  let completed = 0;
+
+  async function hashNext(): Promise<void> {
+    while (true) {
+      const index = next++;
+      if (index >= total) return;
+      const path = discovery.files[index]!;
+      const absolute = resolve(discovery.root, path);
+      const details = await lstat(absolute);
+      if (details.isSymbolicLink() || !details.isFile()) throw new Error(`Manifest entry is not a regular file: ${path}`);
+      files[index] = {path, bytes: details.size, sha256: await hashFile(absolute)};
+      completed += 1;
+      if (completed % progressInterval === 0 || completed === total) onProgress?.(completed, total);
+    }
   }
-  return {schemaVersion: 1, root: discovery.root, files};
+
+  const concurrency = Math.min(16, total);
+  await Promise.all(Array.from({length: concurrency}, () => hashNext()));
+  return {schemaVersion: 1, root: discovery.root, files, errors: discovery.errors};
 }

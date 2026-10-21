@@ -229,7 +229,7 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
     const commit = await executor.commit(options.commitMessage ?? 'chore: safe cleanup', changedPaths);
     machine.transitionTo('COMMITTED');
     await audit(auditLog, id, 'COMMITTED', 'commit', {commit, receiptId});
-    return {mode: experiment ? 'experiment' : 'apply', state: 'COMMITTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, commit, backupBranchName: worktree.backupBranchName, ...(experiment && reviewBranchName !== undefined ? {reviewBranchName} : {}), receiptId, verification};
+    return {mode: experiment ? 'experiment' : 'apply', state: 'COMMITTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, commit, backupBranchName: worktree.backupBranchName, ...(reviewBranchName !== undefined ? {reviewBranchName} : {}), receiptId, verification};
   } catch (error) {
     if (isolated && executor.worktree !== undefined) {
       try { await rollbackExecution(executor, receiptStore, receiptId, machine, auditLog, id, {error: errorMessage(error)}); }

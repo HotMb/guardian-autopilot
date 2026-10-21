@@ -6,6 +6,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {analyzeClosedWorld, validateClosedWorldProof} from '../dist/closed-world.js';
+import {buildManifest} from '../dist/manifest.js';
+import {hasMatchingClosedWorldProof} from '../dist/planner.js';
 import {getPositiveProofBinding, isEngineVerifiedPositiveProof} from '../dist/proof-evidence.js';
 
 const execFile = promisify(execFileCallback);
@@ -14,7 +16,7 @@ async function git(root, ...args) {
   return execFile('git', ['-C', root, ...args], {windowsHide: true});
 }
 
-async function repository({files = {}, roots = ['src/main.ts'], packageFields = {}, sourceConfig = {}} = {}) {
+async function repository({files = {}, roots = ['src/main.ts'], packageFields = {}, sourceConfig = {}, autocrlf = false} = {}) {
   const root = await mkdtemp(join(tmpdir(), 'guardian-closed-world-'));
   await mkdir(join(root, 'src'), {recursive: true});
   await mkdir(join(root, '.guardian'), {recursive: true});
@@ -37,6 +39,7 @@ async function repository({files = {}, roots = ['src/main.ts'], packageFields = 
   await git(root, 'init', '-q');
   await git(root, 'config', 'user.email', 'test@example.com');
   await git(root, 'config', 'user.name', 'Guardian Tests');
+  if (autocrlf) await git(root, 'config', 'core.autocrlf', 'true');
   await git(root, 'add', '.');
   await git(root, 'commit', '-qm', 'closed-world fixture');
   return root;
@@ -83,6 +86,20 @@ test('rejects a proof after candidate bytes change in a new clean Git HEAD', asy
   await git(root, 'commit', '-qm', 'change candidate');
 
   await assert.rejects(() => validateClosedWorldProof(root, 'src/orphan.ts', proof), /proof is stale/i);
+});
+
+test('normalizes CRLF for closed-world proof while manifest hashes retain raw bytes', async () => {
+  const root = await repository({autocrlf: true, files: {'src/orphan.ts': 'export const unused = true;\r\n'}});
+  const analysis = await analyzeClosedWorld(root);
+  assert.equal(analysis.complete, true, JSON.stringify(analysis.blockers));
+  const proof = analysis.proofs.get('src/orphan.ts');
+  assert.ok(proof);
+  const binding = getPositiveProofBinding(proof);
+  const manifest = await buildManifest(root);
+  const rawManifestSha256 = manifest.files.find((file) => file.path === 'src/orphan.ts')?.sha256;
+  assert.notEqual(binding.candidateSha256, rawManifestSha256);
+  assert.equal(hasMatchingClosedWorldProof({kind: 'closed-world-unreachable', path: 'src/orphan.ts', evidence: [proof]}, binding.repositoryHead, rawManifestSha256), false);
+  assert.equal(hasMatchingClosedWorldProof({kind: 'closed-world-unreachable', path: 'src/orphan.ts', evidence: [proof]}, binding.repositoryHead, binding.candidateSha256), true);
 });
 
 test('blocks missing explicit roots, public packages, and package scripts', async (t) => {

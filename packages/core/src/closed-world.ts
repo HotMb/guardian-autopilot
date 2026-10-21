@@ -560,11 +560,10 @@ export async function analyzeClosedWorld(rootDir: string, selectedPaths?: readon
       ...(sourceDigests.has(path) ? {sourceSha256: sourceDigests.get(path)} : {}),
     })));
     const configHash = sha256(normalizeTextLineEndings(await readFile(configPath)));
-    const proofDigests = sourceDigests;
     const proofs = new Map<string, Evidence>();
     for (const path of [...selected].sort()) {
       if (!unreachable.includes(path)) continue;
-      const digest = proofDigests.get(path);
+      const digest = sourceDigests.get(path);
       if (digest === undefined || isProtectedPath(path) || repositoryConfig.protectedPaths.some((protectedPath) => path === protectedPath || path.startsWith(`${protectedPath}/`))) continue;
       const binding = buildProofBinding({
         analyzer: CLOSED_WORLD_ANALYZER,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, mkdir, writeFile} from 'node:fs/promises';
+import {mkdtemp, mkdir, readdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {planRepository} from '../dist/planner.js';
@@ -101,4 +101,34 @@ test('lists every additional incomplete automated scan as a blocker', async () =
   assert.match(markdown, /local references could not be resolved/);
   assert.match(markdown, /package manifests could not be analyzed/);
   assert.match(markdown, /files could not be scanned for literal references/);
+});
+
+test('reports incomplete discovery and skipped dynamic-hint scanning in JSON, Markdown, and HTML', async () => {
+  const root = await fixture();
+  await mkdir(join(root, 'src', 'unreadable'), {recursive: true});
+  await writeFile(join(root, 'src', 'unreadable', 'hidden.ts'), 'export {}\n');
+  const unreadablePath = join(root, 'src', 'unreadable');
+  const discoveryReader = async (path) => {
+    if (path === unreadablePath) throw new Error('permission denied during discovery');
+    return readdir(path, {withFileTypes: true});
+  };
+  const plan = await planRepository(root, {runExternalTools: false, discoveryReader});
+
+  assert.equal(plan.discoveryStatus, 'partial');
+  assert.deepEqual(plan.candidates, []);
+  assert.deepEqual(plan.dynamicHints, []);
+  const json = JSON.parse(renderReport(plan, 'json'));
+  assert.deepEqual(json.repositoryDiscovery, {
+    status: 'partial',
+    errors: [{path: 'src/unreadable', message: 'permission denied during discovery'}],
+  });
+  assert.equal(json.dynamicHintsStatus, 'skipped-incomplete-discovery');
+  const markdown = renderReport(plan, 'markdown');
+  assert.match(markdown, /Repository discovery: partial/);
+  assert.match(markdown, /Dynamic-usage scan: skipped because repository discovery was incomplete/i);
+  assert.match(markdown, /src\/unreadable.*permission denied during discovery/);
+  const html = renderReport(plan, 'html');
+  assert.match(html, /Repository discovery/);
+  assert.match(html, /skipped because repository discovery was incomplete/i);
+  assert.match(html, /src\/unreadable/);
 });

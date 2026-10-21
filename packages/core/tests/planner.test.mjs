@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, mkdir, writeFile} from 'node:fs/promises';
+import {mkdtemp, mkdir, readdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {DEFAULT_IGNORE_PATTERNS} from '../dist/manifest.js';
 import {planRepository} from '../dist/planner.js';
 
 test('plans unreferenced files as review-only and never auto-authorizes them', async () => {
@@ -21,6 +22,106 @@ test('plans unreferenced files as review-only and never auto-authorizes them', a
   assert.match(unused.decision.reasons.join(' '), /positive proof|confidence/i);
   assert.equal(report.candidates.some((candidate) => candidate.path === 'src/used.ts'), false);
   assert.equal(report.knip.status, 'unavailable');
+});
+
+test('planner reports measured phases and reuses one repository discovery', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-measured-plan-'));
+  await mkdir(join(root, 'src'), {recursive: true});
+  await writeFile(join(root, 'src', 'index.ts'), "import { used } from './used'; void used;\n");
+  await writeFile(join(root, 'src', 'used.ts'), 'export const used = true;\n');
+  let directoryReads = 0;
+  const events = [];
+
+  const report = await planRepository(root, {
+    entryFiles: ['src/index.ts'],
+    runExternalTools: false,
+    discoveryReader: async (path) => {
+      directoryReads += 1;
+      return readdir(path, {withFileTypes: true});
+    },
+    onProgress: (event) => events.push(event),
+  });
+
+  assert.equal(report.discoveryStatus, 'complete');
+  assert.equal(directoryReads, 2, 'the root and src directory should each be discovered once');
+  assert.equal(events.some((event) => event.phase === 'manifest' && event.state === 'progress' && event.total === 2), true);
+  for (const phase of ['repository-config', 'manifest', 'reference-graph', 'closed-world-analysis', 'knip-analysis', 'dynamic-hints', 'metadata-scans', 'string-reference-scan']) {
+    assert.equal(events.some((event) => event.phase === phase && event.state === 'completed'), true, `missing measured phase ${phase}`);
+  }
+});
+
+test('partial discovery preserves errors and returns no candidates without external execution', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-partial-plan-'));
+  await mkdir(join(root, 'src', 'unreadable'), {recursive: true});
+  await writeFile(join(root, 'src', 'index.ts'), 'export {}\n');
+  await writeFile(join(root, 'src', 'unreadable', 'maybe-unused.ts'), 'export {}\n');
+
+  const discoveryReader = async (path) => {
+    if (path === join(root, 'src', 'unreadable')) {
+      throw Object.assign(new Error('injected unreadable directory'), {code: 'EACCES'});
+    }
+    return readdir(path, {withFileTypes: true});
+  };
+  const report = await planRepository(root, {entryFiles: [], discoveryReader, runExternalTools: false});
+
+  assert.equal(report.discoveryStatus, 'partial');
+  assert.deepEqual(report.discoveryErrors, [{path: 'src/unreadable', message: 'injected unreadable directory'}]);
+  assert.deepEqual(report.manifest.errors, report.discoveryErrors);
+  assert.deepEqual(report.graph.errors, report.discoveryErrors);
+  assert.deepEqual(report.candidates, []);
+  assert.equal(report.closedWorld.complete, false);
+  assert.equal(report.closedWorld.blockers.some((blocker) => blocker.code === 'repository-discovery-failed'), true);
+  assert.equal(report.knip.status, 'unavailable');
+  assert.match(report.knip.error, /discovery was incomplete/i);
+});
+
+test('symlinked imports make discovery partial and suppress every heuristic candidate', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-symlink-plan-'));
+  await mkdir(join(root, 'src'), {recursive: true});
+  await writeFile(join(root, 'src', 'index.ts'), "import './alias';\n");
+  await writeFile(join(root, 'src', 'implementation.ts'), 'export const value = true;\n');
+  const entry = (name, kind) => ({
+    name,
+    isFile: () => kind === 'file',
+    isDirectory: () => kind === 'directory',
+    isSymbolicLink: () => kind === 'symlink',
+  });
+  const discoveryReader = async (path) => path === root
+    ? [entry('src', 'directory')]
+    : path === join(root, 'src')
+      ? [entry('alias.ts', 'symlink'), entry('implementation.ts', 'file'), entry('index.ts', 'file')]
+      : readdir(path, {withFileTypes: true});
+
+  const report = await planRepository(root, {runExternalTools: false, discoveryReader});
+
+  assert.equal(report.discoveryStatus, 'partial');
+  assert.ok(report.discoveryErrors.some(({path}) => path === 'src/alias.ts'));
+  assert.deepEqual(report.candidates, []);
+  assert.equal(report.closedWorld.complete, false);
+});
+
+test('external execution can be disabled for a complete read-only plan', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-no-external-tools-'));
+  await writeFile(join(root, 'index.ts'), 'export {}\n');
+
+  const report = await planRepository(root, {entryFiles: [], runExternalTools: false});
+
+  assert.equal(report.discoveryStatus, 'complete');
+  assert.equal(report.knip.status, 'unavailable');
+  assert.match(report.knip.error, /external execution is disabled/i);
+  assert.equal(report.closedWorld.complete, false);
+  assert.equal(report.closedWorld.blockers[0].code, 'external-execution-disabled');
+});
+
+test('reports sorted default and configured ignored paths', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-reported-ignore-paths-'));
+  await mkdir(join(root, '.guardian'), {recursive: true});
+  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({version: 1, ignoredPaths: ['vendor/cache', 'src/generated']}));
+  await writeFile(join(root, 'index.ts'), 'export {}\n');
+
+  const report = await planRepository(root, {runExternalTools: false});
+
+  assert.deepEqual(report.ignoredPaths, [...new Set([...DEFAULT_IGNORE_PATTERNS, 'vendor/cache', 'src/generated'])].sort((left, right) => left.localeCompare(right)));
 });
 
 test('does not propose convention-discovered test files as unreferenced production code', async () => {

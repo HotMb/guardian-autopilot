@@ -1,5 +1,8 @@
+import {createHash} from 'node:crypto';
+import {constants} from 'node:fs';
+import {lstat, open, readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
 import {execFile as execFileCallback} from 'node:child_process';
-import {readFile} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import type {PlanReport} from '@cleancode/core';
 
@@ -36,6 +39,30 @@ async function git(root: string, args: string[]): Promise<string> {
   }
 }
 
+async function reviewedContentHash(root: string, path: string, expectedRawHash: string): Promise<string> {
+  const absolutePath = resolve(root, path);
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const handle = await open(absolutePath, constants.O_RDONLY | noFollow);
+  try {
+    const opened = await handle.stat();
+    const currentPath = await lstat(absolutePath);
+    if (!opened.isFile() || currentPath.isSymbolicLink() || !currentPath.isFile()
+      || currentPath.dev !== opened.dev || currentPath.ino !== opened.ino) {
+      throw new Error(`Candidate changed or is not a regular file: ${path}`);
+    }
+    const bytes = await handle.readFile();
+    const rawHash = createHash('sha256').update(bytes).digest('hex');
+    if (rawHash !== expectedRawHash) throw new Error(`Candidate changed after analysis: ${path}`);
+    const text = bytes.toString('utf8');
+    const canonicalBytes = Buffer.from(text, 'utf8').equals(bytes)
+      ? Buffer.from(text.replaceAll('\r\n', '\n'), 'utf8')
+      : bytes;
+    return createHash('sha256').update(canonicalBytes).digest('hex');
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
 export async function createHumanReviewTemplate(plan: PlanReport, paths: readonly string[]): Promise<HumanReviewFile> {
   if (paths.length === 0 || paths.length > 3) throw new Error('Review requires between one and three --path values');
   if (new Set(paths).size !== paths.length) throw new Error('Review paths must be unique');
@@ -44,16 +71,17 @@ export async function createHumanReviewTemplate(plan: PlanReport, paths: readonl
   const repositoryHead = await git(plan.root, ['rev-parse', 'HEAD']);
   const candidates = new Map(plan.candidates.map((candidate) => [candidate.path, candidate]));
   const files = new Map(plan.manifest.files.map((file) => [file.path, file.sha256]));
-  const candidateReviews = paths.map((path) => {
+  const candidateReviews = await Promise.all(paths.map(async (path) => {
     const candidate = candidates.get(path);
     if (candidate === undefined) throw new Error(`Not a current review-only candidate: ${path}`);
     if (candidate.decision.reasons.some((reason) => /candidate path is protected/i.test(reason))) {
       throw new Error(`Protected candidate cannot receive a human review: ${path}`);
     }
-    const sha256 = files.get(path);
-    if (sha256 === undefined) throw new Error(`Candidate is missing from the current repository manifest: ${path}`);
+    const rawHash = files.get(path);
+    if (rawHash === undefined) throw new Error(`Candidate is missing from the current repository manifest: ${path}`);
+    const sha256 = await reviewedContentHash(plan.root, path, rawHash);
     return {path, sha256, allEntrypointsReviewed: false, noExternalUsageConfirmed: false};
-  });
+  }));
   return {schemaVersion: 1, repositoryHead, candidateReviews};
 }
 
@@ -79,7 +107,10 @@ export async function loadHumanReviewFile(path: string, plan: PlanReport): Promi
     }
     if (reviews.has(entry.path)) throw new Error(`Duplicate human review path: ${entry.path}`);
     if (!candidates.has(entry.path)) throw new Error(`Human review is not for a current review-only candidate: ${entry.path}`);
-    if (files.get(entry.path) !== entry.sha256) throw new Error(`Human review file hash is stale for ${entry.path}; generate and complete a fresh review`);
+    const rawHash = files.get(entry.path);
+    if (rawHash === undefined || await reviewedContentHash(plan.root, entry.path, rawHash) !== entry.sha256) {
+      throw new Error(`Human review file hash is stale for ${entry.path}; generate and complete a fresh review`);
+    }
     reviews.set(entry.path, {
       repositoryHead,
       sha256: entry.sha256,

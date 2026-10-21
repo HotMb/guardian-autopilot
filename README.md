@@ -82,6 +82,16 @@ node packages/cli/dist/index.js plan /path/to/project --format=json
 node packages/cli/dist/index.js report /path/to/project --format=html --output report.html
 ```
 
+Reports show analysis-phase progress on stderr. The analysis phase has a 30-second default timeout; set `--timeout-ms` from 1000 to 600000 for larger projects. Rendering and output are outside that timeout. If analysis times out, no report is written. `--output` writes to the exact path you provide (and may replace an existing file), so choose a path outside the target repository when you want its working tree unchanged. `apply` returns its local review branch in JSON and text output; inspect that branch before merging. Guardian does not push or merge it.
+
+Run the read-only validation report before reviewing a repository:
+
+```bash
+node packages/cli/dist/index.js validate /path/to/project --format=json
+```
+
+Validation starts no child process or project command. Its report lists the effective ignored-path patterns, candidate count, safety flags, Git metadata, and `gitStatus: not_checked`. The full `plan` command may invoke Knip and Git for analysis. Incomplete discovery returns `status: blocked` and no candidates; `ready_for_review` only means a person can inspect the candidates and does not authorize an experiment or apply.
+
 Plans are review-only by default. A positive unreachable-file proof is available only through the opt-in, closed-world `node-application-v1` profile; missing imports, duplicate hashes, coverage gaps, and passing tests do not create proof. The proof is conditional on the declared roots and the supported tracked snapshot, not a guarantee against external consumers or infrastructure-injected runtime configuration. See [the proof profile and its limits](docs/closed-world-proof.md).
 
 The conservative string-reference scan reads PHP and PHTML files for literal references such as WordPress enqueue and include paths. This does not parse PHP or prove framework behavior; dynamic paths and external plugins still require review. Common WordPress template-hierarchy files are protected from cleanup.

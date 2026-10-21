@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 import {isAbsolute, relative, resolve} from 'node:path';
-import {analyzeClosedWorld, AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, listInterruptedWorktrees, planRepository, recoverInterruptedWorktree, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
+import {analyzeClosedWorld, AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, hasMatchingClosedWorldProof, listInterruptedWorktrees, planRepository, recoverInterruptedWorktree, renderReport, type PlanProgressEvent, type ReportFormat, type VerificationConfig} from '@cleancode/core';
 import {verifyLicense} from '@cleancode/license';
 import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
 import {serveMcp} from './mcp.js';
 import {cloneGitHubRepository, summarizeUnresolvedReferences} from './github.js';
 import {createHumanReviewTemplate, loadHumanReviewFile, type CandidateHumanReview} from './human-review.js';
+import {assertCompleteDiscoveryForExperiment, runValidationCommand} from './validation.js';
 
 type OutputFormat = 'text' | 'json';
 const evidenceTypes = new Set<Evidence['type']>([
@@ -46,7 +47,7 @@ function format(args: string[]): OutputFormat {
 }
 
 function targetRoot(args: string[]): string {
-  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file', '--confirm-branch', '--confirm-path']);
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file', '--timeout-ms', '--confirm-branch', '--confirm-path']);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--dry-run' || value.startsWith('--')) {
@@ -59,7 +60,9 @@ function targetRoot(args: string[]): string {
 }
 
 function printUsage(): void {
-  console.error('Usage: cleancode <discover|analyze|plan|review|experiment|apply|report|recover> [root] [options]');
+  console.error('Usage: cleancode <discover|analyze|plan|review|experiment|apply|report|recover|validate> [root] [options]');
+  console.error('  validate <path> [--format=text|json] (read-only behavior validation; never executes project commands)');
+  console.error('  report <root> [--timeout-ms 30000] [--format=md|html|json] [--output file]');
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  experiment <root> --path <relative-path> [--path <relative-path> ...] --verification-file checks.json');
   console.error('  experiment <root> --candidates-file paths.json --verification-file checks.json');
@@ -182,20 +185,25 @@ function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>, 
     const humanReview = reviews.get(candidate.path);
     if (humanReview === undefined) reason = 'Candidate has no entry in the human review file';
     else if (!humanReview.allEntrypointsReviewed || !humanReview.noExternalUsageConfirmed) reason = 'Both human review checks must be confirmed before an experiment can start';
-    else if (candidate.kind !== 'unreferenced-file') reason = `Candidate kind "${candidate.kind}" is not eligible for automatic experiments`;
-    else if (candidate.evidence.length !== 1 || candidate.evidence[0]?.type !== 'no_import_references') reason = 'Evidence is not limited to the no-import-references signal';
-    else if (candidate.evidence[0].confidence < 0.95) reason = 'Static no-import-references confidence is below 0.95';
-    else if (!candidate.decision.reasons.some((item) => /lacks engine-verified positive proof/i.test(item))) reason = 'Candidate does not have the expected missing-positive-proof policy blocker';
-    else if (!candidate.decision.reasons.every((item) =>
-      /lacks engine-verified positive proof/i.test(item)
-      || /^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
-    )) {
-      const blockers = candidate.decision.reasons.filter((item) =>
-        !/lacks engine-verified positive proof/i.test(item)
-        && !/^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
-      );
-      reason = `Additional policy safeguards: ${blockers.join('; ')}`;
-    }
+    else if (candidate.kind === 'unreferenced-file') {
+      const evidence = candidate.evidence[0];
+      if (candidate.evidence.length !== 1 || evidence?.type !== 'no_import_references') reason = 'Evidence is not limited to the no-import-references signal';
+      else if (evidence.confidence < 0.95) reason = 'Static no-import-references confidence is below 0.95';
+      else if (!candidate.decision.reasons.some((item) => /lacks engine-verified positive proof/i.test(item))) reason = 'Candidate does not have the expected missing-positive-proof policy blocker';
+      else if (!candidate.decision.reasons.every((item) =>
+        /lacks engine-verified positive proof/i.test(item)
+        || /^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
+      )) {
+        const blockers = candidate.decision.reasons.filter((item) =>
+          !/lacks engine-verified positive proof/i.test(item)
+          && !/^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
+        );
+        reason = `Additional policy safeguards: ${blockers.join('; ')}`;
+      }
+    } else if (candidate.kind === 'closed-world-unreachable') {
+      if (!hasMatchingClosedWorldProof(candidate, humanReview.repositoryHead, humanReview.sha256)) reason = 'Engine proof does not match the reviewed candidate hash and repository HEAD';
+      else if (!candidate.decision.allowed) reason = `Closed-world proof is blocked by policy safeguards: ${candidate.decision.reasons.join('; ')}`;
+    } else reason = `Candidate kind "${candidate.kind}" is not eligible for automatic experiments`;
 
     if (reason === undefined) candidates.push(candidate);
     else skippedCandidates.push({candidateId: candidate.id, path: candidate.path, reason});
@@ -203,7 +211,7 @@ function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>, 
   return {
     candidates,
     skippedCandidates,
-    ...(candidates.length === 0 ? {skippedReason: 'No conservative, unreferenced source files are eligible for an isolated experiment'} : {}),
+    ...(candidates.length === 0 ? {skippedReason: 'No reviewed candidate with eligible evidence is available for an isolated experiment'} : {}),
   };
 }
 
@@ -275,6 +283,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
   }
   if (command === 'license') return runLicenseCommand(args.slice(1));
   if (command === 'mcp') { await serveMcp(); return 0; }
+  if (command === 'validate') return runValidationCommand(args.slice(1));
   if (command === 'recover') {
     const values = [...args.slice(1)];
     const root = targetRoot(values);
@@ -391,12 +400,42 @@ export async function runCli(args: readonly string[]): Promise<number> {
     return 0;
   }
   if (command === 'report') {
-    const report = renderReport(await planRepository(root, {knipExecutable: optionValue(values, '--knip')}), reportFormat(values));
-    const output = optionValue(values, '--output');
-    if (output === undefined) process.stdout.write(report);
-    else await writeFile(output, report, 'utf8');
-    return 0;
+    const rawTimeout = optionValue(values, '--timeout-ms');
+    const timeoutMs = rawTimeout === undefined ? 30_000 : Number(rawTimeout);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 600_000) {
+      throw new CleanCodeError('POLICY_VIOLATION', '--timeout-ms must be an integer from 1000 to 600000');
+    }
+    const startedAt = Date.now();
+    const onProgress = (event: PlanProgressEvent): void => {
+      const elapsed = `${(event.elapsedMs / 1000).toFixed(1)}s`;
+      if (event.state === 'progress' && event.completed !== undefined && event.total !== undefined) {
+        console.error(`[cleancode] report: ${event.phase} ${event.completed}/${event.total} files (${elapsed} elapsed)`);
+      } else {
+        const duration = event.phaseElapsedMs === undefined ? '' : ` in ${(event.phaseElapsedMs / 1000).toFixed(1)}s`;
+        console.error(`[cleancode] report: ${event.phase} ${event.state}${duration} (${elapsed} elapsed)`);
+      }
+    };
+    const timeout = setTimeout(() => {
+      process.stderr.write(`[cleancode] report timed out after ${timeoutMs} ms; no report was written.\n`, () => process.exit(124));
+    }, timeoutMs);
+    try {
+      const plannedReport = await planRepository(root, {
+        knipExecutable: optionValue(values, '--knip'),
+        knipTimeoutMs: Math.max(1, timeoutMs - 500),
+        onProgress,
+      });
+      clearTimeout(timeout);
+      const report = renderReport(plannedReport, reportFormat(values));
+      const output = optionValue(values, '--output');
+      if (output === undefined) process.stdout.write(report);
+      else await writeFile(output, report, 'utf8');
+      console.error(`[cleancode] report completed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+      return 0;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
   if (command === 'experiment') {
     const fromPlan = values.includes('--from-plan');
     const explicitPaths = optionValues(values, '--path');
@@ -418,6 +457,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
     if (fromPlan) {
       const limit = experimentLimit(values);
       const plan = await planRepository(root, {knipExecutable: optionValue(values, '--knip')});
+      assertCompleteDiscoveryForExperiment(plan);
       const humanReviews = reviewFile === undefined ? undefined : await loadHumanReviewFile(reviewFile, plan);
       const selection = autonomousCandidates(plan, humanReviews);
       const selected = selection.candidates.slice(0, limit);
@@ -445,7 +485,9 @@ export async function runCli(args: readonly string[]): Promise<number> {
           candidateId: candidate.id,
           path: candidate.path,
           kind: candidate.kind,
-          selectionReason: 'No static import/export reference was found; this remains an isolated review experiment because the engine has not supplied positive proof.',
+          selectionReason: candidate.kind === 'closed-world-unreachable'
+            ? 'The engine supplied a closed-world unreachable proof bound to the reviewed file hash and repository HEAD; the change remains an isolated experiment.'
+            : 'No static import/export reference was found; this remains an isolated review experiment because the engine has not supplied positive proof.',
           policyReasons: candidate.decision.reasons,
           failedChecks: result.state === 'REVERTED' ? failedVerificationChecks(result.verification) : [],
           result,
@@ -544,6 +586,8 @@ export async function runCli(args: readonly string[]): Promise<number> {
       for (const path of result.changedPaths) console.log(`→ would delete ${path}`);
     } else if (result.state === 'COMMITTED') {
       console.log(`✓ committed ${result.changedPaths.length} file(s) in ${result.commit}`);
+      console.log(`→ local review branch: ${result.reviewBranchName}`);
+      console.log('! Review the branch diff before merging manually. Guardian did not push or merge.');
     } else {
       console.error(`! cleanup rolled back: ${result.error ?? 'verification failed'}`);
     }

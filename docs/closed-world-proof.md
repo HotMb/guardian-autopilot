@@ -27,12 +27,23 @@ If a blocker appears, Guardian does not issue a proof. Do not work around a bloc
 
 ## Review and apply
 
+Start with the read-only validation report:
+
+```bash
+npm run build:cli
+node packages/cli/dist/index.js validate /path/to/project --format=json
+```
+
+The report includes discovery status (`complete`, `partial`, or `not_run`), candidate count, safety flags, Git metadata, and effective ignored-path patterns (or `null` if they could not be confirmed). Validation is read-only and invokes no child process; it skips Knip and closed-world analysis, so it does not prove that a candidate is safe. The full `plan` command may invoke Knip and Git for analysis. Git metadata is detected by checking for `.git`; the report says `gitStatus: not_checked`. A directory without Git metadata can be inspected, but cannot support a Git-backed experiment. See the [CleanCode behavior contract](CLEANCODE-BEHAVIOR-CONTRACT.md) for report fields and status meanings.
+
 Build and inspect the read-only plan first:
 
 ```bash
 npm run build:cli
 node packages/cli/dist/index.js plan /path/to/project --format=json
 ```
+
+If directory traversal or reference-graph discovery is incomplete, the plan records its discovery errors and returns no candidates. If the scan cannot start or validate its metadata, `validate` returns `blocked` with no candidates. `experiment --from-plan` rejects incomplete or malformed discovery metadata before selecting candidates or starting an experiment. A `ready_for_review` validation status only means that a human may review the reported candidates; it is not proof of safety or authorization to execute.
 
 Create a candidate file containing only the paths you selected after reviewing the plan. The evidence value is required by the file format, but Guardian reruns the trusted analyzer and replaces caller evidence during real apply:
 
@@ -53,7 +64,11 @@ node packages/cli/dist/index.js apply /path/to/project \
   --verification-file checks.json
 ```
 
-`--confirm-closed-world` records that the user has checked the declared roots for this run; it does not create the proof. The CLI recomputes proof for each selected path, binds it to the Git snapshot, and the executor revalidates the complete snapshot at the isolated-worktree deletion boundary. A serialized positive-proof claim is rejected.
+`--confirm-closed-world` records that the user has checked the declared roots for this run; it does not create the proof. The CLI recomputes proof for each selected path, binds it to the Git snapshot, and the executor revalidates the complete snapshot at the isolated-worktree deletion boundary. A serialized positive-proof claim is rejected for apply.
+
+For a reversible experiment, `experiment --from-plan --review-file review.json` can select an engine-produced `closed-world-unreachable` candidate only after both human review confirmations pass. The proof, candidate hash, and review file must match the same repository HEAD. The experiment still runs build, typecheck, and test checks in a local review branch; it does not authorize apply, push, or merge.
+
+An isolated Git worktree is not an operating-system sandbox. Any project commands configured for an experiment or apply run execute with the caller's permissions; inspect them before execution.
 
 ## Limits of the claim
 

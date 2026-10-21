@@ -10,6 +10,10 @@ export type CleanCodeReport = {
   schemaVersion: 1;
   mode: 'read-only';
   root: string;
+  repositoryDiscovery: {
+    status: PlanReport['discoveryStatus'];
+    errors: PlanReport['discoveryErrors'];
+  };
   filesScanned: number;
   resolvedReferences: number;
   unresolvedReferences: number;
@@ -28,6 +32,7 @@ export type CleanCodeReport = {
     error?: string;
   };
   dynamicHints: DynamicHint[];
+  dynamicHintsStatus: 'complete' | 'skipped-incomplete-discovery';
   coverage: CoverageReport;
   packageEntrypoints: PackageEntrypointReport;
   stringReferences: StringReferenceReport;
@@ -76,6 +81,10 @@ function summary(plan: PlanReport): CleanCodeReport {
     schemaVersion: 1,
     mode: 'read-only',
     root: plan.root,
+    repositoryDiscovery: {
+      status: plan.discoveryStatus,
+      errors: plan.discoveryErrors,
+    },
     filesScanned: plan.manifest.files.length,
     resolvedReferences: plan.graph.edges.length,
     unresolvedReferences: plan.graph.unresolved.length,
@@ -94,6 +103,7 @@ function summary(plan: PlanReport): CleanCodeReport {
       ...(plan.knip.error === undefined ? {} : {error: plan.knip.error}),
     },
     dynamicHints: plan.dynamicHints,
+    dynamicHintsStatus: plan.discoveryStatus === 'complete' ? 'complete' : 'skipped-incomplete-discovery',
     coverage: plan.coverage,
     packageEntrypoints: plan.packageEntrypoints,
     stringReferences: plan.stringReferences,
@@ -122,16 +132,21 @@ function renderMarkdown(report: CleanCodeReport): string {
     ? '| _none_ | — | — | — | — |\n'
     : report.candidates.map((candidate) => `| ${markdown(candidate.path)} | ${markdown(candidate.kind)} | ${candidate.confidence.toFixed(2)} | ${candidate.allowed ? 'eligible' : 'blocked'} | ${markdown(candidate.reasons.join('; ') || 'No policy blockers')} |`).join('\n') + '\n';
   const hintRows = report.dynamicHints.length === 0
-    ? '_No documented dynamic-usage hints found._'
+    ? report.dynamicHintsStatus === 'complete'
+      ? '_No documented dynamic-usage hints found._'
+      : '_Dynamic-usage scan skipped because repository discovery was incomplete._'
     : ['| Path | Line | Hint | Marker |', '| --- | ---: | --- | --- |', ...report.dynamicHints.map((hint) => `| ${markdown(hint.path)} | ${hint.line} | ${markdown(hint.kind)} | \`${markdown(hint.marker)}\` |`)].join('\n');
   return [
     '# CleanCode report',
     '',
     `- Root: \`${markdown(report.root)}\``,
+    `- Repository discovery: ${report.repositoryDiscovery.status}`,
+    ...report.repositoryDiscovery.errors.map((error) => `  - \`${markdown(error.path || '.') }\`: ${markdown(error.message)}`),
     `- Files scanned: ${report.filesScanned}`,
     `- References: ${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved`,
     `- Exact duplicate groups: ${report.duplicateGroups}`,
     `- Knip: ${report.knip.status} (${report.knip.issues} issues)`,
+    `- Dynamic-usage scan: ${report.dynamicHintsStatus === 'complete' ? 'complete' : 'skipped because repository discovery was incomplete'}`,
     `- Test coverage: ${report.coverage.status}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} file(s) with measured zero hits`,
     `- Package entrypoints: ${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)`,
     `- Literal string references: ${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)`,
@@ -177,12 +192,13 @@ function renderHtml(report: CleanCodeReport): string {
     ? '<tr><td colspan="5">none</td></tr>'
     : report.candidates.map((candidate) => `<tr><td>${html(candidate.path)}</td><td>${html(candidate.kind)}</td><td>${candidate.confidence.toFixed(2)}</td><td>${candidate.allowed ? 'eligible' : 'blocked'}</td><td>${html(candidate.reasons.join('; ') || 'No policy blockers')}</td></tr>`).join('');
   const hintRows = report.dynamicHints.length === 0
-    ? '<tr><td colspan="4">No documented dynamic-usage hints found.</td></tr>'
+    ? `<tr><td colspan="4">${report.dynamicHintsStatus === 'complete' ? 'No documented dynamic-usage hints found.' : 'Dynamic-usage scan skipped because repository discovery was incomplete.'}</td></tr>`
     : report.dynamicHints.map((hint) => `<tr><td>${html(hint.path)}</td><td>${hint.line}</td><td>${html(hint.kind)}</td><td><code>${html(hint.marker)}</code></td></tr>`).join('');
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>CleanCode report</title></head>
 <body><main><h1>CleanCode report</h1>
-<dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd><dt>Literal string references</dt><dd>${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)</dd><dt>Closed-world proof</dt><dd>${report.closedWorld.complete ? 'complete' : 'blocked'}; ${report.closedWorld.roots.length} declared runtime root(s); ${report.closedWorld.unreachable.length} unreachable source file(s)</dd><dt>Deletion readiness</dt><dd>${html(report.deletionReadiness.status)} — ${html(report.deletionReadiness.reason)}</dd></dl>
+<dl><dt>Root</dt><dd>${html(report.root)}</dd><dt>Repository discovery</dt><dd>${html(report.repositoryDiscovery.status)}; ${report.repositoryDiscovery.errors.length} error(s)</dd><dt>Files scanned</dt><dd>${report.filesScanned}</dd><dt>References</dt><dd>${report.resolvedReferences} resolved, ${report.unresolvedReferences} unresolved</dd><dt>Knip</dt><dd>${html(report.knip.status)} (${report.knip.issues} issues)</dd><dt>Dynamic-usage scan</dt><dd>${html(report.dynamicHintsStatus)}</dd><dt>Test coverage</dt><dd>${html(report.coverage.status)}; ${report.coverage.executedFiles.length} file(s) positively observed; ${report.coverage.zeroCoverageFiles.length} with measured zero hits</dd><dt>Package entrypoints</dt><dd>${report.packageEntrypoints.files.length} protected; ${report.packageEntrypoints.invalidManifests.length} invalid manifest(s)</dd><dt>Literal string references</dt><dd>${report.stringReferences.references.length} hit(s); ${report.stringReferences.unreadableFiles.length} unreadable file(s)</dd><dt>Closed-world proof</dt><dd>${report.closedWorld.complete ? 'complete' : 'blocked'}; ${report.closedWorld.roots.length} declared runtime root(s); ${report.closedWorld.unreachable.length} unreachable source file(s)</dd><dt>Deletion readiness</dt><dd>${html(report.deletionReadiness.status)} — ${html(report.deletionReadiness.reason)}</dd></dl>
+<h2>Repository discovery errors</h2><ul>${report.repositoryDiscovery.errors.map((error) => `<li><code>${html(error.path || '.')}</code>: ${html(error.message)}</li>`).join('')}</ul>
 <h2>Automated blockers</h2><ul>${report.deletionReadiness.automatedBlockers.map((id) => `<li><code>${html(id)}</code>: ${html(blockerDescription(id))}</li>`).join('')}</ul>
 <h2>Closed-world blockers</h2><ul>${report.closedWorld.blockers.map((blocker) => `<li><code>${html(blocker.code)}</code>${blocker.path ? ` at <code>${html(blocker.path)}</code>` : ''}: ${html(blocker.message)}</li>`).join('')}</ul>
 <h2>Human validation required</h2><ul>${report.deletionReadiness.humanChecks.map((id) => `<li><code>${html(id)}</code>: ${html(humanCheckDescription(id))}</li>`).join('')}</ul>

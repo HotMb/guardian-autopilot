@@ -1,6 +1,6 @@
 # Guardian Architecture (As Built)
 
-**Status:** Current implementation record, 2026-10-15
+**Status:** Current implementation record, 2026-10-16
 **Product boundary:** Guardian ships two related local-first workflows. The supplied CleanCode documents describe the repository-cleanup workflow; they do not describe Guardian Studio's image-storage workflow.
 
 ## Product promise
@@ -26,16 +26,24 @@ Primary paths: packages/shared/, packages/core/, packages/license/, packages/cli
 | Guardian CLI | Asset scan, inventory, references, Studio launch, webhook and MCP commands | Root package.json bin and src/ |
 | CleanCode shared/license | Contracts and offline Ed25519 license primitives | packages/shared/, packages/license/ |
 | CleanCode core | Discovery, reference analysis, policy, proof, worktree execution, verification, rollback, receipts | packages/core/ and its tests |
-| CleanCode CLI | Discovery, planning, reports, guarded experiments, recovery, read-only MCP | packages/cli/ and its tests |
+| CleanCode CLI | Read-only validation, discovery, planning, reports, guarded experiments, recovery, read-only MCP | packages/cli/ and its tests |
 | Hosted boundary | Metadata-only GitHub integration and test-mode billing/webhook infrastructure | src/github*.ts, src/server.ts, src/postgres-subscriptions.ts |
 
 The internal package dependency graph is checked by npm run verify:architecture. Behavioral properties remain covered by the unit and integration tests; package metadata alone is not treated as proof of safe runtime behavior.
+
+## CleanCode behavior validation
+
+The implemented behavior is described in [CleanCode behavior contract](CLEANCODE-BEHAVIOR-CONTRACT.md). `cleancode validate <path> [--format=text|json]` reports discovery status, candidate count, evidence counts, safety flags, Git metadata, and the effective ignored-path patterns. Validation disables external analysis and does not invoke Git, Knip, package managers, or project commands. The full `plan` / `report` analysis may invoke Knip and Git. Git metadata detection in `validate` only checks for `.git`; working-tree status is explicitly `not_checked`.
+
+Incomplete or malformed discovery blocks the report from supplying candidates, and `experiment --from-plan` rejects incomplete or malformed discovery metadata. Reports emit analysis-phase timing on stderr; analysis stops after 30 seconds by default without writing a report, and `--timeout-ms` sets a bounded override. Rendering and output are outside that timeout. `--output` writes to the exact path provided and may replace an existing file, so use a path outside the target when its working tree must remain unchanged. A non-Git directory can be inspected, but it cannot be used for a Git-backed experiment. `ready_for_review` only means that a human can inspect the listed candidates; it is not proof of safety or authorization to execute.
 
 ## Safety invariants
 
 - Studio scans do not change source files. Archive, restore, and purge require separate user actions and confirmations.
 - Exact duplicates require matching SHA-256, size, and byte comparison. Visual similarity is a review hint, not proof.
 - CleanCode plans are review-only. Deletion experiments are bounded, isolated, verified, and reversible.
+- Partial discovery, including any non-ignored symlink that might hide a runtime reference, produces no cleanup candidates; reports preserve path-specific errors and identify skipped scans.
+- A Git worktree isolates an experiment's Git checkout; it is not an OS sandbox. Project verification commands run with the caller's permissions. Successful `apply` and `experiment` results expose the local review branch; Guardian does not push or merge it.
 - MCP exposes read-only discovery, analysis, planning, and reporting.
 - GitHub source analysis stays local; hosted GitHub access returns configured metadata only.
 - The hosted billing service is test-mode only. Guardian is still beta.
@@ -65,4 +73,4 @@ Run:
 - npm run verify:desktop — checks desktop security policy and bundled assets.
 - npm run desktop:make — builds the Windows installer.
 
-The architecture verifier protects package boundaries and wiring. It does not certify all behavior, prove runtime usage of user code, measure coverage, or imply production readiness. The repository currently defines no lint command, coverage threshold, or performance benchmark, so those acceptance dimensions remain unmeasured. Feature tests and manual release checks remain necessary.
+The architecture verifier protects package boundaries and wiring. It does not certify all behavior, prove runtime usage of user code, measure coverage, or imply production readiness. The repository currently defines no lint command, coverage threshold, or performance benchmark, so those acceptance dimensions remain unmeasured. Feature tests and manual release checks remain necessary. The behavior contract summarizes implemented behavior and its limits; it is not proof of universal non-use.

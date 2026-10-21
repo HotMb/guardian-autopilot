@@ -265,6 +265,8 @@ test('applies, verifies, audits, and commits approved deletions in an isolated w
   assert.equal(result.verification?.allPassed, true);
   assert.match(result.verification?.details.acceptance ?? '', /exactly 1 requested tracked deletion/i);
   assert.match(result.commit ?? '', /^[0-9a-f]{40}$/);
+  assert.match(result.reviewBranchName ?? '', /^cleancode\/auto-/);
+  assert.match((await git(root, 'show', '--format=', '--name-status', result.reviewBranchName)).stdout, /D\s+remove\.ts/);
   assert.equal(await readFile(join(root, 'remove.ts'), 'utf8'), 'export const remove = true;\n');
   const events = JSON.parse(`[${(await readFile(auditPath, 'utf8')).trim().split(/\r?\n/).join(',')}]`);
   assert.deepEqual(events.map((event) => event.state), ['ISOLATED', 'APPLIED', 'VERIFIED', 'COMMITTED']);

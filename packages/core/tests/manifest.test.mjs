@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, mkdir, symlink, writeFile} from 'node:fs/promises';
+import {mkdtemp, mkdir, readdir, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {buildManifest, discoverRepository} from '../dist/manifest.js';
@@ -21,7 +21,7 @@ test('discovers source files deterministically and ignores generated trees', asy
   assert.deepEqual(result.errors, []);
 });
 
-test('skips symlinked entries and hashes manifest files with SHA-256', async () => {
+test('records skipped symlinked entries as incomplete discovery and hashes regular files', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cleancode-manifest-'));
   const outside = await mkdtemp(join(tmpdir(), 'cleancode-manifest-outside-'));
   await writeFile(join(root, 'entry.ts'), 'hello');
@@ -44,6 +44,7 @@ test('skips symlinked entries and hashes manifest files with SHA-256', async () 
     // Unknown/legacy runtime values must fail safe as skip, never as follow.
     const legacyFollow = await discoverRepository(root, {symlinks: 'follow'});
     assert.deepEqual(legacyFollow.files, ['entry.ts']);
+    assert.deepEqual(legacyFollow.errors, [{path: 'linked.ts', message: 'Symlink skipped; target usage was not analyzed.'}]);
     await assert.rejects(() => discoverRepository(root, {symlinks: 'error'}), /symlink encountered: linked\.ts/i);
   }
 });
@@ -74,5 +75,24 @@ test('ignores the .git pointer file used by linked worktrees', async () => {
 
   const manifest = await buildManifest(root);
   assert.deepEqual(manifest.files.map((file) => file.path), ['entry.ts']);
+});
+
+test('keeps a portable injected directory-read failure in the manifest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-partial-discovery-'));
+  await mkdir(join(root, 'src', 'unreadable'), {recursive: true});
+  await writeFile(join(root, 'src', 'entry.ts'), 'export {}\n');
+  await writeFile(join(root, 'src', 'unreadable', 'hidden.ts'), 'export {}\n');
+
+  const readDirectory = async (path) => {
+    if (path === join(root, 'src', 'unreadable')) {
+      throw Object.assign(new Error('injected unreadable directory'), {code: 'EACCES'});
+    }
+    return readdir(path, {withFileTypes: true});
+  };
+
+  const manifest = await buildManifest(root, {}, readDirectory);
+
+  assert.deepEqual(manifest.files.map((file) => file.path), ['src/entry.ts']);
+  assert.deepEqual(manifest.errors, [{path: 'src/unreadable', message: 'injected unreadable directory'}]);
 });
 
