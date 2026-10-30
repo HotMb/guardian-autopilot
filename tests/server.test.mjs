@@ -273,6 +273,7 @@ test('GitHub push webhook enqueues only validated commit metadata and retries if
     before: 'b'.repeat(40),
     after: 'a'.repeat(40),
     deleted: false,
+    commits: [{id: 'b'.repeat(40)}, {id: 'a'.repeat(40)}],
     installation: {id: 44},
     repository: {id: 17, name: 'guardian-autopilot', full_name: 'HotMb/guardian-autopilot', owner: {login: 'HotMb'}},
   };
@@ -291,12 +292,12 @@ test('GitHub push webhook enqueues only validated commit metadata and retries if
       'x-github-delivery': 'delivery-push-001',
       'x-hub-signature-256': githubSignature(body),
     });
-    assert.deepEqual(accepted, {statusCode: 202, json: {status: 'queued', deliveryId: 'delivery-push-001', commitSha: 'a'.repeat(40)}});
-    assert.deepEqual(jobs, [{
-      deliveryId: 'delivery-push-001', installationId: 44, repositoryId: 17,
+    assert.deepEqual(accepted, {statusCode: 202, json: {status: 'queued', deliveryId: 'delivery-push-001', commitCount: 2}});
+    assert.deepEqual(jobs, ['b'.repeat(40), 'a'.repeat(40)].map((commitSha) => ({
+      deliveryId: `17:${commitSha}`, installationId: 44, repositoryId: 17,
       owner: 'HotMb', repository: 'guardian-autopilot', fullName: 'HotMb/guardian-autopilot',
-      ref: 'refs/heads/main', commitSha: 'a'.repeat(40),
-    }]);
+      ref: 'refs/heads/main', commitSha,
+    })));
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -313,5 +314,26 @@ test('GitHub push webhook enqueues only validated commit metadata and retries if
     assert.deepEqual(response, {statusCode: 503, json: {error: 'GitHub audit queue unavailable'}});
   } finally {
     await new Promise((resolve, reject) => unavailable.close((error) => error ? reject(error) : resolve()));
+  }
+
+  const oversizedServer = createBillingWebhookServer({
+    endpointSecret: secret,
+    githubWebhookSecret: 'github_webhook_test',
+    githubAuditEnqueue: async (job) => { jobs.push(job); return 'queued'; },
+    store: new MemorySubscriptionStore(),
+  });
+  await new Promise((resolve) => oversizedServer.listen(0, '127.0.0.1', resolve));
+  try {
+    const oversizedPush = {...push, commits: Array.from({length: 21}, (_, index) => ({id: index.toString(16).padStart(40, '0')}))};
+    const body = JSON.stringify(oversizedPush);
+    const response = await call(oversizedServer, '/webhooks/github', 'POST', body, {
+      'x-github-event': 'push',
+      'x-github-delivery': 'delivery-push-large',
+      'x-hub-signature-256': githubSignature(body),
+    });
+    assert.deepEqual(response, {statusCode: 422, json: {error: 'push exceeds the configured commit limit'}});
+    assert.equal(jobs.length, 2, 'oversized pushes must not enqueue a partial audit batch');
+  } finally {
+    await new Promise((resolve, reject) => oversizedServer.close((error) => error ? reject(error) : resolve()));
   }
 });

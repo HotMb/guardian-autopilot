@@ -18,20 +18,43 @@ const validPush = () => ({
   deleted: false,
 });
 
-test('accepts a signed push payload as metadata-only audit work', () => {
-  assert.deepEqual(parseGitHubAuditEvent('push', 'delivery-001', validPush()), {
+test('accepts every commit in a signed push as separate metadata-only audit work', () => {
+  const firstSha = 'b'.repeat(40);
+  const headSha = 'a'.repeat(40);
+  const parsed = parseGitHubAuditEvent('push', 'delivery-001', {...validPush(), commits: [{id: firstSha}, {id: headSha}]});
+  assert.deepEqual(parsed, {
     kind: 'push',
-    job: {
-      deliveryId: 'delivery-001',
+    jobs: [firstSha, headSha].map((commitSha) => ({
+      deliveryId: `1701:${commitSha}`,
       installationId: 901,
       repositoryId: 1701,
       owner: 'HotMb',
       repository: 'sample-app',
       fullName: 'HotMb/sample-app',
       ref: 'refs/heads/main',
-      commitSha: 'a'.repeat(40),
-    },
+      commitSha,
+    })),
   });
+});
+
+test('uses the pushed head when a push has no commit list and rejects oversized or malformed lists', () => {
+  const headSha = 'a'.repeat(40);
+  assert.deepEqual(parseGitHubAuditEvent('push', 'delivery-head', validPush()), {
+    kind: 'push',
+    jobs: [{
+      deliveryId: `1701:${headSha}`,
+      installationId: 901,
+      repositoryId: 1701,
+      owner: 'HotMb',
+      repository: 'sample-app',
+      fullName: 'HotMb/sample-app',
+      ref: 'refs/heads/main',
+      commitSha: headSha,
+    }],
+  });
+  const commits = Array.from({length: 21}, (_, index) => ({id: index.toString(16).padStart(40, '0')}));
+  assert.throws(() => parseGitHubAuditEvent('push', 'delivery-large', {...validPush(), commits}), /configured commit limit/i);
+  assert.throws(() => parseGitHubAuditEvent('push', 'delivery-bad-commit', {...validPush(), commits: [{id: 'not-a-sha'}]}), /commit sha/i);
 });
 
 test('ignores non-push events, tag pushes, branch deletion, and empty heads', () => {
@@ -61,9 +84,9 @@ test('PostgreSQL audit queue stores metadata idempotently, leases work, and reco
       return {
         async query(sql, values = []) {
           calls.push({sql, values});
-          if (sql.includes('INSERT INTO guardian_github_audit_jobs')) return {rowCount: 1, rows: [{delivery_id: 'delivery-012'}]};
+          if (sql.includes('INSERT INTO guardian_github_audit_jobs')) return {rowCount: 1, rows: [{delivery_id: job.deliveryId}]};
           if (sql.includes('RETURNING job.delivery_id')) return {rowCount: 1, rows: [{
-            delivery_id: 'delivery-012', installation_id: '901', repository_id: '1701', owner: 'HotMb', repository: 'sample-app',
+            delivery_id: job.deliveryId, installation_id: '901', repository_id: '1701', owner: 'HotMb', repository: 'sample-app',
             full_name: 'HotMb/sample-app', ref: 'refs/heads/main', commit_sha: 'a'.repeat(40), attempts: 1, check_run_id: null,
           }]};
           return {rowCount: 1, rows: []};
@@ -77,15 +100,16 @@ test('PostgreSQL audit queue stores metadata idempotently, leases work, and reco
   await queue.initialize();
   const parsed = parseGitHubAuditEvent('push', 'delivery-012', validPush());
   assert.equal(parsed.kind, 'push');
-  assert.equal(await queue.enqueue(parsed.job), 'queued');
+  const job = parsed.jobs[0];
+  assert.equal(await queue.enqueue(job), 'queued');
   const beforeClaim = calls.length;
   assert.deepEqual(await queue.claim(), {
-    ...parsed.job,
+    ...job,
     attempts: 1,
   });
   assert.ok(calls.slice(beforeClaim).some(({sql}) => sql.includes("completed_at < NOW() - INTERVAL '30 days'")));
-  await queue.setCheckRunId('delivery-012', 8001);
-  await queue.complete('delivery-012');
+  await queue.setCheckRunId(job.deliveryId, 8001);
+  await queue.complete(job.deliveryId);
   assert.ok(calls.some(({sql}) => sql.includes('FOR UPDATE SKIP LOCKED')));
   assert.ok(calls.some(({sql, values}) => sql.includes('check_run_id = $2') && values[1] === 8001));
   assert.ok(calls.some(({sql}) => sql.includes("status = 'completed'")));
@@ -113,7 +137,7 @@ test('PostgreSQL audit queue retries with bounded delays and eventually marks jo
 
 test('audit worker processes one leased job at a time and persists its Check Run id', async () => {
   const parsed = parseGitHubAuditEvent('push', 'delivery-014', validPush());
-  const job = {...parsed.job, attempts: 1};
+  const job = {...parsed.jobs[0], attempts: 1};
   const events = [];
   let claimed = false;
   let resolveDone;
@@ -131,15 +155,15 @@ test('audit worker processes one leased job at a time and persists its Check Run
   await done;
   await worker.close();
   assert.deepEqual(events.slice(0, 3), [
-    ['process', 'delivery-014'],
-    ['check', 'delivery-014', 8002],
-    ['complete', 'delivery-014'],
+    ['process', job.deliveryId],
+    ['check', job.deliveryId, 8002],
+    ['complete', job.deliveryId],
   ]);
 });
 
 test('audit worker retries failures without logging exception contents', async () => {
   const parsed = parseGitHubAuditEvent('push', 'delivery-015', validPush());
-  const job = {...parsed.job, attempts: 1};
+  const job = {...parsed.jobs[0], attempts: 1};
   const events = [];
   let resolveDone;
   const done = new Promise((resolve) => { resolveDone = resolve; });
@@ -181,14 +205,14 @@ test('hosted audit analyzes an ephemeral commit archive without running reposito
   const calls = [];
   let persistedCheckRun;
   try {
-    await processGitHubAuditJob({...parseGitHubAuditEvent('push', 'delivery-016', validPush()).job, attempts: 1}, () => ({
+    await processGitHubAuditJob({...parseGitHubAuditEvent('push', 'delivery-016', validPush()).jobs[0], attempts: 1}, () => ({
       async getRepository(owner, name) { return {id: 1701, fullName: `${owner}/${name}`, defaultBranch: 'main', private: true}; },
       async downloadRepositoryArchive() { return new Response(Readable.toWeb(Readable.from([archive]))); },
       async createCheckRun(owner, name, sha, delivery) { calls.push(['create', owner, name, sha, delivery]); return 902; },
       async completeCheckRun(owner, name, id, output) { calls.push(['complete', owner, name, id, output]); },
     }), async (id) => { persistedCheckRun = id; });
     assert.equal(persistedCheckRun, 902);
-    assert.deepEqual(calls[0], ['create', 'HotMb', 'sample-app', 'a'.repeat(40), 'delivery-016']);
+    assert.deepEqual(calls[0], ['create', 'HotMb', 'sample-app', 'a'.repeat(40), `1701:${'a'.repeat(40)}`]);
     assert.equal(calls[1][0], 'complete');
     assert.equal(calls[1][3], 902);
     assert.equal(calls[1][4].conclusion, 'neutral', calls[1][4].summary);

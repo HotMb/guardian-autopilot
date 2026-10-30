@@ -15,6 +15,7 @@ const maxFiles = 10_000;
 const maxFileBytes = 8 * 1024 * 1024;
 const maxScannedBytes = 64 * 1024 * 1024;
 const maxCheckSummaryChars = 55_000;
+const maxCommitsPerPush = 20;
 
 export type GitHubAuditJob = {
   deliveryId: string;
@@ -27,7 +28,7 @@ export type GitHubAuditJob = {
   commitSha: string;
 };
 
-export type ParsedGitHubAuditEvent = {kind: 'ignored'} | {kind: 'push'; job: GitHubAuditJob};
+export type ParsedGitHubAuditEvent = {kind: 'ignored'} | {kind: 'push'; jobs: GitHubAuditJob[]};
 
 export type GitHubAuditClientFactory = (job: GitHubAuditJob) => GitHubInstallationClient;
 
@@ -74,18 +75,43 @@ export function parseGitHubAuditEvent(event: string, deliveryId: string, payload
     throw new Error('GitHub repository identity is invalid');
   }
 
+  const commits = body.commits;
+  if (commits !== undefined && !Array.isArray(commits)) throw new Error('GitHub push commits are invalid');
+  if (Array.isArray(commits) && commits.length > maxCommitsPerPush) {
+    throw new Error(`GitHub push exceeds the configured commit limit (${maxCommitsPerPush})`);
+  }
+  const commitShas: string[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(commits) ? commits : []) {
+    const commit = record(item);
+    if (typeof commit.id !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(commit.id) || /^0+$/.test(commit.id)) {
+      throw new Error('GitHub commit SHA is invalid');
+    }
+    const sha = commit.id.toLowerCase();
+    if (!seen.has(sha)) {
+      seen.add(sha);
+      commitShas.push(sha);
+    }
+  }
+  const headSha = body.after.toLowerCase();
+  if (!seen.has(headSha)) {
+    if (commitShas.length >= maxCommitsPerPush) throw new Error(`GitHub push exceeds the configured commit limit (${maxCommitsPerPush})`);
+    commitShas.push(headSha);
+  }
+
   return {
     kind: 'push',
-    job: {
-      deliveryId,
-      installationId: installation.id,
-      repositoryId: repository.id,
-      owner: owner.login,
-      repository: repository.name,
-      fullName: repository.full_name,
-      ref: body.ref,
-      commitSha: body.after,
-    },
+    jobs: commitShas.map((commitSha) => ({
+      // Stable per repository and commit so retries and repeated deliveries deduplicate.
+      deliveryId: `${repository.id}:${commitSha}`,
+      installationId: installation.id as number,
+      repositoryId: repository.id as number,
+      owner: owner.login as string,
+      repository: repository.name as string,
+      fullName: repository.full_name as string,
+      ref: body.ref as string,
+      commitSha,
+    })),
   };
 }
 

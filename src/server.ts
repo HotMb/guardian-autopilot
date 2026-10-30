@@ -337,15 +337,23 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
           return;
         }
         try {
-          const status = await options.githubAuditEnqueue(parsed.job);
-          sendJson(response, status === 'queued' ? 202 : 200, {status, deliveryId, commitSha: parsed.job.commitSha});
+          let queued = false;
+          for (const job of parsed.jobs) {
+            const status = await options.githubAuditEnqueue(job);
+            if (status === 'queued') queued = true;
+          }
+          const status = queued ? 'queued' : 'duplicate';
+          sendJson(response, queued ? 202 : 200, {status, deliveryId, commitCount: parsed.jobs.length});
         } catch {
           sendJson(response, 503, {error: 'GitHub audit queue unavailable'});
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const statusCode = message.includes('exceeds the configured limit') ? 413 : 400;
-        sendJson(response, statusCode, {error: statusCode === 413 ? 'request body too large' : 'invalid GitHub webhook'});
+        const tooManyCommits = message.startsWith('GitHub push exceeds the configured commit limit');
+        const statusCode = tooManyCommits ? 422 : message.includes('exceeds the configured limit') ? 413 : 400;
+        sendJson(response, statusCode, {
+          error: tooManyCommits ? 'push exceeds the configured commit limit' : statusCode === 413 ? 'request body too large' : 'invalid GitHub webhook',
+        });
       }
       return;
     }
