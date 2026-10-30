@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import {readFile, writeFile} from 'node:fs/promises';
 import {isAbsolute, relative, resolve} from 'node:path';
-import {AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, planRepository, renderReport, type ReportFormat, type VerificationConfig} from '@cleancode/core';
+import {analyzeClosedWorld, AuditLog, buildReferenceGraph, discoverRepository, executeCleanup, executeCleanupExperiment, hasMatchingClosedWorldProof, listInterruptedWorktrees, planRepository, recoverInterruptedWorktree, renderReport, type PlanProgressEvent, type ReportFormat, type VerificationConfig} from '@cleancode/core';
 import {verifyLicense} from '@cleancode/license';
 import {CleanCodeError, isCleanCodeError} from '@cleancode/shared/errors';
 import type {Candidate, Evidence} from '@cleancode/shared/types';
 import {serveMcp} from './mcp.js';
 import {cloneGitHubRepository, summarizeUnresolvedReferences} from './github.js';
 import {createHumanReviewTemplate, loadHumanReviewFile, type CandidateHumanReview} from './human-review.js';
+import {assertCompleteDiscoveryForExperiment, runValidationCommand} from './validation.js';
 
 type OutputFormat = 'text' | 'json';
 const evidenceTypes = new Set<Evidence['type']>([
@@ -46,7 +47,7 @@ function format(args: string[]): OutputFormat {
 }
 
 function targetRoot(args: string[]): string {
-  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file']);
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file', '--timeout-ms', '--confirm-branch', '--confirm-path']);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--dry-run' || value.startsWith('--')) {
@@ -59,7 +60,9 @@ function targetRoot(args: string[]): string {
 }
 
 function printUsage(): void {
-  console.error('Usage: cleancode <discover|analyze|plan|review|experiment|apply|report> [root] [options]');
+  console.error('Usage: cleancode <discover|analyze|plan|review|experiment|apply|report|recover|validate> [root] [options]');
+  console.error('  validate <path> [--format=text|json] (read-only behavior validation; never executes project commands)');
+  console.error('  report <root> [--timeout-ms 30000] [--format=md|html|json] [--output file]');
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  experiment <root> --path <relative-path> [--path <relative-path> ...] --verification-file checks.json');
   console.error('  experiment <root> --candidates-file paths.json --verification-file checks.json');
@@ -70,7 +73,13 @@ function printUsage(): void {
   console.error('  experiment creates only a local review branch; it never pushes or merges');
   console.error('  dependency setup in an isolated worktree requires --allow-preparation');
   console.error('  real CleanCode apply still requires engine-verified positive proof');
+  console.error('  apply <root> --candidates-file file --confirm-closed-world --verification-file checks.json');
+  console.error('  --confirm-closed-world reruns the trusted analyzer for selected paths; roots come from tracked .guardian/config.json');
   console.error('  report [--format=json|md|html] [--output file]');
+  console.error('  recover [root] [--format=json] (read-only list)');
+  console.error('  recover [root] --rollback --confirm-branch <exact-branch> --confirm-path <exact-listed-path>');
+  console.error('  recover removes only registered, uncommitted Guardian temp worktrees and retains their backup branches');
+  console.error('  recover never removes committed review branches or replays cleanup receipts');
   console.error('  license <activate|status> --license-file file --public-key-file file [--output file]');
   console.error('  mcp');
 }
@@ -176,20 +185,25 @@ function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>, 
     const humanReview = reviews.get(candidate.path);
     if (humanReview === undefined) reason = 'Candidate has no entry in the human review file';
     else if (!humanReview.allEntrypointsReviewed || !humanReview.noExternalUsageConfirmed) reason = 'Both human review checks must be confirmed before an experiment can start';
-    else if (candidate.kind !== 'unreferenced-file') reason = `Candidate kind "${candidate.kind}" is not eligible for automatic experiments`;
-    else if (candidate.evidence.length !== 1 || candidate.evidence[0]?.type !== 'no_import_references') reason = 'Evidence is not limited to the no-import-references signal';
-    else if (candidate.evidence[0].confidence < 0.95) reason = 'Static no-import-references confidence is below 0.95';
-    else if (!candidate.decision.reasons.some((item) => /lacks engine-verified positive proof/i.test(item))) reason = 'Candidate does not have the expected missing-positive-proof policy blocker';
-    else if (!candidate.decision.reasons.every((item) =>
-      /lacks engine-verified positive proof/i.test(item)
-      || /^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
-    )) {
-      const blockers = candidate.decision.reasons.filter((item) =>
-        !/lacks engine-verified positive proof/i.test(item)
-        && !/^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
-      );
-      reason = `Additional policy safeguards: ${blockers.join('; ')}`;
-    }
+    else if (candidate.kind === 'unreferenced-file') {
+      const evidence = candidate.evidence[0];
+      if (candidate.evidence.length !== 1 || evidence?.type !== 'no_import_references') reason = 'Evidence is not limited to the no-import-references signal';
+      else if (evidence.confidence < 0.95) reason = 'Static no-import-references confidence is below 0.95';
+      else if (!candidate.decision.reasons.some((item) => /lacks engine-verified positive proof/i.test(item))) reason = 'Candidate does not have the expected missing-positive-proof policy blocker';
+      else if (!candidate.decision.reasons.every((item) =>
+        /lacks engine-verified positive proof/i.test(item)
+        || /^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
+      )) {
+        const blockers = candidate.decision.reasons.filter((item) =>
+          !/lacks engine-verified positive proof/i.test(item)
+          && !/^Candidate confidence [\d.]+ is below 0\.95$/.test(item),
+        );
+        reason = `Additional policy safeguards: ${blockers.join('; ')}`;
+      }
+    } else if (candidate.kind === 'closed-world-unreachable') {
+      if (!hasMatchingClosedWorldProof(candidate, humanReview.repositoryHead, humanReview.sha256)) reason = 'Engine proof does not match the reviewed candidate hash and repository HEAD';
+      else if (!candidate.decision.allowed) reason = `Closed-world proof is blocked by policy safeguards: ${candidate.decision.reasons.join('; ')}`;
+    } else reason = `Candidate kind "${candidate.kind}" is not eligible for automatic experiments`;
 
     if (reason === undefined) candidates.push(candidate);
     else skippedCandidates.push({candidateId: candidate.id, path: candidate.path, reason});
@@ -197,7 +211,7 @@ function autonomousCandidates(plan: Awaited<ReturnType<typeof planRepository>>, 
   return {
     candidates,
     skippedCandidates,
-    ...(candidates.length === 0 ? {skippedReason: 'No conservative, unreferenced source files are eligible for an isolated experiment'} : {}),
+    ...(candidates.length === 0 ? {skippedReason: 'No reviewed candidate with eligible evidence is available for an isolated experiment'} : {}),
   };
 }
 
@@ -269,6 +283,47 @@ export async function runCli(args: readonly string[]): Promise<number> {
   }
   if (command === 'license') return runLicenseCommand(args.slice(1));
   if (command === 'mcp') { await serveMcp(); return 0; }
+  if (command === 'validate') return runValidationCommand(args.slice(1));
+  if (command === 'recover') {
+    const values = [...args.slice(1)];
+    const root = targetRoot(values);
+    const recoveryFormat = format(values);
+    const confirmBranch = optionValue(values, '--confirm-branch');
+    const confirmPath = optionValue(values, '--confirm-path');
+    const rollback = values.includes('--rollback');
+    if (!rollback && (confirmBranch !== undefined || confirmPath !== undefined)) {
+      throw new CleanCodeError('POLICY_VIOLATION', 'Confirmation flags require --rollback; without it recover is read-only');
+    }
+    if (rollback) {
+      if (confirmBranch === undefined || confirmPath === undefined) {
+        throw new CleanCodeError('POLICY_VIOLATION', 'Rollback requires both --confirm-branch and --confirm-path copied exactly from the listing');
+      }
+      await recoverInterruptedWorktree({rootDir: root, branchName: confirmBranch, worktreePath: confirmPath, confirmBranch, confirmPath});
+      if (recoveryFormat === 'json') console.log(JSON.stringify({mode: 'rollback', branchName: confirmBranch, worktreePath: confirmPath, backupRetained: true}, null, 2));
+      else {
+        console.log(`✓ removed the isolated worktree and execution branch ${confirmBranch}`);
+        console.log('✓ the matching cleancode/backup-* branch was retained');
+        console.log('! This does not restore committed work or replay an undo receipt.');
+      }
+      return 0;
+    }
+    const entries = await listInterruptedWorktrees(root);
+    if (recoveryFormat === 'json') console.log(JSON.stringify({mode: 'read-only', entries}, null, 2));
+    else if (entries.length === 0) console.log('✓ No registered Guardian recovery worktrees were found in the OS temp directory');
+    else {
+      for (const entry of entries) {
+        console.log(`${entry.state}: ${entry.branchName}`);
+        console.log(`  path: ${entry.worktreePath}`);
+        console.log(`  working tree: ${entry.workingTree}; ${entry.reason}`);
+        if (entry.state === 'recoverable') {
+          console.log(`  confirm with: cleancode recover --rollback --confirm-branch "${entry.branchName}" --confirm-path "${entry.worktreePath}"`);
+        }
+      }
+      console.log('! Committed review branches are listed but never removed. The matching backup branch is retained.');
+      console.log('! This command cannot recover a committed branch or replay a cleanup receipt after a crash.');
+    }
+    return 0;
+  }
   if (command === 'github') {
     const action = args[1];
     if (action !== 'analyze') throw new Error('Usage: cleancode github analyze <owner/repository> --destination <new-local-path> [--format=json]');
@@ -345,12 +400,42 @@ export async function runCli(args: readonly string[]): Promise<number> {
     return 0;
   }
   if (command === 'report') {
-    const report = renderReport(await planRepository(root, {knipExecutable: optionValue(values, '--knip')}), reportFormat(values));
-    const output = optionValue(values, '--output');
-    if (output === undefined) process.stdout.write(report);
-    else await writeFile(output, report, 'utf8');
-    return 0;
+    const rawTimeout = optionValue(values, '--timeout-ms');
+    const timeoutMs = rawTimeout === undefined ? 30_000 : Number(rawTimeout);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 600_000) {
+      throw new CleanCodeError('POLICY_VIOLATION', '--timeout-ms must be an integer from 1000 to 600000');
+    }
+    const startedAt = Date.now();
+    const onProgress = (event: PlanProgressEvent): void => {
+      const elapsed = `${(event.elapsedMs / 1000).toFixed(1)}s`;
+      if (event.state === 'progress' && event.completed !== undefined && event.total !== undefined) {
+        console.error(`[cleancode] report: ${event.phase} ${event.completed}/${event.total} files (${elapsed} elapsed)`);
+      } else {
+        const duration = event.phaseElapsedMs === undefined ? '' : ` in ${(event.phaseElapsedMs / 1000).toFixed(1)}s`;
+        console.error(`[cleancode] report: ${event.phase} ${event.state}${duration} (${elapsed} elapsed)`);
+      }
+    };
+    const timeout = setTimeout(() => {
+      process.stderr.write(`[cleancode] report timed out after ${timeoutMs} ms; no report was written.\n`, () => process.exit(124));
+    }, timeoutMs);
+    try {
+      const plannedReport = await planRepository(root, {
+        knipExecutable: optionValue(values, '--knip'),
+        knipTimeoutMs: Math.max(1, timeoutMs - 500),
+        onProgress,
+      });
+      clearTimeout(timeout);
+      const report = renderReport(plannedReport, reportFormat(values));
+      const output = optionValue(values, '--output');
+      if (output === undefined) process.stdout.write(report);
+      else await writeFile(output, report, 'utf8');
+      console.error(`[cleancode] report completed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+      return 0;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
   if (command === 'experiment') {
     const fromPlan = values.includes('--from-plan');
     const explicitPaths = optionValues(values, '--path');
@@ -372,6 +457,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
     if (fromPlan) {
       const limit = experimentLimit(values);
       const plan = await planRepository(root, {knipExecutable: optionValue(values, '--knip')});
+      assertCompleteDiscoveryForExperiment(plan);
       const humanReviews = reviewFile === undefined ? undefined : await loadHumanReviewFile(reviewFile, plan);
       const selection = autonomousCandidates(plan, humanReviews);
       const selected = selection.candidates.slice(0, limit);
@@ -399,7 +485,9 @@ export async function runCli(args: readonly string[]): Promise<number> {
           candidateId: candidate.id,
           path: candidate.path,
           kind: candidate.kind,
-          selectionReason: 'No static import/export reference was found; this remains an isolated review experiment because the engine has not supplied positive proof.',
+          selectionReason: candidate.kind === 'closed-world-unreachable'
+            ? 'The engine supplied a closed-world unreachable proof bound to the reviewed file hash and repository HEAD; the change remains an isolated experiment.'
+            : 'No static import/export reference was found; this remains an isolated review experiment because the engine has not supplied positive proof.',
           policyReasons: candidate.decision.reasons,
           failedChecks: result.state === 'REVERTED' ? failedVerificationChecks(result.verification) : [],
           result,
@@ -458,7 +546,22 @@ export async function runCli(args: readonly string[]): Promise<number> {
     if (!dryRun && optionValue(values, '--candidates-file') === undefined) {
       throw new CleanCodeError('POLICY_VIOLATION', 'Real cleanup requires an explicit candidates file reviewed by the user');
     }
-    const candidates = await loadCandidates(values, root);
+    let candidates = await loadCandidates(values, root);
+    if (!dryRun) {
+      if (!values.includes('--confirm-closed-world')) {
+        throw new CleanCodeError('POLICY_VIOLATION', 'Real apply requires --confirm-closed-world for this run; confirm that tracked closedWorld.entryFiles cover every runtime entrypoint.');
+      }
+      const analysis = await analyzeClosedWorld(root, candidates.map((candidate) => candidate.path));
+      if (!analysis.complete) {
+        const blockers = analysis.blockers.map((blocker) => `${blocker.code}${blocker.path ? ` (${blocker.path})` : ''}: ${blocker.message}`).join('; ');
+        throw new CleanCodeError('POLICY_VIOLATION', `Closed-world analysis is blocked${blockers ? `: ${blockers}` : ''}`);
+      }
+      candidates = candidates.map((candidate) => {
+        const proof = analysis.proofs.get(candidate.path);
+        if (proof === undefined) throw new CleanCodeError('POLICY_VIOLATION', `The selected path is reachable or unsupported and has no trusted proof: ${candidate.path}`);
+        return {path: candidate.path, evidence: [proof]};
+      });
+    }
     const verification = dryRun ? undefined : await loadVerification(values);
     if ((verification?.prepare?.length ?? 0) > 0 && !values.includes('--allow-preparation')) {
       throw new CleanCodeError('POLICY_VIOLATION', 'Verification config requests dependency setup; inspect its commands and pass --allow-preparation to approve them in the isolated worktree');
@@ -471,6 +574,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
       candidates,
       dryRun,
       approveLargeChange: values.includes('--approve-large-change'),
+      confirmClosedWorld: !dryRun && values.includes('--confirm-closed-world'),
       verification,
       allowPreparation: values.includes('--allow-preparation'),
       auditLog: dryRun ? undefined : optionValue(values, '--audit-file') === undefined ? undefined : new AuditLog(optionValue(values, '--audit-file') as string),
@@ -482,6 +586,8 @@ export async function runCli(args: readonly string[]): Promise<number> {
       for (const path of result.changedPaths) console.log(`→ would delete ${path}`);
     } else if (result.state === 'COMMITTED') {
       console.log(`✓ committed ${result.changedPaths.length} file(s) in ${result.commit}`);
+      console.log(`→ local review branch: ${result.reviewBranchName}`);
+      console.log('! Review the branch diff before merging manually. Guardian did not push or merge.');
     } else {
       console.error(`! cleanup rolled back: ${result.error ?? 'verification failed'}`);
     }

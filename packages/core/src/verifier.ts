@@ -168,12 +168,13 @@ export async function runVerification(
   }
 
   if (options.acceptanceCheck === undefined) {
-    result.acceptance = true;
+    result.acceptance = false;
+    details.acceptance = 'Acceptance check is not configured';
   } else {
     try {
       const acceptance = await options.acceptanceCheck();
       result.acceptance = acceptance.passed;
-      if (!acceptance.passed && acceptance.details !== undefined) details.acceptance = acceptance.details;
+      if (acceptance.details !== undefined) details.acceptance = acceptance.details;
     } catch (error) {
       result.acceptance = false;
       details.acceptance = errorMessage(error);

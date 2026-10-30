@@ -47,3 +47,33 @@ test('production preflight validates the PostgreSQL connection pool cap', () => 
   assert.equal(valid.status, 'ready');
   assert.equal(valid.checks.find((check) => check.id === 'database-pool').status, 'pass');
 });
+
+test('preflight detects incomplete or mistyped GitHub audit credentials without revealing values', () => {
+  const partial = runPreflight({...base, GITHUB_WEBHOOK_SECRET: 'do-not-print-this'});
+  assert.equal(partial.status, 'blocked');
+  assert.match(partial.checks.find((check) => check.id === 'github-audit').message, /require/i);
+  assert.doesNotMatch(JSON.stringify(partial), /do-not-print-this/);
+
+  const badPrivateKey = runPreflight({...base, DATABASE_URL: 'postgresql://user:pass@db.example.test:5432/guardian', GITHUB_WEBHOOK_SECRET: 'webhook-secret', GITHUB_APP_ID: '123456', GITHUB_APP_PRIVATE_KEY: 'client-secret-value', HOST: '0.0.0.0'}, true);
+  assert.equal(badPrivateKey.status, 'blocked');
+  assert.match(badPrivateKey.checks.find((check) => check.id === 'github-audit').message, /pem private key/i);
+});
+
+test('preflight accepts a complete GitHub audit setup and enforces its minimum database pool size', () => {
+  const privateKey = '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----';
+  const configured = {
+    ...base,
+    DATABASE_URL: 'postgresql://user:pass@db.example.test:5432/guardian',
+    GITHUB_WEBHOOK_SECRET: 'github-webhook-secret',
+    GITHUB_APP_ID: '123456',
+    GITHUB_APP_PRIVATE_KEY: privateKey,
+    HOST: '0.0.0.0',
+  };
+  const ready = runPreflight(configured, true);
+  assert.equal(ready.checks.find((check) => check.id === 'github-audit').status, 'pass');
+  assert.equal(ready.status, 'ready');
+
+  const tooSmall = runPreflight({...configured, DATABASE_MAX_CONNECTIONS: '1'}, true);
+  assert.equal(tooSmall.checks.find((check) => check.id === 'github-audit').status, 'fail');
+  assert.equal(tooSmall.status, 'blocked');
+});

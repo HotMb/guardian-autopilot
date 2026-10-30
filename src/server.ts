@@ -5,6 +5,7 @@ import type Stripe from 'stripe';
 import {createCheckoutSession, type CheckoutConfiguration} from './checkout.js';
 import {verifyGitHubWebhookSignature} from './github.js';
 import type {GitHubInstallationClient} from './github-installation.js';
+import {parseGitHubAuditEvent, type GitHubAuditJob} from './github-audit.js';
 import {processStripeSubscriptionWebhook} from './webhooks.js';
 import type {SubscriptionStore} from './subscriptions.js';
 
@@ -15,6 +16,7 @@ export type BillingWebhookServerOptions = {
   endpointSecret: string;
   store: SubscriptionStore;
   githubWebhookSecret?: string;
+  githubAuditEnqueue?: (job: GitHubAuditJob) => Promise<'queued' | 'duplicate'>;
   stripeClient?: Stripe;
   checkoutConfiguration?: CheckoutConfiguration;
   checkoutAccessToken?: string;
@@ -324,8 +326,22 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
         const deliveryId = headerValue(request, 'x-github-delivery').trim();
         if (event === '' || deliveryId === '') throw new Error('GitHub webhook headers are required');
         verifyGitHubWebhookSignature(body, headerValue(request, 'x-hub-signature-256'), options.githubWebhookSecret);
-        parseGitHubPayload(body);
-        sendJson(response, 200, {status: 'accepted', event, deliveryId});
+        const payload = parseGitHubPayload(body);
+        const parsed = parseGitHubAuditEvent(event, deliveryId, payload);
+        if (parsed.kind === 'ignored') {
+          sendJson(response, 200, {status: 'accepted', event, deliveryId, ignored: true});
+          return;
+        }
+        if (options.githubAuditEnqueue === undefined) {
+          sendJson(response, 503, {error: 'GitHub audit queue unavailable'});
+          return;
+        }
+        try {
+          const status = await options.githubAuditEnqueue(parsed.job);
+          sendJson(response, status === 'queued' ? 202 : 200, {status, deliveryId, commitSha: parsed.job.commitSha});
+        } catch {
+          sendJson(response, 503, {error: 'GitHub audit queue unavailable'});
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const statusCode = message.includes('exceeds the configured limit') ? 413 : 400;

@@ -2,7 +2,7 @@ import * as ts from 'typescript';
 import {readFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {dirname, extname, relative, resolve} from 'node:path';
-import {discoverRepository} from './manifest.js';
+import {discoverRepository, type DiscoveryError, type RepositoryManifest} from './manifest.js';
 
 export type ReferenceKind = 'import' | 'export' | 'dynamic-import' | 'require';
 
@@ -19,10 +19,13 @@ export type UnresolvedReference = {
   kind: ReferenceKind;
 };
 
+export type SourceTextCache = Map<string, string>;
+
 export type ReferenceGraph = {
   root: string;
   edges: ReferenceEdge[];
   unresolved: UnresolvedReference[];
+  errors: DiscoveryError[];
 };
 
 type TsConfig = {
@@ -123,17 +126,33 @@ function referencesInSource(source: string, file: string): Array<{specifier: str
   return references;
 }
 
-export async function buildReferenceGraph(rootDir: string): Promise<ReferenceGraph> {
-  const discovery = await discoverRepository(rootDir);
+export async function buildReferenceGraph(
+  rootDir: string,
+  manifest?: Pick<RepositoryManifest, 'root' | 'files'> & {errors?: DiscoveryError[]},
+  sourceTextCache?: SourceTextCache,
+): Promise<ReferenceGraph> {
+  const discovery = manifest === undefined
+    ? await discoverRepository(rootDir)
+    : {root: manifest.root, files: manifest.files.map((file) => file.path), errors: manifest.errors ?? []};
   const root = discovery.root;
   const config = await loadTsConfig(root);
   const edges: ReferenceEdge[] = [];
   const unresolved: UnresolvedReference[] = [];
+  const errors: DiscoveryError[] = [...discovery.errors];
 
   for (const relativeFile of discovery.files) {
     if (!sourceExtensions.has(extname(relativeFile).toLowerCase())) continue;
     const fromAbsolute = resolve(root, relativeFile);
-    const source = await readFile(fromAbsolute, 'utf8');
+    let source = sourceTextCache?.get(relativeFile);
+    try {
+      if (source === undefined) {
+        source = await readFile(fromAbsolute, 'utf8');
+        sourceTextCache?.set(relativeFile, source);
+      }
+    } catch (error) {
+      errors.push({path: reportPath(relative(root, fromAbsolute)), message: error instanceof Error ? error.message : String(error)});
+      continue;
+    }
     for (const reference of referencesInSource(source, fromAbsolute)) {
       if (!isLocalSpecifier(reference.specifier, root, config)) continue;
       const target = resolveSpecifier(fromAbsolute, reference.specifier, root, config);
@@ -151,5 +170,6 @@ export async function buildReferenceGraph(rootDir: string): Promise<ReferenceGra
 
   edges.sort((left, right) => left.from.localeCompare(right.from) || kindOrder[left.kind] - kindOrder[right.kind] || left.to.localeCompare(right.to));
   unresolved.sort((left, right) => left.from.localeCompare(right.from) || kindOrder[left.kind] - kindOrder[right.kind] || left.specifier.localeCompare(right.specifier));
-  return {root, edges, unresolved};
+  errors.sort((left, right) => left.path.localeCompare(right.path) || left.message.localeCompare(right.message));
+  return {root, edges, unresolved, errors};
 }

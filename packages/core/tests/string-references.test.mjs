@@ -23,6 +23,46 @@ test('finds file paths and module names in other text files without treating no 
   assert.deepEqual(report.unreadableFiles, []);
 });
 
+test('matches many candidate names in one pass while preserving token priority and path matching', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-string-refs-indexed-'));
+  await mkdir(join(root, 'src'), {recursive: true});
+  await writeFile(join(root, 'src', 'legacy-worker.ts'), 'export const LegacyWorker = true;\n');
+  await writeFile(join(root, 'src', 'cart.ts'), 'export const cart = true;\n');
+  await writeFile(join(root, 'references.md'), [
+    'LegacyWorker appears before src/legacy-worker.ts, which must keep the higher-priority path token.',
+    'prefix-src/cart.ts-suffix matches the existing substring rule.',
+    'cartography',
+  ].join('\n'));
+  const progress = [];
+
+  const report = await scanStringReferences(root, ['src/legacy-worker.ts', 'src/cart.ts', 'references.md'], [], (completed, total) => progress.push([completed, total]));
+  const legacy = report.references.find((reference) => reference.target === 'src/legacy-worker.ts' && reference.source === 'references.md');
+  const cart = report.references.find((reference) => reference.target === 'src/cart.ts' && reference.source === 'references.md');
+
+  assert.equal(legacy?.matched, 'src/legacy-worker.ts');
+  assert.equal(legacy?.line, 1);
+  assert.equal(cart?.matched, 'src/cart.ts');
+  assert.equal(cart?.line, 2);
+  assert.equal(report.references.some((reference) => reference.target === 'src/cart.ts' && reference.line === 3), false);
+  assert.deepEqual(progress.at(-1), [3, 3]);
+});
+
+test('yields to pending timers while scanning a large text file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-string-refs-yield-'));
+  await mkdir(join(root, 'src'), {recursive: true});
+  await writeFile(join(root, 'src', 'needle.ts'), 'export const needle = true;\n');
+  await writeFile(join(root, 'zz-large.md'), Array.from({length: 12_000}, () => 'unrelated documentation line').join('\n'));
+  let timerFired = false;
+  let timer;
+
+  await scanStringReferences(root, ['src/needle.ts', 'zz-large.md'], [], (completed) => {
+    if (completed === 1) timer = setTimeout(() => { timerFired = true; }, 0);
+  });
+  if (timer !== undefined) clearTimeout(timer);
+
+  assert.equal(timerFired, true, 'scanner should yield so report deadlines and progress callbacks can run');
+});
+
 test('finds WordPress PHP enqueue and include references to JavaScript and PHP files', async () => {
   const root = await mkdtemp(join(tmpdir(), 'cleancode-php-refs-'));
   await mkdir(join(root, 'js'), {recursive: true});

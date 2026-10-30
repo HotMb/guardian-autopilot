@@ -8,6 +8,9 @@ import { serveMcp } from './mcp.js';
 import { createBillingWebhookServer } from './server.js';
 import {createGitHubAppJwt} from './github.js';
 import {GitHubInstallationClient} from './github-installation.js';
+import {PostgresGitHubAuditQueue} from './github-audit-queue.js';
+import {processGitHubAuditJob} from './github-audit.js';
+import {startGitHubAuditWorker} from './github-audit-worker.js';
 import { FileSubscriptionStore, MemorySubscriptionStore } from './subscriptions.js';
 import { PostgresSubscriptionStore } from './postgres-subscriptions.js';
 import { checkoutConfigurationFromEnv, createStripeClient } from './checkout.js';
@@ -85,14 +88,17 @@ try {
     const storePath = process.env.STRIPE_SUBSCRIPTION_STORE_PATH?.trim();
     const databaseUrl = process.env.DATABASE_URL?.trim();
     const databaseMaxConnections = optionalPositiveInteger(process.env.DATABASE_MAX_CONNECTIONS, 'DATABASE_MAX_CONNECTIONS');
-    const githubValues = [process.env.GITHUB_APP_ID, process.env.GITHUB_INSTALLATION_ID, process.env.GITHUB_REPOSITORY_ID, process.env.GITHUB_REPOSITORY_OWNER, process.env.GITHUB_REPOSITORY_NAME, process.env.GITHUB_APP_PRIVATE_KEY, process.env.GITHUB_API_ACCESS_TOKEN];
+    const githubValues = [process.env.GITHUB_INSTALLATION_ID, process.env.GITHUB_REPOSITORY_ID, process.env.GITHUB_REPOSITORY_OWNER, process.env.GITHUB_REPOSITORY_NAME, process.env.GITHUB_API_ACCESS_TOKEN];
     const githubConfiguredCount = githubValues.filter((value) => value?.trim() !== undefined && value.trim() !== '').length;
-    if (githubConfiguredCount !== 0 && githubConfiguredCount !== githubValues.length) throw new Error('GitHub repository access configuration is incomplete');
+    if (githubConfiguredCount !== 0 && githubConfiguredCount !== githubValues.length) throw new Error('GitHub repository metadata access configuration is incomplete');
     const githubAppId = process.env.GITHUB_APP_ID?.trim();
+    const githubPrivateKeyValue = process.env.GITHUB_APP_PRIVATE_KEY?.trim();
+    if ((githubAppId === undefined || githubAppId === '') !== (githubPrivateKeyValue === undefined || githubPrivateKeyValue === '')) throw new Error('GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY must be configured together');
+    if (githubConfiguredCount > 0 && (githubAppId === undefined || githubAppId === '' || githubPrivateKeyValue === undefined || githubPrivateKeyValue === '')) throw new Error('GitHub repository metadata access requires the GitHub App id and private key');
     const githubInstallationId = githubConfiguredCount === 0 ? undefined : Number(process.env.GITHUB_INSTALLATION_ID);
     const githubRepositoryId = githubConfiguredCount === 0 ? undefined : Number(process.env.GITHUB_REPOSITORY_ID);
     if (githubConfiguredCount > 0 && (!Number.isSafeInteger(githubInstallationId) || !Number.isSafeInteger(githubRepositoryId) || (githubInstallationId ?? 0) <= 0 || (githubRepositoryId ?? 0) <= 0)) throw new Error('GitHub installation and repository ids must be positive safe integers');
-    const githubPrivateKey = process.env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    const githubPrivateKey = githubPrivateKeyValue?.replace(/\\n/g, '\n');
     const githubAccessToken = process.env.GITHUB_API_ACCESS_TOKEN?.trim();
     const githubOwner = process.env.GITHUB_REPOSITORY_OWNER?.trim();
     const githubName = process.env.GITHUB_REPOSITORY_NAME?.trim();
@@ -102,12 +108,28 @@ try {
       createJwt: () => createGitHubAppJwt(githubAppId as string, githubPrivateKey as string),
     });
     if (databaseUrl && storePath) throw new Error('Set either DATABASE_URL or STRIPE_SUBSCRIPTION_STORE_PATH, not both');
-    const postgresStore = databaseUrl === undefined || databaseUrl === '' ? undefined : new PostgresSubscriptionStore({connectionString: databaseUrl, ...(databaseMaxConnections === undefined ? {} : {maxConnections: databaseMaxConnections})});
+    const githubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET?.trim();
+    const auditConfigured = githubWebhookSecret !== undefined && githubWebhookSecret !== '';
+    if (auditConfigured && (githubAppId === undefined || githubAppId === '' || githubPrivateKey === undefined || githubPrivateKey.trim() === '' || databaseUrl === undefined || databaseUrl === '')) {
+      throw new Error('Automatic GitHub audits require GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET and DATABASE_URL');
+    }
+    if (auditConfigured && databaseMaxConnections !== undefined && databaseMaxConnections < 2) throw new Error('DATABASE_MAX_CONNECTIONS must be at least 2 when GitHub audits and PostgreSQL subscriptions share the service');
+    const auditQueue = auditConfigured ? new PostgresGitHubAuditQueue({
+      connectionString: databaseUrl,
+      maxConnections: 1,
+      maxAttempts: 3,
+    }) : undefined;
+    const subscriptionConnections = auditConfigured
+      ? Math.max(1, (databaseMaxConnections ?? 3) - 1)
+      : databaseMaxConnections;
+    const postgresStore = databaseUrl === undefined || databaseUrl === '' ? undefined : new PostgresSubscriptionStore({connectionString: databaseUrl, ...(subscriptionConnections === undefined ? {} : {maxConnections: subscriptionConnections})});
     if (postgresStore !== undefined) await postgresStore.initialize();
+    if (auditQueue !== undefined) await auditQueue.initialize();
     const store = postgresStore ?? (storePath === undefined || storePath === '' ? new MemorySubscriptionStore() : new FileSubscriptionStore(storePath));
     const server = createBillingWebhookServer({
       endpointSecret: secret,
-      ...(process.env.GITHUB_WEBHOOK_SECRET === undefined ? {} : {githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET}),
+      ...(githubWebhookSecret === undefined || githubWebhookSecret === '' ? {} : {githubWebhookSecret}),
+      ...(auditQueue === undefined ? {} : {githubAuditEnqueue: (job) => auditQueue.enqueue(job)}),
       ...(githubClient === undefined || githubAccessToken === undefined || githubOwner === undefined || githubName === undefined ? {} : {githubClient, githubAccessToken, githubRepository: {owner: githubOwner, name: githubName}}),
       store,
       ...(allowedOrigins === undefined ? {} : {allowedOrigins}),
@@ -120,11 +142,20 @@ try {
         resolve();
       });
     });
+    const auditWorker = auditQueue === undefined || githubAppId === undefined || githubPrivateKey === undefined
+      ? undefined
+      : startGitHubAuditWorker(auditQueue, (job, saveCheckRunId) => processGitHubAuditJob(job, (item) => new GitHubInstallationClient({
+        installationId: item.installationId,
+        repositoryId: item.repositoryId,
+        createJwt: () => createGitHubAppJwt(githubAppId, githubPrivateKey),
+      }), saveCheckRunId));
     let shuttingDown = false;
     const shutdown = async (): Promise<void> => {
       if (shuttingDown) return;
       shuttingDown = true;
+      await auditWorker?.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      await auditQueue?.close();
       await postgresStore?.close();
     };
     process.once('SIGTERM', () => { void shutdown(); });

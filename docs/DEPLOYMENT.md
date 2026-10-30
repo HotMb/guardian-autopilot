@@ -38,7 +38,7 @@ This repository does not create the Google Cloud project, billing account, datab
 
 1. Choose a hosting provider with a stable HTTPS URL and a durable volume or database.
 2. Supply `STRIPE_WEBHOOK_SECRET`, and provide the Checkout variables plus a long random `STRIPE_CHECKOUT_ACCESS_TOKEN` only when Checkout is enabled. Requests to Checkout must send `Authorization: Bearer <token>`.
-3. If a GitHub App is registered, supply `GITHUB_WEBHOOK_SECRET`; the same server then accepts signed deliveries at `/webhooks/github` without performing actions.
+3. For hosted CleanCode commit reports, configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, and `DATABASE_URL`; request Contents: read, Metadata: read, and Checks: write, subscribe to Push, then install/update the App. See the [GitHub audit setup](GITHUB_APP.md). Without all four settings, a push cannot be durably queued.
 4. Register `https://<host>/webhooks/stripe` as a Stripe test-mode endpoint subscribed to the three subscription lifecycle events.
 5. Configure the provider's health probe to `GET /healthz`.
 6. Restrict logs and environment access; do not put secrets in the image, repository, or command history.

@@ -50,6 +50,10 @@ node packages/cli/dist/index.js report /path/to/project --format=html --output r
 
 Plans are review-only. Guardian does not treat a missing import, a duplicate hash, or a passing test suite as proof that a file is unused. Real CleanCode deletion remains blocked until the engine can produce its own verified positive-use evidence.
 
+### GitHub commit reports (hosted beta)
+
+The optional GitHub App can analyze each pushed commit and attach a `CleanCode audit` report to its Checks tab. Hosted analysis uses an ephemeral snapshot, runs no repository scripts, and has bounded archive limits. It reports review candidates; it does not delete, commit, or merge project code. Configure the App and host using the [GitHub audit setup guide](docs/GITHUB_APP.md). This hosted capability is in beta and still needs a live delivery check in the owner's GitHub installation.
+
 The conservative string-reference scan reads PHP and PHTML files for literal references such as WordPress enqueue and include paths. This does not parse PHP or prove framework behavior; dynamic paths and external plugins still require review. Common WordPress template-hierarchy files are protected from cleanup.
 
 Before Guardian automatically selects candidates for a batch experiment, create a human-review checklist outside the project repository:

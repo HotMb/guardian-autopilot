@@ -2,9 +2,10 @@ FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
+COPY packages ./packages
 RUN npm ci
 COPY src ./src
-RUN npm run build
+RUN npm run build:cli && npm run build
 
 FROM node:22-bookworm-slim AS runtime
 
@@ -14,6 +15,7 @@ ENV PORT=8787
 
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY --from=build /app/packages ./packages
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY site ./site

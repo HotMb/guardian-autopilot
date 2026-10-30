@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync} from 'node:crypto';
+import {generateKeyPairSync, sign} from 'node:crypto';
 import {issueLicense, verifyLicense} from '../dist/index.js';
 
 function keys() {
@@ -9,6 +9,12 @@ function keys() {
     privateKey: pair.privateKey.export({format: 'pem', type: 'pkcs8'}),
     publicKey: pair.publicKey.export({format: 'pem', type: 'spki'}),
   };
+}
+
+function signPayload(privateKey, payload) {
+  const message = Buffer.from(JSON.stringify(payload), 'utf8');
+  const signature = sign(null, message, privateKey);
+  return `ccl_${message.toString('base64url')}.${signature.toString('base64url')}`;
 }
 
 const input = {
@@ -51,4 +57,22 @@ test('rejects malformed payloads and invalid license fields', () => {
   assert.equal(verifyLicense('not-a-license', keyPair.publicKey), null);
   assert.throws(() => issueLicense(keyPair.privateKey, {...input, seats: 0}, 1_000), /seats/i);
   assert.throws(() => issueLicense(keyPair.privateKey, {...input, plan: 'free'}, 1_000), /plan/i);
+});
+
+test('rejects licenses issued in the future using the injected verification time', () => {
+  const keyPair = keys();
+  const nowSeconds = 1_000;
+  const futureLicense = signPayload(keyPair.privateKey, {v: 1, ...input, iat: nowSeconds + 1, exp: nowSeconds + 100});
+  const currentLicense = signPayload(keyPair.privateKey, {v: 1, ...input, iat: nowSeconds, exp: nowSeconds + 100});
+
+  assert.equal(verifyLicense(futureLicense, keyPair.publicKey, nowSeconds), null);
+  assert.notEqual(verifyLicense(currentLicense, keyPair.publicKey, nowSeconds), null);
+});
+
+test('rejects an issue time and duration whose expiration exceeds safe integer range', () => {
+  const keyPair = keys();
+  assert.throws(
+    () => issueLicense(keyPair.privateKey, {...input, durationSeconds: 1}, Number.MAX_SAFE_INTEGER),
+    /expiration/i,
+  );
 });

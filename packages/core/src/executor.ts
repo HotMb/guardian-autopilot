@@ -8,6 +8,7 @@ import type {Candidate} from '@cleancode/shared/types';
 import {CleanCodeError} from '@cleancode/shared/errors';
 import {canDelete, enforceChangeLimits, isProtectedPath, isSafePath} from './safeguards.js';
 import {loadRepositoryConfig, matchesConfiguredRepositoryPath} from './repository-config.js';
+import {validateClosedWorldProof} from './closed-world.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -122,6 +123,11 @@ export class WorktreeExecutor {
   async applyDeletions(candidates: readonly Pick<Candidate, 'path' | 'evidence'>[]): Promise<void> {
     if (this.isolated === undefined) throw new CleanCodeError('WORKTREE_ERROR', 'Create an isolated worktree first');
     const preview = await this.inspectDeletions(this.isolated.worktreePath, candidates);
+    // Revalidate the same complete pre-delete snapshot after any work between
+    // initial inspection and the destructive boundary. All candidate proofs
+    // share this snapshot, so this happens once before deleting any candidate.
+    await this.beforeDeletionBoundary(preview.paths);
+    await this.inspectDeletions(this.isolated.worktreePath, candidates);
     for (const path of preview.paths) await rm(join(this.isolated.worktreePath, path), {force: true});
   }
 
@@ -186,6 +192,9 @@ export class WorktreeExecutor {
     }
   }
 
+  /** Test seam for changes arriving after preview but before destructive revalidation. */
+  protected async beforeDeletionBoundary(_paths: readonly string[]): Promise<void> {}
+
   private async inspectDeletions(
     root: string,
     candidates: readonly Pick<Candidate, 'path' | 'evidence'>[],
@@ -210,6 +219,11 @@ export class WorktreeExecutor {
       if (!details.isFile() || details.isSymbolicLink()) throw new CleanCodeError('POLICY_VIOLATION', `Only regular files can be deleted: ${path}`);
       try { await runGit(root, ['ls-files', '--error-unmatch', '--', path]); }
       catch { throw new CleanCodeError('POLICY_VIOLATION', `Only tracked files can be deleted: ${path}`); }
+      if (requireProof) {
+        for (const evidence of candidate.evidence) {
+          if (evidence.type === 'positive_proof') await validateClosedWorldProof(root, path, evidence);
+        }
+      }
       const content = await readFile(absolute, 'utf8');
       paths.add(path);
       bytes += details.size;

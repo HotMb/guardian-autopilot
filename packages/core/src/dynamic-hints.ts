@@ -1,7 +1,8 @@
 import * as ts from 'typescript';
 import {readFile} from 'node:fs/promises';
 import {extname, relative, resolve} from 'node:path';
-import {discoverRepository} from './manifest.js';
+import {discoverRepository, type RepositoryManifest} from './manifest.js';
+import type {SourceTextCache} from './reference-graph.js';
 
 export type DynamicHintKind = 'dynamic-require' | 'dynamic-import' | 'reflective-container' | 'dependency-injection' | 'serialization' | 'opaque-code-execution' | 'unsupported-syntax';
 
@@ -78,12 +79,22 @@ function addAstHints(path: string, content: string, hints: DynamicHint[]): void 
   visit(source);
 }
 
-export async function scanDynamicHints(rootDir: string): Promise<DynamicHint[]> {
-  const discovery = await discoverRepository(rootDir);
+export async function scanDynamicHints(
+  rootDir: string,
+  manifest?: Pick<RepositoryManifest, 'root' | 'files'>,
+  sourceTextCache?: SourceTextCache,
+): Promise<DynamicHint[]> {
+  const discovery = manifest === undefined
+    ? await discoverRepository(rootDir)
+    : {root: manifest.root, files: manifest.files.map((file) => file.path)};
   const hints: DynamicHint[] = [];
   for (const path of discovery.files) {
     if (!sourceExtensions.has(extname(path).toLowerCase())) continue;
-    const content = await readFile(resolve(discovery.root, path), 'utf8');
+    let content = sourceTextCache?.get(path);
+    if (content === undefined) {
+      content = await readFile(resolve(discovery.root, path), 'utf8');
+      sourceTextCache?.set(path, content);
+    }
     addAstHints(path, content, hints);
     const lines = content.split(/\r?\n/);
     lines.forEach((line, index) => {

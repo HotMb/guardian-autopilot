@@ -60,6 +60,8 @@ export function issueLicense(privateKey: KeyMaterial, input: LicenseIssueInput, 
   validateInput(input);
   if (!Number.isSafeInteger(nowSeconds) || nowSeconds < 0) throw new Error('License issue time is invalid');
   const durationSeconds = input.durationSeconds ?? DEFAULT_DURATION_SECONDS;
+  const exp = nowSeconds + durationSeconds;
+  if (!Number.isSafeInteger(exp)) throw new Error('License expiration is invalid');
   const payload: LicensePayload = {
     v: 1,
     plan: input.plan,
@@ -67,7 +69,7 @@ export function issueLicense(privateKey: KeyMaterial, input: LicenseIssueInput, 
     org: input.org,
     features: [...input.features],
     iat: nowSeconds,
-    exp: nowSeconds + durationSeconds,
+    exp,
     kid: input.kid,
   };
   const message = Buffer.from(JSON.stringify(payload), 'utf8');
@@ -84,7 +86,7 @@ export function verifyLicense(key: string, publicKey: KeyMaterial, nowSeconds = 
     const signature = decodeBase64Url(parts[1]);
     if (message === null || signature === null || !verify(null, message, publicKey, signature)) return null;
     const payload: unknown = JSON.parse(message.toString('utf8'));
-    if (!payloadIsValid(payload) || payload.exp <= nowSeconds) return null;
+    if (!payloadIsValid(payload) || payload.iat > nowSeconds || payload.exp <= nowSeconds) return null;
     return {...payload, features: [...payload.features]};
   } catch {
     return null;

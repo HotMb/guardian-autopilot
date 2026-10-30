@@ -3,10 +3,9 @@
   "repositoryPermissions": {
     "contents": "read",
     "metadata": "read",
-    "pull_requests": "read",
-    "checks": "read"
+    "checks": "write"
   },
-  "events": ["installation", "push", "pull_request"],
-  "writeAccess": false,
+  "events": ["installation", "push"],
+  "writePermissions": ["checks"],
   "webhookSecret": "configured-at-registration-time"
 }

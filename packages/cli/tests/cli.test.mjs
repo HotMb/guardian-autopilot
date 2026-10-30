@@ -30,6 +30,27 @@ async function fixture() {
   return root;
 }
 
+async function closedWorldFixture({autocrlf = false, unusedContent = 'export const unused = true;\n'} = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'cleancode-closed-world-review-'));
+  await mkdir(join(root, '.guardian'), {recursive: true});
+  await writeFile(join(root, 'package.json'), JSON.stringify({name: 'closed-world-review-test', private: true}));
+  await writeFile(join(root, '.guardian', 'config.json'), JSON.stringify({
+    version: 1,
+    protectedPaths: [],
+    ignoredPaths: [],
+    closedWorld: {profile: 'node-application-v1', commitment: 'all-runtime-roots-declared', entryFiles: ['safe.ts']},
+  }));
+  await writeFile(join(root, 'safe.ts'), 'export const safe = true;\n');
+  await writeFile(join(root, 'unused.ts'), unusedContent);
+  await git(root, 'init', '-q');
+  await git(root, 'config', 'user.email', 'test@example.com');
+  await git(root, 'config', 'user.name', 'CleanCode Tests');
+  if (autocrlf) await git(root, 'config', 'core.autocrlf', 'true');
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-qm', 'initial closed-world project');
+  return root;
+}
+
 async function createReviewFile(root, paths, confirmed = true) {
   const args = [cli, 'review', root];
   for (const path of paths) args.push('--path', path);
@@ -242,6 +263,32 @@ test('plan experiment tries candidates independently and keeps only verified loc
   assert.equal((await git(root, 'branch', '--list', 'cleancode/auto-*')).stdout.trim().split(/\r?\n/).length, 1);
 });
 
+test('from-plan runs a reviewed closed-world proof only as a reversible experiment', async () => {
+  const root = await closedWorldFixture({autocrlf: true, unusedContent: 'export const unused = true;\r\n'});
+  const {file: humanReviewFile} = await createReviewFile(root, ['unused.ts']);
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-proof-experiment-')), 'verification.json');
+  const sourceBranch = (await git(root, 'branch', '--show-current')).stdout.trim();
+  await writeFile(verificationFile, JSON.stringify({
+    build: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    typecheck: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+    test: {command: process.execPath, args: ['-e', 'process.exit(0)']},
+  }));
+
+  const result = await exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--review-file', humanReviewFile, '--verification-file', verificationFile, '--format=json']);
+  const batch = JSON.parse(result.stdout);
+
+  assert.equal(batch.availableCandidates, 1);
+  assert.equal(batch.attempted, 1);
+  assert.equal(batch.verified, 1);
+  assert.equal(batch.experiments[0].kind, 'closed-world-unreachable');
+  assert.match(batch.experiments[0].selectionReason, /proof bound to the reviewed file hash and repository HEAD/i);
+  assert.match(batch.experiments[0].result.reviewBranchName, /^cleancode\/auto-/);
+  assert.equal(await readFile(join(root, 'unused.ts'), 'utf8'), 'export const unused = true;\r\n');
+  assert.equal((await git(root, 'branch', '--show-current')).stdout.trim(), sourceBranch);
+  assert.match((await git(root, 'show', '--format=', '--name-status', batch.experiments[0].result.reviewBranchName)).stdout, /D\s+unused\.ts/);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+});
+
 test('plan experiment explains candidates omitted by the configured batch limit', async () => {
   const root = await fixture();
   const secondCandidate = join(root, 'src', 'unused-two.ts');
@@ -324,12 +371,12 @@ test('review refuses to write its checklist inside the repository', async () => 
 
 test('review refuses candidates protected by built-in safeguards', async () => {
   const root = await fixture();
-  await writeFile(join(root, 'src', 'unused.test.ts'), 'export const testHelper = true;\n');
+  await writeFile(join(root, 'src', 'unused.config.ts'), 'export const protectedConfig = true;\n');
   await git(root, 'add', '.');
-  await git(root, 'commit', '-qm', 'add a protected test file');
+  await git(root, 'commit', '-qm', 'add a protected config file');
 
   await assert.rejects(
-    () => exec(process.execPath, [cli, 'review', root, '--path', 'src/unused.test.ts']),
+    () => exec(process.execPath, [cli, 'review', root, '--path', 'src/unused.config.ts']),
     /protected candidate cannot receive a human review/i,
   );
   assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
@@ -469,6 +516,35 @@ test('report emits Markdown from a read-only plan', async () => {
 
   assert.match(result.stdout, /# CleanCode report/);
   assert.match(result.stdout, /src\/unused\.ts/);
+});
+
+test('report applies its configured Knip timeout and writes a complete failure report', async () => {
+  const root = await fixture();
+  const temp = await mkdtemp(join(tmpdir(), 'cleancode-report-timeout-'));
+  const bin = join(temp, 'bin');
+  await mkdir(bin, {recursive: true});
+  const knip = join(bin, process.platform === 'win32' ? 'knip.cmd' : 'knip');
+  const slowKnip = join(temp, 'slow-knip.js');
+  await writeFile(slowKnip, 'setTimeout(() => process.exit(0), 30_000);\n');
+  if (process.platform === 'win32') {
+    await writeFile(knip, `@echo off\r\n"${process.execPath}" "${slowKnip}"\r\n`);
+  } else {
+    await writeFile(knip, `#!/usr/bin/env node\n${await readFile(slowKnip, 'utf8')}`);
+    await (await import('node:fs/promises')).chmod(knip, 0o755);
+  }
+  const reportFile = join(temp, 'partial.html');
+  const startedAt = Date.now();
+  const result = await exec(process.execPath, [cli, 'report', root, '--knip', knip, '--timeout-ms', '1000', '--format=html', '--output', reportFile]).catch((error) => error);
+
+  assert.equal(result.code, undefined, `${result.stderr}\n${result.stdout}`);
+  assert.match(result.stderr, /knip-analysis completed/);
+  assert.match(result.stderr, /report completed/);
+  assert.ok(Date.now() - startedAt < 5_000, 'the CLI should honor the bounded Knip timeout rather than waiting for the fixture');
+  assert.match(result.stderr, /knip-analysis started/);
+  const report = await readFile(reportFile, 'utf8');
+  assert.match(report, /<dt>Knip<\/dt><dd>failed/);
+  assert.match(report, /<\/html>\s*$/);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
 });
 
 test('license activate and status verify Ed25519 offline', async () => {

@@ -40,13 +40,14 @@
   - [x] Security preflight, fail-closed Checkout access, and zero-cost test deployment guidance
   - [x] Read-only local/production configuration preflight with fail-closed checks
   - [x] Hosted test-mode webhook endpoint and database-backed subscription persistence (validated on Render Free + Supabase Free)
-- [x] GitHub App installation and metadata-only connection
-  - [x] Least-privilege read-only permission contract
+- [x] GitHub App hosted CleanCode commit reports (beta implementation)
+  - [x] Least-privilege Contents read, Metadata read, Checks write permission contract
   - [x] Raw-body webhook signature verification fixture
   - [x] Short-lived GitHub App JWT helper
-  - [x] Local signed webhook boundary with no-op acknowledgement
-  - [x] App registration, webhook endpoint, and installation (owner configured; signed deliveries and repository lookup validated)
-  - [x] Beta boundary: GitHub connection exposes metadata only; source analysis stays on the user's computer
+  - [x] Durable idempotent Postgres push queue, bounded temporary archive scan, and retrying worker
+  - [x] Check Run creation/update with delivery-id deduplication
+  - [ ] Owner approves the GitHub App Checks permission update and verifies a live push delivery end-to-end
+  - [ ] Confirm report usefulness on representative private and public repositories within archive limits
   - [x] Local CLI workflow using the user's GitHub CLI credentials to clone and analyze a repository without source upload
 - [ ] Team reporting, telemetry consent and data retention
   - [x] Local opt-in anonymous telemetry contract
