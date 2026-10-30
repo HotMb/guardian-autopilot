@@ -21,14 +21,14 @@
     "guardian": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:cli && tsc",
     "build:shared": "npm run build --prefix packages/shared",
     "build:license": "npm run build --prefix packages/license",
     "build:core": "npm run build --prefix packages/core",
     "build:cli": "npm run build --prefix packages/cli",
     "verify:architecture": "node scripts/verify-architecture.mjs",
     "scan": "node dist/cli.js scan",
-    "test": "npm run build && npm run build:shared && node --test tests/*.test.mjs && npm run test --prefix packages/shared && npm run test --prefix packages/license && npm run test --prefix packages/core && npm run test --prefix packages/cli && npm run verify:architecture && npm run test:cleancode:acceptance",
+    "test": "npm run build && node --test tests/*.test.mjs && npm run test --prefix packages/shared && npm run test --prefix packages/license && npm run test --prefix packages/core && npm run test --prefix packages/cli && npm run verify:architecture && npm run test:cleancode:acceptance",
     "test:cleancode:acceptance": "node --test scripts/cleancode-acceptance/*.test.mjs",
     "test:shared": "npm run test --prefix packages/shared",
     "test:core": "npm run test --prefix packages/core",

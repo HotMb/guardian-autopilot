@@ -5,7 +5,7 @@ COPY package.json package-lock.json tsconfig.json ./
 COPY packages ./packages
 RUN npm ci
 COPY src ./src
-RUN npm run build:cli && npm run build
+RUN npm run build
 
 FROM node:22-bookworm-slim AS runtime
 
