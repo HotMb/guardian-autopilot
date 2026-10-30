@@ -415,13 +415,16 @@ export async function runCli(args: readonly string[]): Promise<number> {
         console.error(`[cleancode] report: ${event.phase} ${event.state}${duration} (${elapsed} elapsed)`);
       }
     };
+    // Leave room for the external analyzer to be terminated and the failure
+    // report to be rendered after its own timeout has elapsed.
+    const reportFinalizationGraceMs = 5_000;
     const timeout = setTimeout(() => {
-      process.stderr.write(`[cleancode] report timed out after ${timeoutMs} ms; no report was written.\n`, () => process.exit(124));
-    }, timeoutMs);
+      process.stderr.write(`[cleancode] report exceeded its analysis timeout and ${reportFinalizationGraceMs} ms finalization grace; no report was written.\n`, () => process.exit(124));
+    }, timeoutMs + reportFinalizationGraceMs);
     try {
       const plannedReport = await planRepository(root, {
         knipExecutable: optionValue(values, '--knip'),
-        knipTimeoutMs: Math.max(1, timeoutMs - 500),
+        knipTimeoutMs: timeoutMs,
         onProgress,
       });
       clearTimeout(timeout);
