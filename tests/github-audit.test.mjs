@@ -234,7 +234,7 @@ test('hosted audit analyzes an ephemeral commit archive without running reposito
   await mkdir(source);
   await writeFile(join(source, 'package.json'), JSON.stringify({scripts: {postinstall: 'throw new Error("must not execute")'}}));
   await writeFile(join(source, 'app.js'), 'export const value = 1;\n');
-  await createTar({gzip: true, cwd: source, file: archivePath}, ['package.json', 'app.js']);
+  await createTar({gzip: true, cwd: temporary, file: archivePath}, ['source/package.json', 'source/app.js']);
   const archive = await readFile(archivePath);
   const calls = [];
   let persistedCheckRun;
@@ -255,6 +255,35 @@ test('hosted audit analyzes an ephemeral commit archive without running reposito
     assert.match(calls[1][4].summary, /Deletion readiness:/);
     assert.match(calls[1][4].summary, /did not execute repository scripts/);
     assert.doesNotMatch(calls[1][4].summary, /must not execute/);
+  } finally {
+    await rm(temporary, {recursive: true, force: true});
+  }
+});
+
+test('oversized hosted reports fail closed instead of publishing a truncated candidate list', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'guardian-audit-large-report-'));
+  const source = join(temporary, 'source');
+  const archivePath = join(temporary, 'repository.tar.gz');
+  await mkdir(source);
+  const fileCount = 1200;
+  await writeFile(join(source, 'package.json'), JSON.stringify({name: 'large-report-fixture', private: true}));
+  for (let index = 0; index < fileCount; index += 1) {
+    await writeFile(join(source, `unreferenced-module-${String(index).padStart(4, '0')}.js`), `export const value${index} = ${index};\n`);
+  }
+  await createTar({gzip: true, cwd: temporary, file: archivePath}, ['source/package.json', ...Array.from({length: fileCount}, (_, index) => `source/unreferenced-module-${String(index).padStart(4, '0')}.js`)]);
+  const archive = await readFile(archivePath);
+  let output;
+  try {
+    await processGitHubAuditJob({...parseGitHubAuditEvent('push', 'delivery-large-report', validPush()).jobs[0], attempts: 1}, () => ({
+      async getRepository(owner, name) { return {id: 1701, fullName: `${owner}/${name}`, defaultBranch: 'main', private: true}; },
+      async downloadRepositoryArchive() { return new Response(Readable.toWeb(Readable.from([archive]))); },
+      async createCheckRun() { return 903; },
+      async completeCheckRun(owner, name, id, result) { output = result; },
+    }), async () => {});
+    assert.equal(output.conclusion, 'neutral');
+    assert.match(output.summary, /Report too large for GitHub Checks/);
+    assert.match(output.summary, /No candidate is actionable/);
+    assert.doesNotMatch(output.summary, /Complete CleanCode report|unreferenced-module-0000/);
   } finally {
     await rm(temporary, {recursive: true, force: true});
   }

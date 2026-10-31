@@ -94,7 +94,7 @@ async function createArchive(root, commitLabel) {
   await mkdir(source);
   await writeFile(join(source, 'package.json'), JSON.stringify({name: `fixture-${commitLabel}`, scripts: {preinstall: 'throw new Error("repository scripts must not run")'}}));
   await writeFile(join(source, 'app.js'), `export const commit = '${commitLabel}';\n`);
-  await createTar({gzip: true, cwd: source, file: archivePath}, ['package.json', 'app.js']);
+  await createTar({gzip: true, cwd: root, file: archivePath}, [`source-${commitLabel}/package.json`, `source-${commitLabel}/app.js`]);
   return readFile(archivePath);
 }
 
