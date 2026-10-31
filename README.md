@@ -58,7 +58,7 @@ The optional GitHub App can analyze each pushed commit and attach a `CleanCode a
 
 The `Guardian cleanup review` workflow runs a **manually selected** candidate on a GitHub-hosted runner and uploads `cleanup.patch` and `report.json` for review only when build, typecheck and tests succeed. It checks out the exact triggering commit, requires the verification file to be tracked, and validates that the resulting commit contains exactly the requested deletion. It has read-only repository permissions and does not create a pull request or merge changes.
 
-For this repository, open **Actions → Guardian cleanup review → Run workflow**, select a branch, and supply a reviewed repository-relative candidate and a tracked verification file. The file uses the command format below; replace the commands with the actual checks for your project:
+For this repository, open **Actions → Guardian cleanup review → Run workflow**, select a branch, and supply a reviewed repository-relative candidate and `guardian-checks.json`. Its preparation step runs `npm ci`, so review it and enable `allow_preparation` for the run. Other projects need their own tracked verification file; for example:
 
 ```json
 {
