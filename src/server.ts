@@ -13,7 +13,7 @@ const defaultMaxBodyBytes = 4 * 1024 * 1024;
 const defaultRateLimit = {windowMs: 60_000, maxRequests: 120, maxEntries: 10_000} as const;
 
 export type BillingWebhookServerOptions = {
-  endpointSecret: string;
+  endpointSecret?: string;
   store: SubscriptionStore;
   githubWebhookSecret?: string;
   githubAuditEnqueue?: (job: GitHubAuditJob) => Promise<'queued' | 'duplicate'>;
@@ -209,7 +209,7 @@ function parseGitHubPayload(rawBody: Buffer): Record<string, unknown> {
 
 /** Framework-free HTTP boundary for signed Stripe subscription webhooks. */
 export function createBillingWebhookServer(options: BillingWebhookServerOptions): Server {
-  if (options.endpointSecret.trim() === '') throw new Error('Stripe webhook endpoint secret is required');
+  if (options.endpointSecret !== undefined && options.endpointSecret.trim() === '') throw new Error('Stripe webhook endpoint secret must not be empty');
   if (options.githubWebhookSecret !== undefined && options.githubWebhookSecret.trim() === '') throw new Error('GitHub webhook secret is required');
   const maxBodyBytes = options.maxBodyBytes ?? defaultMaxBodyBytes;
   if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new Error('maxBodyBytes must be a positive safe integer');
@@ -359,6 +359,10 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
     }
     if (request.method !== 'POST' || request.url !== '/webhooks/stripe') {
       sendJson(response, 404, {error: 'not found'});
+      return;
+    }
+    if (options.endpointSecret === undefined) {
+      sendJson(response, 503, {error: 'Stripe webhook unavailable'});
       return;
     }
     try {

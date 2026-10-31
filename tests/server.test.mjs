@@ -71,6 +71,18 @@ test('billing webhook HTTP boundary rejects oversized bodies and unknown routes'
   }
 });
 
+test('GitHub audit server starts without Stripe and keeps billing endpoints disabled', async () => {
+  const server = createBillingWebhookServer({store: new MemorySubscriptionStore(), githubWebhookSecret: 'github_webhook_test'});
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    assert.deepEqual(await call(server, '/healthz', 'GET'), {statusCode: 200, json: {ok: true, service: 'guardian-autopilot'}});
+    assert.deepEqual(await call(server, '/webhooks/stripe', 'POST', '{}'), {statusCode: 503, json: {error: 'Stripe webhook unavailable'}});
+    assert.deepEqual(await call(server, '/billing/checkout', 'POST', '{}'), {statusCode: 503, json: {error: 'checkout unavailable'}});
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('billing server emits security headers and applies bounded rate limiting', async () => {
   const server = createBillingWebhookServer({
     endpointSecret: secret,

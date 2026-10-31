@@ -38,6 +38,21 @@ test('production preflight accepts PostgreSQL and a public container bind', () =
   assert.equal(result.status, 'ready');
 });
 
+test('production preflight allows the free GitHub audit service without Stripe billing', () => {
+  const result = runPreflight({
+    HOST: '0.0.0.0',
+    DATABASE_URL: 'postgresql://user:pass@db.example.test:5432/guardian',
+    DATABASE_MAX_CONNECTIONS: '3',
+    GITHUB_WEBHOOK_SECRET: 'github-webhook-secret',
+    GITHUB_APP_ID: '123456',
+    GITHUB_APP_PRIVATE_KEY: '-----BEGIN RSA PRIVATE KEY-----\\nMIIE\\n-----END RSA PRIVATE KEY-----',
+  }, true);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.checks.find((check) => check.id === 'stripe-webhook-secret').status, 'pass');
+  assert.match(result.checks.find((check) => check.id === 'stripe-webhook-secret').message, /Stripe billing is disabled/i);
+  assert.equal(result.checks.find((check) => check.id === 'github-audit').status, 'pass');
+});
+
 test('production preflight validates the PostgreSQL connection pool cap', () => {
   const invalid = runPreflight({...base, DATABASE_URL: 'postgresql://user:pass@db.example.test:5432/guardian', HOST: '0.0.0.0', DATABASE_MAX_CONNECTIONS: '0'}, true);
   assert.equal(invalid.status, 'blocked');

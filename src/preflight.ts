@@ -24,10 +24,12 @@ function add(checks: PreflightCheck[], id: string, status: PreflightCheck['statu
 export function runPreflight(env: NodeJS.ProcessEnv = process.env, production = false): PreflightResult {
   const checks: PreflightCheck[] = [];
   const mode = production ? 'production' : 'local';
-  if (present(env.STRIPE_WEBHOOK_SECRET)) add(checks, 'stripe-webhook-secret', 'pass', 'Stripe webhook secret is configured.');
-  else add(checks, 'stripe-webhook-secret', 'fail', 'STRIPE_WEBHOOK_SECRET is missing.');
-
   const stripeKey = env.STRIPE_SECRET_KEY?.trim();
+  const stripeWebhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim();
+  if (present(stripeWebhookSecret)) add(checks, 'stripe-webhook-secret', 'pass', 'Stripe webhook secret is configured.');
+  else if (present(stripeKey)) add(checks, 'stripe-webhook-secret', 'fail', 'STRIPE_WEBHOOK_SECRET is required when enabling Stripe Checkout.');
+  else add(checks, 'stripe-webhook-secret', 'pass', 'Stripe billing is disabled; no webhook secret is required.');
+
   if (!present(stripeKey)) {
     add(checks, 'stripe-api-key', 'pass', 'Stripe API key is not configured; Checkout remains disabled.');
   } else if (/^(sk|rk)_live_/.test(stripeKey ?? '')) {

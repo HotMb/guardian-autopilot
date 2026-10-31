@@ -63,7 +63,7 @@ const command = argumentsList.shift();
 const target = argumentsList[0]?.startsWith('--') || argumentsList.length === 0 ? '.' : (argumentsList.shift() ?? '.');
 
 if (command !== 'scan' && command !== 'inventory' && command !== 'references' && command !== 'plan' && command !== 'cleanup' && command !== 'mcp' && command !== 'webhook' && command !== 'preflight') {
-  console.log('Guardian Autopilot\nUsage:\n  guardian scan [directory]\n  guardian inventory [directory]\n  guardian references [directory]\n  guardian plan [directory]\n  guardian cleanup [directory] [--apply] [--check <command>] [--check-json <json>] <tracked-file>...\n  guardian mcp\n  guardian webhook\n  guardian preflight [--production]\nScan, references and plan are read-only; inventory writes only .guardian/index.json. Cleanup is a dry-run unless --apply is explicitly provided. MCP exposes read-only tools only. Webhook listens on HOST/PORT (defaults 127.0.0.1:8787), requires STRIPE_WEBHOOK_SECRET, and optionally verifies GitHub deliveries with GITHUB_WEBHOOK_SECRET. Preflight only validates local configuration and never creates cloud resources.');
+  console.log('Guardian Autopilot\nUsage:\n  guardian scan [directory]\n  guardian inventory [directory]\n  guardian references [directory]\n  guardian plan [directory]\n  guardian cleanup [directory] [--apply] [--check <command>] [--check-json <json>] <tracked-file>...\n  guardian mcp\n  guardian webhook\n  guardian preflight [--production]\nScan, references and plan are read-only; inventory writes only .guardian/index.json. Cleanup is a dry-run unless --apply is explicitly provided. MCP exposes read-only tools only. Webhook listens on HOST/PORT (defaults 127.0.0.1:8787); Stripe billing is optional, and GitHub audits use GITHUB_WEBHOOK_SECRET when configured. Preflight only validates local configuration and never creates cloud resources.');
   process.exit(command === undefined || command === '--help' ? 0 : 1);
 }
 try {
@@ -74,12 +74,13 @@ try {
     console.log(JSON.stringify(result, null, 2));
     if (result.status === 'blocked') process.exitCode = 1;
   } else if (command === 'webhook') {
-    const secret = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!secret) throw new Error('STRIPE_WEBHOOK_SECRET is required');
+    const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    const endpointSecret = stripeWebhookSecret === undefined || stripeWebhookSecret === '' ? undefined : stripeWebhookSecret;
     const port = Number.parseInt(process.env.PORT ?? '8787', 10);
     if (!Number.isSafeInteger(port) || port <= 0 || port > 65535) throw new Error('PORT must be a valid TCP port');
     const host = process.env.HOST?.trim() || '127.0.0.1';
-    const checkoutEnabled = process.env.STRIPE_SECRET_KEY !== undefined;
+    const stripeApiKey = process.env.STRIPE_SECRET_KEY?.trim();
+    const checkoutEnabled = stripeApiKey !== undefined && stripeApiKey !== '' && endpointSecret !== undefined;
     const checkoutConfiguration = checkoutEnabled ? checkoutConfigurationFromEnv() : undefined;
     const stripeClient = checkoutConfiguration === undefined ? undefined : createStripeClient(checkoutConfiguration);
     const checkoutAccessToken = process.env.STRIPE_CHECKOUT_ACCESS_TOKEN?.trim();
@@ -127,7 +128,7 @@ try {
     if (auditQueue !== undefined) await auditQueue.initialize();
     const store = postgresStore ?? (storePath === undefined || storePath === '' ? new MemorySubscriptionStore() : new FileSubscriptionStore(storePath));
     const server = createBillingWebhookServer({
-      endpointSecret: secret,
+      ...(endpointSecret === undefined ? {} : {endpointSecret}),
       ...(githubWebhookSecret === undefined || githubWebhookSecret === '' ? {} : {githubWebhookSecret}),
       ...(auditQueue === undefined ? {} : {githubAuditEnqueue: (job) => auditQueue.enqueue(job)}),
       ...(githubClient === undefined || githubAccessToken === undefined || githubOwner === undefined || githubName === undefined ? {} : {githubClient, githubAccessToken, githubRepository: {owner: githubOwner, name: githubName}}),

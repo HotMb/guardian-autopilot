@@ -1,8 +1,7 @@
 # Free beta deployment
 
-This path is for validation without a paid Google Cloud database or a domain.
-It is not a production availability promise and must use Stripe sandbox keys
-and sandbox prices only.
+This path is for validating GitHub commit audits without paid Google Cloud
+infrastructure, a domain, or Stripe. It is not a production availability promise.
 
 ## Architecture
 
@@ -12,8 +11,6 @@ GitHub main
 Render Free Web Service (Docker + HTTPS + temporary onrender.com URL)
     |
 Supabase Free PostgreSQL
-    |
-Stripe Sandbox
 ```
 
 Render's free web service sleeps after inactivity and has an ephemeral
@@ -29,9 +26,9 @@ plan for real customers or live payments.
    GitHub or this repository.
 4. Keep SSL enabled in the connection string, for example with
    `sslmode=require` when Supabase provides that form.
-5. The application creates its two required tables on startup. Confirm that
-   `guardian_processed_events` and `guardian_subscriptions` appear after the
-   first healthy deployment.
+5. The subscription store creates `guardian_processed_events` and
+   `guardian_subscriptions`; the GitHub audit queue creates
+   `guardian_github_audit_jobs` when audit settings are configured.
 
 ## 2. Create the free Render service
 
@@ -40,35 +37,24 @@ plan for real customers or live payments.
 3. Render detects [`render.yaml`](../render.yaml) and proposes the Free plan.
 4. Set every `sync: false` variable in the dashboard; never commit these
    values.
-5. Use the service URL Render assigns as `CORS_ORIGINS` when a browser client
-   calls Checkout. If there is no browser client yet, leave it empty.
+5. GitHub webhooks are server-to-server and do not need a CORS setting. Add
+   `CORS_ORIGINS` only if a browser client is introduced later.
 6. Deploy and wait for `GET /healthz` to return HTTP 200.
 
-## 3. Configure Stripe sandbox
+## 3. Keep billing disabled during the free beta
 
-Use only values from the connected Stripe sandbox:
+Stripe is not required for GitHub commit audits. Leave all `STRIPE_*` variables
+unset; `/billing/checkout` and `/webhooks/stripe` stay disabled while `/healthz`
+and `/webhooks/github` remain available. This avoids collecting payment details
+or starting subscriptions during product validation.
 
-- `STRIPE_SECRET_KEY` must start with `sk_test_` or `rk_test_`;
-- `STRIPE_PRICE_PRO` and `STRIPE_PRICE_TEAM` must belong to the same sandbox;
-- `STRIPE_CHECKOUT_ACCESS_TOKEN` must be a long random value;
-- `STRIPE_CHECKOUT_SUCCESS_URL` and `STRIPE_CHECKOUT_CANCEL_URL` must point to
-  a real frontend or a temporary test page;
-- `STRIPE_WEBHOOK_SECRET` must come from the Stripe test-mode endpoint, not
-  from a different account or environment.
-
-Register this test endpoint in Stripe:
-
-```text
-https://<render-service>.onrender.com/webhooks/stripe
-```
-
-Subscribe to `customer.subscription.created`,
-`customer.subscription.updated`, and `customer.subscription.deleted`.
+To test paid subscriptions later, configure the full Stripe sandbox setup in
+the deployment guide and run its separate billing checks.
 
 ## 4. Verify the beta
 
-Run the preflight with the same variables locally before copying them to
-Render:
+Run the preflight with the GitHub and PostgreSQL variables before copying them
+to Render:
 
 ```powershell
 node dist/cli.js preflight --production
@@ -77,11 +63,11 @@ node dist/cli.js preflight --production
 Then verify, in order:
 
 1. `GET /healthz` returns 200;
-2. Stripe sends a signed test subscription event and receives 200;
-3. the Supabase tables contain the subscription and processed event;
-4. a duplicate event is acknowledged without creating a second record;
-5. Checkout returns a sandbox URL;
-6. a restart still reads the subscription state.
+2. GitHub sends a signed push and receives `202`;
+3. the commit's Checks tab shows a `CleanCode audit` report;
+4. a redelivered push is deduplicated;
+5. the PostgreSQL audit queue contains metadata only, not source archives;
+6. a restart still serves `/healthz` and resumes queued work.
 
 ## Limits and exit criteria
 

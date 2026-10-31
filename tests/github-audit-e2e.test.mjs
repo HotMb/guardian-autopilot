@@ -13,7 +13,6 @@ import {createBillingWebhookServer} from '../dist/server.js';
 import {MemorySubscriptionStore} from '../dist/subscriptions.js';
 
 const webhookSecret = 'github-e2e-webhook-secret';
-const stripeSecret = 'whsec_e2e_unused';
 const sha1 = 'b'.repeat(40);
 const sha2 = 'a'.repeat(40);
 
@@ -132,7 +131,6 @@ test('end-to-end GitHub push authenticates, queues every commit, scans archives,
     saveCheckRunId,
   ), {pollIntervalMs: 100, log: (message) => assert.fail(`unexpected worker log: ${message}`)});
   const server = createBillingWebhookServer({
-    endpointSecret: stripeSecret,
     githubWebhookSecret: webhookSecret,
     githubAuditEnqueue: (job) => queue.enqueue(job),
     store: new MemorySubscriptionStore(),
