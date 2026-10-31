@@ -1,8 +1,8 @@
 # Security and launch gate
 
-Guardian Autopilot is not ready for an unattended public deployment yet. The safe
-default is to keep the service local and use Stripe CLI test-mode forwarding while
-the architecture, data policy, and operational limits are being validated.
+Guardian Autopilot is in a free validation beta, not ready for unattended
+production. GitHub commit audits do not require Stripe; keep billing disabled
+until paid subscriptions are deliberately introduced.
 
 Run `npm exec guardian -- preflight` for a local check, or
 `npm exec guardian -- preflight --production` before a hosted test deployment. It
@@ -19,8 +19,10 @@ only reads configuration and never creates cloud resources.
   per-process rate limit (120 requests per minute per source address by default).
 - Browser requests are denied unless their exact origin is listed in
   `CORS_ORIGINS`; wildcard origins are not accepted.
-- Checkout is disabled unless the Stripe configuration **and**
-  `STRIPE_CHECKOUT_ACCESS_TOKEN` are present. Calls must send
+- Stripe webhook handling is unavailable without `STRIPE_WEBHOOK_SECRET`;
+  GitHub audit startup does not depend on Stripe.
+- Checkout is disabled unless the Stripe test configuration, webhook secret,
+  and `STRIPE_CHECKOUT_ACCESS_TOKEN` are present. Calls must send
   `Authorization: Bearer <token>`.
 - Live Stripe keys are rejected by the local Checkout configuration.
 - Subscription state can use PostgreSQL transactions and unique event IDs when
@@ -28,11 +30,12 @@ only reads configuration and never creates cloud resources.
 
 ## Free test path
 
-1. Keep the webhook process local and use `stripe listen` for Stripe test events.
-2. If an external GitHub or Stripe callback is needed temporarily, use a
-   Cloudflare Quick Tunnel (`cloudflared tunnel --url http://localhost:8787`).
-3. Treat the generated `trycloudflare.com` URL as a disposable development URL:
-   Quick Tunnels are for testing and development, not production hosting.
+1. Use Render Free and Supabase Free as described in the
+   [free beta runbook](FREE-BETA-DEPLOYMENT.md).
+2. Leave every `STRIPE_*` variable unset; `/billing/checkout` and
+   `/webhooks/stripe` remain unavailable.
+3. Verify the GitHub webhook and commit Check Run before considering the hosted
+   integration usable.
 4. Do not create a Google Cloud project, Cloud SQL instance, or live Stripe
    endpoint until the preflight below is complete.
 
@@ -86,6 +89,7 @@ Before accepting real users or real payments, the owner must confirm:
   deletion requests;
 - a load/abuse test using only test data and an explicit monthly cost ceiling.
 
-The hosted test-mode webhook and database-backed deployment are validated on the
-free beta path. Production availability, backups, cost controls and the remaining
-owner-controlled launch decisions are still intentionally uncompleted.
+Local contract tests cover the webhook and database boundaries. The hosted
+health check and a real GitHub delivery must succeed before the hosted beta is
+considered validated. Production availability, backups, cost controls and the
+remaining owner-controlled launch decisions are still intentionally uncompleted.

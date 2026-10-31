@@ -1,28 +1,17 @@
 # Webhook deployment checklist
 
-The repository includes a provider-neutral Docker image for the Stripe webhook server. It does not select a hosting provider, create cloud resources, or contain credentials.
+The repository includes a provider-neutral Docker image for the webhook service. Stripe billing is optional; GitHub commit audits can run without Stripe. The image does not select a hosting provider, create cloud resources, or contain credentials.
 
 ## Build and run locally
 
 ```bash
 docker build -t guardian-autopilot-webhook .
-docker run --rm -p 8787:8787 \
-  -e STRIPE_WEBHOOK_SECRET=whsec_test_value \
-  -e STRIPE_SECRET_KEY=sk_test_value \
-  -e STRIPE_PRICE_PRO=price_test_pro \
-  -e STRIPE_PRICE_TEAM=price_test_team \
-  -e STRIPE_CHECKOUT_SUCCESS_URL=https://example.invalid/billing/success \
-  -e STRIPE_CHECKOUT_CANCEL_URL=https://example.invalid/billing/cancel \
-  -e STRIPE_CHECKOUT_ACCESS_TOKEN=replace_with_a_long_random_value \
-  -e CORS_ORIGINS=https://app.example.com \
-  -e STRIPE_SUBSCRIPTION_STORE_PATH=/var/lib/guardian/subscriptions.json \
-  -v guardian-autopilot-data:/var/lib/guardian \
-  guardian-autopilot-webhook
+docker run --rm -p 8787:8787 guardian-autopilot-webhook
 ```
 
-The image binds to `0.0.0.0`, exposes port `8787`, and runs as the unprivileged `node` user. The example uses the mounted volume for single-instance local persistence; the volume must be durable for webhook de-duplication and subscription state to survive replacement of the container.
+The image binds to `0.0.0.0`, exposes port `8787`, and runs as the unprivileged `node` user. Stripe endpoints are unavailable until Stripe configuration is supplied.
 
-For a horizontally scaled service, provide `DATABASE_URL` instead of `STRIPE_SUBSCRIPTION_STORE_PATH`. The service creates the two required PostgreSQL tables at startup and uses a transaction plus a unique event constraint so retries remain safe across instances. Set a Cloud Run maximum instance count that matches the database connection budget.
+For a horizontally scaled service, provide `DATABASE_URL` instead of `STRIPE_SUBSCRIPTION_STORE_PATH`. The subscription store creates its two PostgreSQL tables at startup; enabling GitHub audits also creates the durable audit-queue table. Subscription events use transactions and a unique event constraint so retries remain safe across instances. Set a Cloud Run maximum instance count that matches the database connection budget.
 
 ## Recommended scalable target
 
@@ -37,9 +26,9 @@ This repository does not create the Google Cloud project, billing account, datab
 ## Before exposing it publicly
 
 1. Choose a hosting provider with a stable HTTPS URL and a durable volume or database.
-2. Supply `STRIPE_WEBHOOK_SECRET`, and provide the Checkout variables plus a long random `STRIPE_CHECKOUT_ACCESS_TOKEN` only when Checkout is enabled. Requests to Checkout must send `Authorization: Bearer <token>`.
-3. For hosted CleanCode commit reports, configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, and `DATABASE_URL`; request Contents: read, Metadata: read, and Checks: write, subscribe to Push, then install/update the App. See the [GitHub audit setup](GITHUB_APP.md). Without all four settings, a push cannot be durably queued.
-4. Register `https://<host>/webhooks/stripe` as a Stripe test-mode endpoint subscribed to the three subscription lifecycle events.
+2. For hosted CleanCode commit reports, configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, and `DATABASE_URL`; request Contents: read, Metadata: read, and Checks: write, subscribe to Push, then install/update the App. See the [GitHub audit setup](GITHUB_APP.md). Without all four settings, a push cannot be durably queued.
+3. Configure `STRIPE_WEBHOOK_SECRET` only when enabling Stripe billing. Checkout additionally requires the Stripe test API key, price IDs, return URLs, and a long random `STRIPE_CHECKOUT_ACCESS_TOKEN`. Requests to Checkout must send `Authorization: Bearer <token>`.
+4. When billing is enabled, register `https://<host>/webhooks/stripe` as a Stripe test-mode endpoint subscribed to the three subscription lifecycle events.
 5. Configure the provider's health probe to `GET /healthz`.
 6. Restrict logs and environment access; do not put secrets in the image, repository, or command history.
 7. If a browser frontend calls Checkout, set `CORS_ORIGINS` to its exact HTTPS origin; never use `*`.
