@@ -252,9 +252,39 @@ test('hosted audit analyzes an ephemeral commit archive without running reposito
     assert.equal(calls[1][4].conclusion, 'neutral', calls[1][4].summary);
     assert.match(calls[1][4].summary, /Complete CleanCode report \(Markdown\)/);
     assert.match(calls[1][4].summary, /Repository discovery: complete/);
+    assert.match(calls[1][4].summary, /Files scanned: 2/);
     assert.match(calls[1][4].summary, /Deletion readiness:/);
     assert.match(calls[1][4].summary, /did not execute repository scripts/);
     assert.doesNotMatch(calls[1][4].summary, /must not execute/);
+  } finally {
+    await rm(temporary, {recursive: true, force: true});
+  }
+});
+
+test('hosted audit blocks archives that cannot represent one complete repository snapshot', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'guardian-audit-malformed-'));
+  try {
+    await mkdir(join(temporary, 'first'));
+    await mkdir(join(temporary, 'second'));
+    await mkdir(join(temporary, 'empty'));
+    await writeFile(join(temporary, 'flat.js'), 'export const flat = true;');
+    await writeFile(join(temporary, 'first', 'one.js'), 'export const one = true;');
+    await writeFile(join(temporary, 'second', 'two.js'), 'export const two = true;');
+    for (const [label, entries] of [['flat', ['flat.js']], ['multiple-roots', ['first/one.js', 'second/two.js']], ['empty', ['empty/']]]) {
+      const archivePath = join(temporary, `${label}.tar.gz`);
+      await createTar({gzip: true, cwd: temporary, file: archivePath}, entries);
+      const archive = await readFile(archivePath);
+      let output;
+      await processGitHubAuditJob({...parseGitHubAuditEvent('push', `delivery-${label}`, validPush()).jobs[0], attempts: 1}, () => ({
+        async getRepository(owner, name) { return {id: 1701, fullName: `${owner}/${name}`, defaultBranch: 'main', private: true}; },
+        async downloadRepositoryArchive() { return new Response(Readable.toWeb(Readable.from([archive]))); },
+        async createCheckRun() { return 904; },
+        async completeCheckRun(owner, name, id, result) { output = result; },
+      }), async () => {});
+      assert.equal(output.conclusion, 'action_required', label);
+      assert.match(output.summary, /Analysis blocked/, label);
+      assert.doesNotMatch(output.summary, /Repository discovery: complete/, label);
+    }
   } finally {
     await rm(temporary, {recursive: true, force: true});
   }

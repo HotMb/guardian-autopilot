@@ -147,6 +147,7 @@ async function extractRepositoryArchive(response: Response, destination: string)
   const expanded = {bytes: 0};
   const snapshot = {files: 0, bytes: 0, unsupported: false};
   const seen = new Set<string>();
+  let archiveRoot: string | undefined;
   const unpack = extractTar({
     cwd: destination,
     strip: 1,
@@ -158,8 +159,18 @@ async function extractRepositoryArchive(response: Response, destination: string)
         snapshot.unsupported = true;
         return false;
       }
-      if (isDefaultIgnoredPath(archivePath)) return false;
       const kind = 'type' in entry ? String(entry.type) : '';
+      const parts = archivePath.replaceAll('\\', '/').split('/').filter((part) => part !== '');
+      if (parts.length === 0 || parts.some((part) => part === '.') || (parts.length === 1 && kind !== 'Directory')) {
+        snapshot.unsupported = true;
+        return false;
+      }
+      if (archiveRoot === undefined) archiveRoot = parts[0];
+      else if (archiveRoot !== parts[0]) {
+        snapshot.unsupported = true;
+        return false;
+      }
+      if (isDefaultIgnoredPath(parts.slice(1).join('/'))) return false;
       if (kind === 'Directory') return true;
       if (!['File', 'OldFile', 'ContiguousFile'].includes(kind)) {
         snapshot.unsupported = true;
@@ -196,7 +207,7 @@ async function extractRepositoryArchive(response: Response, destination: string)
   } catch {
     throw new IncompleteSnapshotError('archive_extract_failed');
   }
-  if (snapshot.unsupported) throw new IncompleteSnapshotError('archive_contains_unsupported_entries_or_exceeds_scan_limits');
+  if (snapshot.unsupported || snapshot.files === 0) throw new IncompleteSnapshotError('archive_contains_unsupported_entries_or_exceeds_scan_limits');
 }
 
 function blockedSummary(code: string): string {

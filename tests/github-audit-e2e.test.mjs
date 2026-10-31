@@ -167,6 +167,7 @@ test('end-to-end GitHub push authenticates, queues every commit, scans archives,
       assert.equal(check.output.conclusion, 'neutral');
       assert.match(check.output.summary, /read-only/i);
       assert.match(check.output.summary, /did not execute repository scripts/i);
+      assert.match(check.output.summary, /Files scanned: 2/);
       assert.doesNotMatch(check.output.summary, /repository scripts must not run/);
     }
 
