@@ -250,7 +250,9 @@ test('hosted audit analyzes an ephemeral commit archive without running reposito
     assert.equal(calls[1][0], 'complete');
     assert.equal(calls[1][3], 902);
     assert.equal(calls[1][4].conclusion, 'neutral', calls[1][4].summary);
-    assert.match(calls[1][4].summary, /Complete CleanCode report/);
+    assert.match(calls[1][4].summary, /Complete CleanCode report \(Markdown\)/);
+    assert.match(calls[1][4].summary, /Repository discovery: complete/);
+    assert.match(calls[1][4].summary, /Deletion readiness:/);
     assert.match(calls[1][4].summary, /did not execute repository scripts/);
     assert.doesNotMatch(calls[1][4].summary, /must not execute/);
   } finally {

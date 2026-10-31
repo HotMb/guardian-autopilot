@@ -213,24 +213,15 @@ function blockedSummary(code: string): string {
   return descriptions[code] ?? descriptions.audit_analysis_failed!;
 }
 
-function safeCheckSummary(job: GitHubAuditJob, reportJson?: string, blockedCode?: string): string {
+function safeCheckSummary(job: GitHubAuditJob, reportMarkdown?: string, blockedCode?: string): string {
   const heading = `CleanCode audit for ${job.fullName} at commit ${job.commitSha}`;
   if (blockedCode !== undefined) return `## ${heading}\n\n**Analysis blocked.** ${blockedSummary(blockedCode)}\n\nNo repository files were modified and no project scripts were executed.`;
-  if (reportJson === undefined) return `## ${heading}\n\n**Analysis blocked.** ${blockedSummary('audit_analysis_failed')}`;
-  let serialized: string;
-  try {
-    const report = JSON.parse(reportJson) as Record<string, unknown>;
-    report.root = `${job.fullName}@${job.commitSha}`;
-    serialized = JSON.stringify(report, null, 2);
-  } catch {
-    return `## ${heading}\n\n**Analysis blocked.** ${blockedSummary('audit_analysis_failed')}`;
-  }
+  if (reportMarkdown === undefined) return `## ${heading}\n\n**Analysis blocked.** ${blockedSummary('audit_analysis_failed')}`;
   const escapeHtml = (value: string): string => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-  const body = `<details><summary>Complete CleanCode report (JSON)</summary>\n\n<pre><code>${escapeHtml(serialized)}</code></pre>\n\n</details>`;
+  const body = `<details><summary>Complete CleanCode report (Markdown)</summary>\n\n${escapeHtml(reportMarkdown)}\n\n</details>`;
   const summary = `## ${heading}\n\nThis report is **read-only**. The hosted audit did not execute repository scripts or modify repository files. External analyzers and closed-world execution proofs are disabled in hosted mode; deletion readiness remains fail-closed.\n\n${body}`;
   if (summary.length <= maxCheckSummaryChars) return summary;
-  const metrics = serialized.slice(0, 12_000);
-  return `## ${heading}\n\nThe full report exceeded GitHub's safe Check Run summary budget and has been abbreviated. No candidate is treated as actionable from a truncated report.\n\n<details><summary>Report excerpt (JSON)</summary>\n\n<pre><code>${escapeHtml(metrics)}</code></pre>\n\n</details>`;
+  return `## ${heading}\n\n**Report too large for GitHub Checks.** The complete report was not shortened or partially published. No candidate is actionable from this result.\n\nThe read-only analysis finished; no repository files were modified and no project scripts were executed.`;
 }
 
 function checkOutput(job: GitHubAuditJob, reportJson?: string, blockedCode?: string): GitHubCheckOutput {
@@ -250,7 +241,7 @@ export async function processGitHubAuditJob(
 ): Promise<void> {
   const client = createClient(job);
   let root: string | undefined;
-  let reportJson: string | undefined;
+  let reportMarkdown: string | undefined;
   let blockedCode: string | undefined;
   try {
     const repository = await client.getRepository(job.owner, job.repository);
@@ -261,7 +252,7 @@ export async function processGitHubAuditJob(
       const archive = await client.downloadRepositoryArchive(job.owner, job.repository, job.commitSha);
       await extractRepositoryArchive(archive, root);
       const plan = await planRepository(root, {runExternalTools: false});
-      reportJson = renderReport(plan, 'json');
+      reportMarkdown = renderReport(plan, 'markdown');
       if (plan.discoveryStatus !== 'complete') blockedCode = 'audit_analysis_failed';
     }
   } catch (error) {
@@ -270,7 +261,7 @@ export async function processGitHubAuditJob(
     if (root !== undefined) await rm(root, {recursive: true, force: true}).catch(() => undefined);
   }
 
-  const output = checkOutput(job, reportJson, blockedCode);
+  const output = checkOutput(job, reportMarkdown, blockedCode);
   const checkRunId = job.checkRunId ?? await client.createCheckRun(job.owner, job.repository, job.commitSha, job.deliveryId);
   if (job.checkRunId === undefined) await saveCheckRunId(checkRunId);
   await client.completeCheckRun(job.owner, job.repository, checkRunId, output);
