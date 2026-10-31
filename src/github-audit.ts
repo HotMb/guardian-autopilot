@@ -1,4 +1,5 @@
 import {mkdtemp, rm} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Readable, Transform} from 'node:stream';
@@ -139,11 +140,20 @@ function limitedStream(maxBytes: number, counter: {bytes: number}, errorCode: st
   });
 }
 
-async function extractRepositoryArchive(response: Response, destination: string): Promise<void> {
+type ArchiveEvidence = {sha256: string; files: number; compressedBytes: number};
+
+async function extractRepositoryArchive(response: Response, destination: string): Promise<ArchiveEvidence> {
   const length = response.headers.get('content-length');
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > maxCompressedBytes)) throw new IncompleteSnapshotError('archive_size_limit');
   if (response.body === null) throw new IncompleteSnapshotError('archive_body_missing');
   const compressed = {bytes: 0};
+  const archiveHash = createHash('sha256');
+  const hashStream = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      archiveHash.update(chunk);
+      callback(null, chunk);
+    },
+  });
   const expanded = {bytes: 0};
   const snapshot = {files: 0, bytes: 0, unsupported: false};
   const seen = new Set<string>();
@@ -200,6 +210,7 @@ async function extractRepositoryArchive(response: Response, destination: string)
     await pipeline(
       Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>),
       limitedStream(maxCompressedBytes, compressed, 'archive_compressed_size_limit'),
+      hashStream,
       createGunzip(),
       limitedStream(maxExpandedBytes, expanded, 'archive_expanded_size_limit'),
       unpack,
@@ -208,6 +219,7 @@ async function extractRepositoryArchive(response: Response, destination: string)
     throw new IncompleteSnapshotError('archive_extract_failed');
   }
   if (snapshot.unsupported || snapshot.files === 0) throw new IncompleteSnapshotError('archive_contains_unsupported_entries_or_exceeds_scan_limits');
+  return {sha256: archiveHash.digest('hex'), files: snapshot.files, compressedBytes: compressed.bytes};
 }
 
 function blockedSummary(code: string): string {
@@ -224,23 +236,24 @@ function blockedSummary(code: string): string {
   return descriptions[code] ?? descriptions.audit_analysis_failed!;
 }
 
-function safeCheckSummary(job: GitHubAuditJob, reportMarkdown?: string, blockedCode?: string): string {
+function safeCheckSummary(job: GitHubAuditJob, reportMarkdown?: string, blockedCode?: string, archiveEvidence?: ArchiveEvidence): string {
   const heading = `CleanCode audit for ${job.fullName} at commit ${job.commitSha}`;
   if (blockedCode !== undefined) return `## ${heading}\n\n**Analysis blocked.** ${blockedSummary(blockedCode)}\n\nNo repository files were modified and no project scripts were executed.`;
   if (reportMarkdown === undefined) return `## ${heading}\n\n**Analysis blocked.** ${blockedSummary('audit_analysis_failed')}`;
   const escapeHtml = (value: string): string => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   const body = `<details><summary>Complete CleanCode report (Markdown)</summary>\n\n${escapeHtml(reportMarkdown)}\n\n</details>`;
-  const summary = `## ${heading}\n\nThis report is **read-only**. The hosted audit did not execute repository scripts or modify repository files. External analyzers and closed-world execution proofs are disabled in hosted mode; deletion readiness remains fail-closed.\n\n${body}`;
+  const provenance = archiveEvidence === undefined ? '' : `Archive SHA-256: \`${archiveEvidence.sha256}\`\n\nArchive files: ${archiveEvidence.files}; compressed bytes: ${archiveEvidence.compressedBytes}. The digest identifies the downloaded archive; it is not proof that deletion is safe.\n\n`;
+  const summary = `## ${heading}\n\n${provenance}This report is **read-only**. The hosted audit did not execute repository scripts or modify repository files. External analyzers and closed-world execution proofs are disabled in hosted mode; deletion readiness remains fail-closed.\n\n${body}`;
   if (summary.length <= maxCheckSummaryChars) return summary;
-  return `## ${heading}\n\n**Report too large for GitHub Checks.** The complete report was not shortened or partially published. No candidate is actionable from this result.\n\nThe read-only analysis finished; no repository files were modified and no project scripts were executed.`;
+  return `## ${heading}\n\n${provenance}**Report too large for GitHub Checks.** The complete report was not shortened or partially published. No candidate is actionable from this result.\n\nThe read-only analysis finished; no repository files were modified and no project scripts were executed.`;
 }
 
-function checkOutput(job: GitHubAuditJob, reportJson?: string, blockedCode?: string): GitHubCheckOutput {
+function checkOutput(job: GitHubAuditJob, reportJson?: string, blockedCode?: string, archiveEvidence?: ArchiveEvidence): GitHubCheckOutput {
   const isBlocked = blockedCode !== undefined;
   return {
     conclusion: isBlocked ? 'action_required' : 'neutral',
     title: isBlocked ? 'CleanCode analysis blocked safely' : 'CleanCode report ready for review',
-    summary: safeCheckSummary(job, reportJson, blockedCode),
+    summary: safeCheckSummary(job, reportJson, blockedCode, archiveEvidence),
   };
 }
 
@@ -254,6 +267,7 @@ export async function processGitHubAuditJob(
   let root: string | undefined;
   let reportMarkdown: string | undefined;
   let blockedCode: string | undefined;
+  let archiveEvidence: ArchiveEvidence | undefined;
   try {
     const repository = await client.getRepository(job.owner, job.repository);
     if (repository.id !== job.repositoryId || repository.fullName.toLowerCase() !== job.fullName.toLowerCase()) {
@@ -261,7 +275,7 @@ export async function processGitHubAuditJob(
     } else {
       root = await mkdtemp(join(tmpdir(), 'guardian-cleancode-audit-'));
       const archive = await client.downloadRepositoryArchive(job.owner, job.repository, job.commitSha);
-      await extractRepositoryArchive(archive, root);
+      archiveEvidence = await extractRepositoryArchive(archive, root);
       const plan = await planRepository(root, {runExternalTools: false});
       reportMarkdown = renderReport(plan, 'markdown');
       if (plan.discoveryStatus !== 'complete') blockedCode = 'audit_analysis_failed';
@@ -272,7 +286,7 @@ export async function processGitHubAuditJob(
     if (root !== undefined) await rm(root, {recursive: true, force: true}).catch(() => undefined);
   }
 
-  const output = checkOutput(job, reportMarkdown, blockedCode);
+  const output = checkOutput(job, reportMarkdown, blockedCode, archiveEvidence);
   const checkRunId = job.checkRunId ?? await client.createCheckRun(job.owner, job.repository, job.commitSha, job.deliveryId);
   if (job.checkRunId === undefined) await saveCheckRunId(checkRunId);
   await client.completeCheckRun(job.owner, job.repository, checkRunId, output);

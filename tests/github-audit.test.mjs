@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -253,6 +254,8 @@ test('hosted audit analyzes an ephemeral commit archive without running reposito
     assert.match(calls[1][4].summary, /Complete CleanCode report \(Markdown\)/);
     assert.match(calls[1][4].summary, /Repository discovery: complete/);
     assert.match(calls[1][4].summary, /Files scanned: 2/);
+    assert.match(calls[1][4].summary, new RegExp(`Archive SHA-256: \\x60${createHash('sha256').update(archive).digest('hex')}\\x60`));
+    assert.match(calls[1][4].summary, /Archive files: 2/);
     assert.match(calls[1][4].summary, /Deletion readiness:/);
     assert.match(calls[1][4].summary, /did not execute repository scripts/);
     assert.doesNotMatch(calls[1][4].summary, /must not execute/);
