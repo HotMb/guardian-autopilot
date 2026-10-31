@@ -103,6 +103,23 @@ test('lists every additional incomplete automated scan as a blocker', async () =
   assert.match(markdown, /files could not be scanned for literal references/);
 });
 
+test('reports the source and specifier of unresolved references in every format', async () => {
+  const root = await fixture();
+  await writeFile(join(root, 'src', 'broken.ts'), "import './missing<widget>';\n");
+  const plan = await planRepository(root, {runExternalTools: false});
+  const json = JSON.parse(renderReport(plan, 'json'));
+  assert.equal(json.unresolvedReferences, 1);
+  assert.deepEqual(json.unresolvedReferenceDetails, [{from: 'src/broken.ts', specifier: './missing<widget>', kind: 'import'}]);
+  const markdown = renderReport(plan, 'markdown');
+  assert.match(markdown, /Unresolved local references/);
+  assert.match(markdown, /src\/broken\.ts/);
+  assert.match(markdown, /\.\/missing&lt;widget&gt;/);
+  const html = renderReport(plan, 'html');
+  assert.match(html, /src\/broken\.ts/);
+  assert.match(html, /\.\/missing&lt;widget&gt;/);
+  assert.doesNotMatch(html, /<widget>/);
+});
+
 test('reports incomplete discovery and skipped dynamic-hint scanning in JSON, Markdown, and HTML', async () => {
   const root = await fixture();
   await mkdir(join(root, 'src', 'unreadable'), {recursive: true});

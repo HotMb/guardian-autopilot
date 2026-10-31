@@ -17,6 +17,7 @@ export type CleanCodeReport = {
   filesScanned: number;
   resolvedReferences: number;
   unresolvedReferences: number;
+  unresolvedReferenceDetails: PlanReport['graph']['unresolved'];
   duplicateGroups: number;
   candidates: Array<{
     path: string;
@@ -88,6 +89,7 @@ function summary(plan: PlanReport): CleanCodeReport {
     filesScanned: plan.manifest.files.length,
     resolvedReferences: plan.graph.edges.length,
     unresolvedReferences: plan.graph.unresolved.length,
+    unresolvedReferenceDetails: plan.graph.unresolved,
     duplicateGroups: plan.duplicates.length,
     candidates: plan.candidates.map((candidate) => ({
       path: candidate.path,
@@ -120,7 +122,7 @@ function summary(plan: PlanReport): CleanCodeReport {
 }
 
 function markdown(value: string): string {
-  return value.replaceAll('|', '\\|').replaceAll('\r', '').replaceAll('\n', ' ');
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('|', '\\|').replaceAll('\r', '').replaceAll('\n', ' ');
 }
 
 function html(value: string): string {
@@ -128,6 +130,9 @@ function html(value: string): string {
 }
 
 function renderMarkdown(report: CleanCodeReport): string {
+  const unresolvedRows = report.unresolvedReferenceDetails.length === 0
+    ? '| _none_ | — | — |'
+    : report.unresolvedReferenceDetails.map((reference) => `| ${markdown(reference.from)} | ${markdown(reference.specifier)} | ${markdown(reference.kind)} |`).join('\n');
   const rows = report.candidates.length === 0
     ? '| _none_ | — | — | — | — |\n'
     : report.candidates.map((candidate) => `| ${markdown(candidate.path)} | ${markdown(candidate.kind)} | ${candidate.confidence.toFixed(2)} | ${candidate.allowed ? 'eligible' : 'blocked'} | ${markdown(candidate.reasons.join('; ') || 'No policy blockers')} |`).join('\n') + '\n';
@@ -162,6 +167,14 @@ function renderMarkdown(report: CleanCodeReport): string {
     '',
     ...report.deletionReadiness.humanChecks.map((id) => `- \`${markdown(id)}\`: ${markdown(humanCheckDescription(id))}`),
     '',
+    '## Unresolved local references',
+    '',
+    'These references need review; a missing match may also reflect an unsupported resolution convention.',
+    '',
+    '| Source | Specifier | Kind |',
+    '| --- | --- | --- |',
+    unresolvedRows,
+    '',
     '## Candidates',
     '',
     '| Path | Kind | Confidence | Decision | Reason |',
@@ -188,6 +201,9 @@ function renderMarkdown(report: CleanCodeReport): string {
 }
 
 function renderHtml(report: CleanCodeReport): string {
+  const unresolvedRows = report.unresolvedReferenceDetails.length === 0
+    ? '<tr><td colspan="3">none</td></tr>'
+    : report.unresolvedReferenceDetails.map((reference) => `<tr><td>${html(reference.from)}</td><td>${html(reference.specifier)}</td><td>${html(reference.kind)}</td></tr>`).join('');
   const rows = report.candidates.length === 0
     ? '<tr><td colspan="5">none</td></tr>'
     : report.candidates.map((candidate) => `<tr><td>${html(candidate.path)}</td><td>${html(candidate.kind)}</td><td>${candidate.confidence.toFixed(2)}</td><td>${candidate.allowed ? 'eligible' : 'blocked'}</td><td>${html(candidate.reasons.join('; ') || 'No policy blockers')}</td></tr>`).join('');
@@ -202,6 +218,7 @@ function renderHtml(report: CleanCodeReport): string {
 <h2>Automated blockers</h2><ul>${report.deletionReadiness.automatedBlockers.map((id) => `<li><code>${html(id)}</code>: ${html(blockerDescription(id))}</li>`).join('')}</ul>
 <h2>Closed-world blockers</h2><ul>${report.closedWorld.blockers.map((blocker) => `<li><code>${html(blocker.code)}</code>${blocker.path ? ` at <code>${html(blocker.path)}</code>` : ''}: ${html(blocker.message)}</li>`).join('')}</ul>
 <h2>Human validation required</h2><ul>${report.deletionReadiness.humanChecks.map((id) => `<li><code>${html(id)}</code>: ${html(humanCheckDescription(id))}</li>`).join('')}</ul>
+<h2>Unresolved local references</h2><p>These references need review; a missing match may also reflect an unsupported resolution convention.</p><table><thead><tr><th>Source</th><th>Specifier</th><th>Kind</th></tr></thead><tbody>${unresolvedRows}</tbody></table>
 <h2>Candidates</h2><table><thead><tr><th>Path</th><th>Kind</th><th>Confidence</th><th>Decision</th><th>Reason</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Dynamic-usage hints</h2><table><thead><tr><th>Path</th><th>Line</th><th>Hint</th><th>Marker</th></tr></thead><tbody>${hintRows}</tbody></table>
 <p>Hints are review signals, not proof of use or proof of non-use. Their confidence is intentionally capped at 0.50.</p>
