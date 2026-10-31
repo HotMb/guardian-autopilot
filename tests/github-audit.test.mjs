@@ -116,6 +116,40 @@ test('PostgreSQL audit queue stores metadata idempotently, leases work, and reco
   assert.equal(calls.some(({values}) => values.includes('source-code')), false);
 });
 
+test('redelivering a failed commit resets it for processing while active and completed jobs stay idempotent', async () => {
+  const calls = [];
+  let status = 'failed';
+  const pool = {
+    async connect() {
+      return {
+        async query(sql, values = []) {
+          calls.push({sql, values});
+          if (!sql.includes('INSERT INTO guardian_github_audit_jobs')) return {rowCount: 1, rows: []};
+          assert.match(sql, /ON CONFLICT \(repository_id, commit_sha\) DO UPDATE/);
+          assert.match(sql, /WHERE guardian_github_audit_jobs\.status = 'failed'/);
+          if (status === 'failed') {
+            status = 'queued';
+            return {rowCount: 1, rows: [{delivery_id: values[0]}]};
+          }
+          return {rowCount: 0, rows: []};
+        },
+        release() {},
+      };
+    },
+    async end() {},
+  };
+  const queue = new PostgresGitHubAuditQueue({pool});
+  const job = parseGitHubAuditEvent('push', 'delivery-012-replay', validPush()).jobs[0];
+
+  assert.equal(await queue.enqueue(job), 'queued');
+  assert.match(calls[0].sql, /attempts = 0/);
+  assert.match(calls[0].sql, /completed_at = NULL/);
+  assert.match(calls[0].sql, /error_code = NULL/);
+  assert.equal(await queue.enqueue(job), 'duplicate');
+  status = 'completed';
+  assert.equal(await queue.enqueue(job), 'duplicate');
+});
+
 test('PostgreSQL audit queue retries with bounded delays and eventually marks jobs failed', async () => {
   const calls = [];
   const pool = {

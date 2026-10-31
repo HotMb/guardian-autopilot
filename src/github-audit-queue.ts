@@ -110,7 +110,11 @@ export class PostgresGitHubAuditQueue {
         `INSERT INTO guardian_github_audit_jobs
          (delivery_id, installation_id, repository_id, owner, repository, full_name, ref, commit_sha)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT DO NOTHING RETURNING delivery_id`,
+         ON CONFLICT (repository_id, commit_sha) DO UPDATE
+         SET status = 'queued', attempts = 0, available_at = NOW(), lease_until = NULL,
+             completed_at = NULL, error_code = NULL, updated_at = NOW()
+         WHERE guardian_github_audit_jobs.status = 'failed'
+         RETURNING delivery_id`,
         [job.deliveryId, job.installationId, job.repositoryId, job.owner, job.repository, job.fullName, job.ref, job.commitSha],
       );
       return (result.rowCount ?? result.rows.length) === 0 ? 'duplicate' : 'queued';
