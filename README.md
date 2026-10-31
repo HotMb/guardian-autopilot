@@ -80,6 +80,8 @@ To evaluate a reviewed candidate safely, use `experiment` with an explicit verif
 node packages/cli/dist/index.js experiment /path/to/project --path src/unused-module.ts --verification-file checks.json
 ```
 
+When acting on a previously reviewed commit, add `--expected-head <full-commit-sha>`. Guardian refuses the experiment if the repository is on another commit. For `--from-plan`, the review file supplies this binding.
+
 If dependencies are not installed, a verification file may declare an optional preparation phase:
 
 ```json

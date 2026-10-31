@@ -158,6 +158,25 @@ test('experiment creates a verified local review branch without requiring forged
   assert.equal((await git(root, 'remote', '-v')).stdout, '');
 });
 
+test('explicit experiment binds execution to the exact requested Git commit', async () => {
+  const root = await fixture();
+  const head = (await git(root, 'rev-parse', 'HEAD')).stdout.trim();
+  const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-head-check-')), 'verification.json');
+  const command = {command: process.execPath, args: ['-e', 'process.exit(0)']};
+  await writeFile(verificationFile, JSON.stringify({build: command, typecheck: command, test: command}));
+  const args = [cli, 'experiment', root, '--path', 'src/unused.ts', '--verification-file', verificationFile, '--format=json'];
+  await assert.rejects(() => exec(process.execPath, [...args, '--expected-head', 'a'.repeat(40)]), /different repository commit/i);
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/*')).stdout.trim(), '');
+  await assert.rejects(() => exec(process.execPath, [...args, '--expected-head', 'a'.repeat(41)]), /full Git commit hash/i);
+  await assert.rejects(() => exec(process.execPath, [...args, '--expected-head']), /full Git commit hash/i);
+  await assert.rejects(() => exec(process.execPath, [cli, 'experiment', root, '--from-plan', '--verification-file', verificationFile, '--expected-head', head]), /cannot be combined with --from-plan/i);
+  assert.equal((await git(root, 'branch', '--list', 'cleancode/*')).stdout.trim(), '');
+  const result = JSON.parse((await exec(process.execPath, [...args, '--expected-head', head])).stdout);
+  assert.equal(result.state, 'COMMITTED');
+  assert.equal((await git(root, 'rev-parse', 'HEAD')).stdout.trim(), head);
+  assert.equal((await git(root, 'status', '--porcelain')).stdout.trim(), '');
+});
+
 test('CLI requires an explicit preparation approval before creating an experiment worktree', async () => {
   const root = await fixture();
   const verificationFile = join(await mkdtemp(join(tmpdir(), 'cleancode-prepare-gate-')), 'verification.json');

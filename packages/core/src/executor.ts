@@ -93,7 +93,7 @@ export class WorktreeExecutor {
       const status = await runGit(this.root, ['status', '--porcelain=v1', '--untracked-files=all']);
       if (status.stdout.trim() !== '') throw new Error('Repository must be clean before creating a worktree');
       if (expectedRepositoryHead !== undefined) {
-        if (!/^[a-f\d]{40,64}$/i.test(expectedRepositoryHead)) throw new CleanCodeError('POLICY_VIOLATION', 'Reviewed repository HEAD must be a full Git commit hash');
+        if (!/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(expectedRepositoryHead)) throw new CleanCodeError('POLICY_VIOLATION', 'Reviewed repository HEAD must be a full Git commit hash');
         const actualHead = (await runGit(this.root, ['rev-parse', 'HEAD'])).stdout.trim();
         if (actualHead.toLowerCase() !== expectedRepositoryHead.toLowerCase()) {
           throw new CleanCodeError('POLICY_VIOLATION', 'Human review file refers to a different repository commit');

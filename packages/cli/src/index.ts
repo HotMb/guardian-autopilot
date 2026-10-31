@@ -47,7 +47,7 @@ function format(args: string[]): OutputFormat {
 }
 
 function targetRoot(args: string[]): string {
-  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file', '--timeout-ms', '--confirm-branch', '--confirm-path']);
+  const valueOptions = new Set(['--format', '--knip', '--candidates-file', '--verification-file', '--audit-file', '--receipt-directory', '--output', '--path', '--max-candidates', '--review-file', '--timeout-ms', '--confirm-branch', '--confirm-path', '--expected-head']);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--dry-run' || value.startsWith('--')) {
@@ -65,6 +65,7 @@ function printUsage(): void {
   console.error('  report <root> [--timeout-ms 30000] [--format=md|html|json] [--output file]');
   console.error('  github analyze <owner/repository> --destination <new-local-path> [--format=json]');
   console.error('  experiment <root> --path <relative-path> [--path <relative-path> ...] --verification-file checks.json');
+  console.error('  --expected-head <full-commit-sha> binds an explicit experiment to the reviewed commit');
   console.error('  experiment <root> --candidates-file paths.json --verification-file checks.json');
   console.error('  review <root> --path <relative-path> [--path <relative-path> ...] [--output review.json]');
   console.error('  experiment <root> --from-plan --review-file review.json [--max-candidates 1..3] --verification-file checks.json');
@@ -445,6 +446,10 @@ export async function runCli(args: readonly string[]): Promise<number> {
     const candidatesFile = optionValue(values, '--candidates-file');
     const reviewFile = optionValue(values, '--review-file');
     const limitOption = optionValue(values, '--max-candidates');
+    const expectedHead = optionValue(values, '--expected-head');
+    const expectedHeadProvided = values.some((value) => value === '--expected-head' || value.startsWith('--expected-head='));
+    if (expectedHeadProvided && (expectedHead === undefined || !/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(expectedHead))) throw new CleanCodeError('POLICY_VIOLATION', '--expected-head requires a full Git commit hash');
+    if (fromPlan && expectedHeadProvided) throw new CleanCodeError('POLICY_VIOLATION', '--expected-head cannot be combined with --from-plan; the review file binds the commit');
     if (fromPlan && (explicitPaths.length > 0 || candidatesFile !== undefined)) throw new CleanCodeError('POLICY_VIOLATION', '--from-plan cannot be combined with --path or --candidates-file');
     if (!fromPlan && limitOption !== undefined) throw new CleanCodeError('POLICY_VIOLATION', '--max-candidates is only valid with --from-plan');
     if (!fromPlan && reviewFile !== undefined) throw new CleanCodeError('POLICY_VIOLATION', '--review-file is only valid with --from-plan');
@@ -529,6 +534,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
     const result = await executeCleanupExperiment({
       rootDir: root,
       paths,
+      expectedRepositoryHead: expectedHead,
       approveLargeChange: values.includes('--approve-large-change'),
       verification,
       allowPreparation: values.includes('--allow-preparation'),
