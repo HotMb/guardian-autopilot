@@ -1,6 +1,6 @@
 # CleanCode GitHub App audits
 
-CleanCode can receive a signed GitHub `push` delivery, analyze that exact commit snapshot, and publish the JSON report as a GitHub Check Run. The current hosted path is read-only with respect to repository files: it never runs scripts from the repository, edits files, commits, or merges. It uses the CleanCode core with external tools disabled; results are advisory and deletion readiness stays blocked unless a separate local workflow proves its own requirements.
+CleanCode can receive a signed GitHub `push` delivery, analyze that exact commit snapshot, and publish a Markdown report as a GitHub Check Run. This hosted audit is read-only with respect to repository files: it never runs scripts from the repository, edits files, commits, or merges. It uses the CleanCode core with external tools disabled; results are advisory and deletion readiness stays blocked unless a separate workflow proves its own requirements.
 
 ## Permissions and events
 
@@ -35,7 +35,7 @@ Ignored events (including tags and branch deletion) are acknowledged without a j
 
 - The hosted scan has hard archive, file-count and byte limits. Unsupported archive entries fail closed and produce a blocked Check Run.
 - Hosted mode does not invoke Knip, Git, package managers, build tools, tests, or any repository-defined command. A report can therefore contain candidates for human review but cannot certify every external/runtime reference.
-- The app has no `Contents: write` permission. It cannot delete files or push a cleanup branch. Use the local CleanCode CLI to run its isolated, verified cleanup workflow after reviewing a report.
+- The app has no `Contents: write` permission. It cannot delete files or push a cleanup branch. After reviewing a report, use the local CLI or the separately invoked GitHub Actions review experiment described in the [README](../README.md#review-a-cleanup-on-github-actions).
 - This beta does not run an independent queue worker service. The web process polls the durable queue; cold starts and free-tier sleep may delay reports. Check GitHub's delivery page and Render logs when a Check Run does not appear.
 
 ## Manual verification
@@ -47,4 +47,4 @@ Ignored events (including tags and branch deletion) are acknowledged without a j
 5. Confirm a successful delivery response (`202` for queued commit reports), then open each pushed commit's **Checks** tab and find `CleanCode audit`.
 6. Confirm the report says hosted analysis did not execute scripts and does not claim deletion readiness. Review Render logs for generic queue errors only.
 
-The local mocked API, webhook, queue, worker, archive and report tests cover the application boundary. A successful GitHub delivery and Check Run in the user's account remain required before calling the live integration validated.
+The local mocked API, webhook, queue, worker, archive and report tests cover the application boundary. Verify a successful GitHub delivery and Check Run for each installation.
