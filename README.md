@@ -52,7 +52,46 @@ Plans are review-only. Guardian does not treat a missing import, a duplicate has
 
 ### GitHub commit reports (hosted beta)
 
-The optional GitHub App can analyze each pushed commit and attach a `CleanCode audit` report to its Checks tab. Hosted analysis uses an ephemeral snapshot, runs no repository scripts, and has bounded archive limits. It reports review candidates; it does not delete, commit, or merge project code. Configure the App and host using the [GitHub audit setup guide](docs/GITHUB_APP.md). This hosted capability is in beta and still needs a live delivery check in the owner's GitHub installation.
+The optional GitHub App can analyze each pushed commit and attach a `CleanCode audit` report to its Checks tab. Hosted analysis uses an ephemeral snapshot, runs no repository scripts, and has bounded archive limits. It reports review candidates; it does not delete, commit, or merge project code. Configure the App and host using the [GitHub audit setup guide](docs/GITHUB_APP.md). Verify delivery and reports for each installation.
+
+### Review a cleanup on GitHub Actions
+
+The `Guardian cleanup review` workflow runs a **manually selected** candidate on a GitHub-hosted runner and uploads `cleanup.patch` and `report.json` for review only when build, typecheck and tests succeed. It checks out the exact triggering commit, requires the verification file to be tracked, and validates that the resulting commit contains exactly the requested deletion. It has read-only repository permissions and does not create a pull request or merge changes.
+
+For this repository, open **Actions → Guardian cleanup review → Run workflow**, select a branch, and supply a reviewed repository-relative candidate and a tracked verification file. The file uses the command format below; replace the commands with the actual checks for your project:
+
+```json
+{
+  "build": {"command": "npm", "args": ["run", "build"]},
+  "typecheck": {"command": "npm", "args": ["run", "typecheck"]},
+  "test": {"command": "npm", "args": ["test"]}
+}
+```
+
+Other repositories can call `.github/workflows/cleanup-experiment.yml` as a reusable workflow pinned to a full Guardian commit SHA. Its inputs are `candidate`, `checks` and the optional boolean `allow_preparation`; the caller must be manually dispatched and grant `contents: read`. Preparation commands require explicit approval for each run. The result is a review experiment, not proof that a file is unused. Review the patch and check external uses before applying it. Verification commands execute repository code on the GitHub runner; use this workflow only with commands you trust. The artifact may contain source code and is retained for seven days.
+
+For example, add a workflow like this to another repository and replace `<GUARDIAN_COMMIT_SHA>` with the full SHA of the reviewed Guardian release:
+
+```yaml
+name: Review cleanup
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: File to review
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  review:
+    uses: HotMb/guardian-autopilot/.github/workflows/cleanup-experiment.yml@<GUARDIAN_COMMIT_SHA>
+    with:
+      candidate: ${{ inputs.candidate }}
+      checks: guardian-checks.json
+```
+
+Commit `guardian-checks.json` with the project's real verification commands before running this workflow. Add `allow_preparation: true` only after reviewing its preparation commands.
 
 The conservative string-reference scan reads PHP and PHTML files for literal references such as WordPress enqueue and include paths. This does not parse PHP or prove framework behavior; dynamic paths and external plugins still require review. Common WordPress template-hierarchy files are protected from cleanup.
 
@@ -101,7 +140,7 @@ The separate `guardian cleanup` command accepts explicitly named tracked files a
 
 ## Safety and privacy
 
-- Analysis and cleanup run on the user's computer. Guardian's hosted GitHub integration reads configured repository metadata only; it does not scan source code or create commits, pushes, or pull requests.
+- The GitHub App downloads and analyzes an ephemeral repository snapshot. The separate GitHub Actions experiment executes explicitly configured checks on a hosted runner and publishes a review artifact; neither path pushes or merges repository changes.
 - Cleanup paths must be tracked regular files in a clean repository. Built-in and repository-configured protected paths are refused at the execution boundary.
 - Cleanup experiments are bounded, isolated, verified, and rolled back on failure.
 - The MCP adapter is read-only. Destructive operations are not exposed through MCP.
