@@ -253,7 +253,7 @@ test('billing server verifies GitHub webhook deliveries without executing action
       'x-github-delivery': 'delivery-001',
       'x-hub-signature-256': githubSignature(body),
     });
-    assert.deepEqual(accepted, {statusCode: 200, json: {status: 'accepted', event: 'ping', deliveryId: 'delivery-001'}});
+    assert.deepEqual(accepted, {statusCode: 200, json: {status: 'accepted', event: 'ping', deliveryId: 'delivery-001', ignored: true}});
 
     const invalid = await call(server, '/webhooks/github', 'POST', body, {
       'x-github-event': 'ping',
@@ -263,5 +263,77 @@ test('billing server verifies GitHub webhook deliveries without executing action
     assert.equal(invalid.statusCode, 400);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('GitHub push webhook enqueues only validated commit metadata and retries if the durable queue is unavailable', async () => {
+  const jobs = [];
+  const push = {
+    ref: 'refs/heads/main',
+    before: 'b'.repeat(40),
+    after: 'a'.repeat(40),
+    deleted: false,
+    commits: [{id: 'b'.repeat(40)}, {id: 'a'.repeat(40)}],
+    installation: {id: 44},
+    repository: {id: 17, name: 'guardian-autopilot', full_name: 'HotMb/guardian-autopilot', owner: {login: 'HotMb'}},
+  };
+  const server = createBillingWebhookServer({
+    endpointSecret: secret,
+    githubWebhookSecret: 'github_webhook_test',
+    githubAuditEnqueue: async (job) => { jobs.push(job); return 'queued'; },
+    store: new MemorySubscriptionStore(),
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const body = JSON.stringify(push);
+    const accepted = await call(server, '/webhooks/github', 'POST', body, {
+      'content-type': 'application/json',
+      'x-github-event': 'push',
+      'x-github-delivery': 'delivery-push-001',
+      'x-hub-signature-256': githubSignature(body),
+    });
+    assert.deepEqual(accepted, {statusCode: 202, json: {status: 'queued', deliveryId: 'delivery-push-001', commitCount: 2}});
+    assert.deepEqual(jobs, ['b'.repeat(40), 'a'.repeat(40)].map((commitSha) => ({
+      deliveryId: `17:${commitSha}`, installationId: 44, repositoryId: 17,
+      owner: 'HotMb', repository: 'guardian-autopilot', fullName: 'HotMb/guardian-autopilot',
+      ref: 'refs/heads/main', commitSha,
+    })));
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+
+  const unavailable = createBillingWebhookServer({endpointSecret: secret, githubWebhookSecret: 'github_webhook_test', store: new MemorySubscriptionStore()});
+  await new Promise((resolve) => unavailable.listen(0, '127.0.0.1', resolve));
+  try {
+    const body = JSON.stringify(push);
+    const response = await call(unavailable, '/webhooks/github', 'POST', body, {
+      'x-github-event': 'push',
+      'x-github-delivery': 'delivery-push-002',
+      'x-hub-signature-256': githubSignature(body),
+    });
+    assert.deepEqual(response, {statusCode: 503, json: {error: 'GitHub audit queue unavailable'}});
+  } finally {
+    await new Promise((resolve, reject) => unavailable.close((error) => error ? reject(error) : resolve()));
+  }
+
+  const oversizedServer = createBillingWebhookServer({
+    endpointSecret: secret,
+    githubWebhookSecret: 'github_webhook_test',
+    githubAuditEnqueue: async (job) => { jobs.push(job); return 'queued'; },
+    store: new MemorySubscriptionStore(),
+  });
+  await new Promise((resolve) => oversizedServer.listen(0, '127.0.0.1', resolve));
+  try {
+    const oversizedPush = {...push, commits: Array.from({length: 21}, (_, index) => ({id: index.toString(16).padStart(40, '0')}))};
+    const body = JSON.stringify(oversizedPush);
+    const response = await call(oversizedServer, '/webhooks/github', 'POST', body, {
+      'x-github-event': 'push',
+      'x-github-delivery': 'delivery-push-large',
+      'x-hub-signature-256': githubSignature(body),
+    });
+    assert.deepEqual(response, {statusCode: 422, json: {error: 'push exceeds the configured commit limit'}});
+    assert.equal(jobs.length, 2, 'oversized pushes must not enqueue a partial audit batch');
+  } finally {
+    await new Promise((resolve, reject) => oversizedServer.close((error) => error ? reject(error) : resolve()));
   }
 });

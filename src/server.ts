@@ -5,6 +5,7 @@ import type Stripe from 'stripe';
 import {createCheckoutSession, type CheckoutConfiguration} from './checkout.js';
 import {verifyGitHubWebhookSignature} from './github.js';
 import type {GitHubInstallationClient} from './github-installation.js';
+import {parseGitHubAuditEvent, type GitHubAuditJob} from './github-audit.js';
 import {processStripeSubscriptionWebhook} from './webhooks.js';
 import type {SubscriptionStore} from './subscriptions.js';
 
@@ -15,6 +16,7 @@ export type BillingWebhookServerOptions = {
   endpointSecret: string;
   store: SubscriptionStore;
   githubWebhookSecret?: string;
+  githubAuditEnqueue?: (job: GitHubAuditJob) => Promise<'queued' | 'duplicate'>;
   stripeClient?: Stripe;
   checkoutConfiguration?: CheckoutConfiguration;
   checkoutAccessToken?: string;
@@ -324,12 +326,34 @@ export function createBillingWebhookServer(options: BillingWebhookServerOptions)
         const deliveryId = headerValue(request, 'x-github-delivery').trim();
         if (event === '' || deliveryId === '') throw new Error('GitHub webhook headers are required');
         verifyGitHubWebhookSignature(body, headerValue(request, 'x-hub-signature-256'), options.githubWebhookSecret);
-        parseGitHubPayload(body);
-        sendJson(response, 200, {status: 'accepted', event, deliveryId});
+        const payload = parseGitHubPayload(body);
+        const parsed = parseGitHubAuditEvent(event, deliveryId, payload);
+        if (parsed.kind === 'ignored') {
+          sendJson(response, 200, {status: 'accepted', event, deliveryId, ignored: true});
+          return;
+        }
+        if (options.githubAuditEnqueue === undefined) {
+          sendJson(response, 503, {error: 'GitHub audit queue unavailable'});
+          return;
+        }
+        try {
+          let queued = false;
+          for (const job of parsed.jobs) {
+            const status = await options.githubAuditEnqueue(job);
+            if (status === 'queued') queued = true;
+          }
+          const status = queued ? 'queued' : 'duplicate';
+          sendJson(response, queued ? 202 : 200, {status, deliveryId, commitCount: parsed.jobs.length});
+        } catch {
+          sendJson(response, 503, {error: 'GitHub audit queue unavailable'});
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const statusCode = message.includes('exceeds the configured limit') ? 413 : 400;
-        sendJson(response, statusCode, {error: statusCode === 413 ? 'request body too large' : 'invalid GitHub webhook'});
+        const tooManyCommits = message.startsWith('GitHub push exceeds the configured commit limit');
+        const statusCode = tooManyCommits ? 422 : message.includes('exceeds the configured limit') ? 413 : 400;
+        sendJson(response, statusCode, {
+          error: tooManyCommits ? 'push exceeds the configured commit limit' : statusCode === 413 ? 'request body too large' : 'invalid GitHub webhook',
+        });
       }
       return;
     }

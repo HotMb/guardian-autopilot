@@ -6,6 +6,11 @@ export type RepositoryConfig = {
   protectedPaths: string[];
   ignoredPaths: string[];
   maxAssetBytes?: number;
+  closedWorld?: {
+    profile: 'node-application-v1';
+    commitment: 'all-runtime-roots-declared';
+    entryFiles: string[];
+  };
 };
 
 const defaultConfig: RepositoryConfig = {version: 1, protectedPaths: [], ignoredPaths: []};
@@ -40,11 +45,29 @@ function validateConfig(value: unknown): RepositoryConfig {
       (typeof maxAssetBytes !== 'number' || !Number.isSafeInteger(maxAssetBytes) || maxAssetBytes <= 0)) {
     throw new Error('maxAssetBytes must be a positive safe integer');
   }
+  let closedWorld: RepositoryConfig['closedWorld'];
+  if (raw.closedWorld !== undefined) {
+    if (raw.closedWorld === null || typeof raw.closedWorld !== 'object' || Array.isArray(raw.closedWorld)) {
+      throw new Error('closedWorld must be an object');
+    }
+    const profile = raw.closedWorld as Record<string, unknown>;
+    if (profile.profile !== 'node-application-v1') throw new Error('closedWorld.profile must be node-application-v1');
+    if (profile.commitment !== 'all-runtime-roots-declared') {
+      throw new Error('closedWorld.commitment must explicitly be all-runtime-roots-declared');
+    }
+    const entryFiles = readPathList(profile.entryFiles, 'closedWorld.entryFiles');
+    if (entryFiles.length === 0) throw new Error('closedWorld.entryFiles must declare at least one runtime root');
+    if (new Set(entryFiles).size !== entryFiles.length) throw new Error('closedWorld.entryFiles must not contain duplicates');
+    const unknownKeys = Object.keys(profile).filter((key) => !['profile', 'commitment', 'entryFiles'].includes(key));
+    if (unknownKeys.length > 0) throw new Error(`Unsupported closedWorld option: ${unknownKeys[0]}`);
+    closedWorld = {profile: 'node-application-v1', commitment: 'all-runtime-roots-declared', entryFiles};
+  }
   return {
     version: 1,
     protectedPaths: readPathList(raw.protectedPaths, 'protectedPaths'),
     ignoredPaths: readPathList(raw.ignoredPaths, 'ignoredPaths'),
     ...(maxAssetBytes === undefined ? {} : {maxAssetBytes}),
+    ...(closedWorld === undefined ? {} : {closedWorld}),
   };
 }
 

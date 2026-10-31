@@ -73,6 +73,26 @@ export function runPreflight(env: NodeJS.ProcessEnv = process.env, production = 
     add(checks, 'database-pool', 'warn', 'DATABASE_MAX_CONNECTIONS is unset; the process default is 10 connections per instance.');
   }
 
+  const githubWebhookSecret = env.GITHUB_WEBHOOK_SECRET;
+  const githubAppId = env.GITHUB_APP_ID?.trim();
+  const githubPrivateKey = env.GITHUB_APP_PRIVATE_KEY?.trim().replace(/\\n/g, '\n');
+  const hasGitHubAuditSetting = present(githubWebhookSecret) || present(githubAppId) || present(githubPrivateKey);
+  if (!hasGitHubAuditSetting) {
+    add(checks, 'github-audit', 'warn', 'Automatic GitHub commit reports are not configured.');
+  } else if (!present(githubWebhookSecret) || !present(githubAppId) || !present(githubPrivateKey) || !present(databaseUrl)) {
+    add(checks, 'github-audit', 'fail', 'Automatic GitHub audits require GITHUB_APP_ID, a PEM GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET and DATABASE_URL.');
+  } else if (!/^\d+$/.test(githubAppId ?? '') || !Number.isSafeInteger(Number(githubAppId)) || Number(githubAppId) <= 0) {
+    add(checks, 'github-audit', 'fail', 'GITHUB_APP_ID must be a positive numeric GitHub App ID.');
+  } else if (!/^-----BEGIN (?:RSA |EC )?PRIVATE KEY-----[\s\S]+-----END (?:RSA |EC )?PRIVATE KEY-----$/.test(githubPrivateKey ?? '')) {
+    add(checks, 'github-audit', 'fail', 'GITHUB_APP_PRIVATE_KEY must be the PEM private key from the GitHub App Key pairs page, not a Client secret.');
+  } else if (!/^postgres(?:ql)?:\/\//i.test(databaseUrl ?? '')) {
+    add(checks, 'github-audit', 'fail', 'DATABASE_URL must be a PostgreSQL connection string for durable GitHub audit jobs.');
+  } else if (present(databaseMaxConnections) && (!Number.isSafeInteger(Number(databaseMaxConnections)) || Number(databaseMaxConnections) < 2)) {
+    add(checks, 'github-audit', 'fail', 'DATABASE_MAX_CONNECTIONS must be at least 2 when GitHub audits are enabled.');
+  } else {
+    add(checks, 'github-audit', 'pass', 'GitHub App, PEM private key, signed webhook and durable audit queue are configured.');
+  }
+
   const host = env.HOST?.trim() || '127.0.0.1';
   if (production && (host === '127.0.0.1' || host === 'localhost' || host === '::1')) add(checks, 'network-bind', 'fail', 'Production mode cannot bind only to localhost.');
   else add(checks, 'network-bind', 'pass', `${production ? 'Production' : 'Local'} mode binds to ${host}.`);

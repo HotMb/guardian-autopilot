@@ -1,6 +1,8 @@
 import {randomBytes} from 'node:crypto';
+import {execFile as execFileCallback} from 'node:child_process';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {promisify} from 'node:util';
 import type {Candidate, State, VerificationResult} from '@cleancode/shared/types';
 import {CleanCodeError} from '@cleancode/shared/errors';
 import {AuditLog, type AuditEventInput} from './audit-log.js';
@@ -8,6 +10,12 @@ import {ExecutionStateMachine} from './state-machine.js';
 import {WorktreeExecutor} from './executor.js';
 import {ReceiptStore} from './receipts.js';
 import {runVerification, type VerificationConfig} from './verifier.js';
+import {enforceChangeLimits, isProtectedPath} from './safeguards.js';
+import {loadRepositoryConfig, matchesConfiguredRepositoryPath} from './repository-config.js';
+import {analyzeClosedWorld, validateClosedWorldProof} from './closed-world.js';
+import {getPositiveProofBinding, isEngineVerifiedPositiveProof} from './proof-evidence.js';
+
+const execFile = promisify(execFileCallback);
 
 export type CleanupExecutionOptions = {
   rootDir: string;
@@ -22,6 +30,8 @@ export type CleanupExecutionOptions = {
   receiptDirectory?: string;
   commitMessage?: string;
   expectedRepositoryHead?: string;
+  /** Explicit per-run confirmation that configured roots cover every runtime entrypoint. */
+  confirmClosedWorld?: boolean;
 };
 
 export type CleanupExecutionResult = {
@@ -53,6 +63,61 @@ async function audit(log: AuditLog, id: string, state: State, action: string, de
   await log.append(event);
 }
 
+async function cleanupAcceptanceCheck(
+  worktreePath: string,
+  expectedPaths: readonly string[],
+  counts: {files: number; lines: number; bytes: number},
+  approveLargeChange: boolean,
+): Promise<{passed: boolean; details?: string}> {
+  try {
+    enforceChangeLimits(counts);
+    if (expectedPaths.length !== counts.files) {
+      return {passed: false, details: 'Acceptance failed: requested file count does not match the bounded deletion preview'};
+    }
+    if (counts.files > 10 && !approveLargeChange) {
+      return {passed: false, details: 'Acceptance failed: changes over 10 files lack explicit approval'};
+    }
+    const repositoryConfig = await loadRepositoryConfig(worktreePath);
+    for (const path of expectedPaths) {
+      if (isProtectedPath(path) || matchesConfiguredRepositoryPath(path, repositoryConfig.protectedPaths)) {
+        return {passed: false, details: `Acceptance failed: protected path is included (${path})`};
+      }
+    }
+
+    const diff = await execFile('git', ['-C', worktreePath, 'diff', '--name-status', '-z', 'HEAD', '--'], {
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+    });
+    const tokens = diff.stdout.split('\0').filter(Boolean);
+    const actualDeletions: string[] = [];
+    for (let index = 0; index < tokens.length;) {
+      const status = tokens[index++];
+      const path = tokens[index++];
+      if (status !== 'D' || path === undefined) {
+        return {passed: false, details: `Acceptance failed: unexpected tracked change (${status ?? 'malformed diff'})`};
+      }
+      actualDeletions.push(path.replaceAll('\\', '/'));
+    }
+    const expected = expectedPaths.map((path) => path.replaceAll('\\', '/')).sort();
+    actualDeletions.sort();
+    if (actualDeletions.length !== expected.length || actualDeletions.some((path, index) => path !== expected[index])) {
+      return {passed: false, details: 'Acceptance failed: tracked changes do not exactly match the requested deletions'};
+    }
+
+    const untracked = await execFile('git', ['-C', worktreePath, 'ls-files', '--others', '--exclude-standard', '-z'], {
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+    });
+    const untrackedPaths = untracked.stdout.split('\0').filter(Boolean);
+    if (untrackedPaths.length > 0) {
+      return {passed: false, details: `Acceptance failed: unexpected untracked file (${untrackedPaths[0]})`};
+    }
+    return {passed: true, details: `Acceptance passed: exactly ${expected.length} requested tracked deletion(s), within policy limits, with no unexpected changes`};
+  } catch (error) {
+    return {passed: false, details: `Acceptance check failed: ${errorMessage(error)}`};
+  }
+}
+
 export async function executeCleanup(options: CleanupExecutionOptions): Promise<CleanupExecutionResult> {
   return runCleanup(options, false);
 }
@@ -73,6 +138,37 @@ export async function executeCleanupExperiment(options: CleanupExperimentOptions
 async function runCleanup(options: CleanupExecutionOptions, experiment: boolean): Promise<CleanupExecutionResult> {
   const executor = new WorktreeExecutor({rootDir: options.rootDir, worktreeRoot: options.worktreeRoot});
 
+  let candidates = options.candidates;
+  if (!experiment && !options.dryRun) {
+    const paths = options.candidates.map((candidate) => candidate.path);
+    // Preserve clear path and protected-file diagnostics before analyzing evidence.
+    await executor.previewDeletionExperiment(paths);
+    if (options.confirmClosedWorld === true) {
+      const analysis = await analyzeClosedWorld(options.rootDir, paths);
+      if (!analysis.complete) {
+        const details = analysis.blockers.map((blocker) => `${blocker.code}${blocker.path ? ` (${blocker.path})` : ''}: ${blocker.message}`).join('; ');
+        throw new CleanCodeError('POLICY_VIOLATION', `Closed-world analysis is blocked${details ? `: ${details}` : ''}`);
+      }
+      candidates = options.candidates.map((candidate) => {
+        const proof = analysis.proofs.get(candidate.path);
+        if (proof === undefined) throw new CleanCodeError('POLICY_VIOLATION', `No closed-world unreachable proof was produced for ${candidate.path}`);
+        return {path: candidate.path, evidence: [proof]};
+      });
+    } else {
+      const bound = options.candidates.flatMap((candidate) => candidate.evidence
+        .filter((evidence) => evidence.type === 'positive_proof' && getPositiveProofBinding(evidence) !== undefined)
+        .map((evidence) => ({path: candidate.path, evidence})));
+      if (bound.length > 0) throw new CleanCodeError('POLICY_VIOLATION', 'A bound closed-world proof requires explicit per-run confirmation (confirmClosedWorld).');
+      for (const candidate of options.candidates) {
+        for (const evidence of candidate.evidence) {
+          if (evidence.type === 'positive_proof' && isEngineVerifiedPositiveProof(evidence)) {
+            await validateClosedWorldProof(options.rootDir, candidate.path, evidence);
+          }
+        }
+      }
+    }
+  }
+
   if (options.dryRun) {
     if (options.candidates.length === 0) {
       return {mode: 'dry-run', state: 'PLANNED', changedPaths: [], files: 0, lines: 0, bytes: 0};
@@ -81,10 +177,10 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
     return {mode: 'dry-run', state: 'PLANNED', changedPaths: preview.paths, files: preview.files, lines: preview.lines, bytes: preview.bytes};
   }
 
-  if (options.candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', `At least one ${experiment ? 'experiment path' : 'approved candidate'} is required`);
+  if (candidates.length === 0) throw new CleanCodeError('POLICY_VIOLATION', `At least one ${experiment ? 'experiment path' : 'approved candidate'} is required`);
   const preview = experiment
-    ? await executor.previewDeletionExperiment(options.candidates.map((candidate) => candidate.path))
-    : await executor.previewDeletions(options.candidates);
+    ? await executor.previewDeletionExperiment(candidates.map((candidate) => candidate.path))
+    : await executor.previewDeletions(candidates);
   if (preview.files > 10 && options.approveLargeChange !== true) {
     throw new CleanCodeError('POLICY_VIOLATION', `Cleanup affects more than 10 files (${preview.files}); explicit human approval is required`);
   }
@@ -107,14 +203,22 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
     const receipt = await receiptStore.begin(changedPaths);
     receiptId = receipt.id;
     if (experiment) await executor.applyDeletionExperiment(changedPaths);
-    else await executor.applyDeletions(options.candidates);
+    else await executor.applyDeletions(candidates);
     await receiptStore.finalize(receipt.id);
     machine.transitionTo('APPLIED');
     await audit(auditLog, id, 'APPLIED', experiment ? 'experiment-deletions' : 'apply-deletions', {paths: changedPaths, receiptId});
 
     verification = await runVerification(worktree.worktreePath, experiment
       ? {...options.verification, requireAll: true}
-      : options.verification ?? {}, {allowPreparation: options.allowPreparation});
+      : options.verification ?? {}, {
+      allowPreparation: options.allowPreparation,
+      acceptanceCheck: () => cleanupAcceptanceCheck(
+        worktree.worktreePath,
+        changedPaths,
+        preview,
+        options.approveLargeChange === true,
+      ),
+    });
     if (!verification.allPassed) {
       await rollbackExecution(executor, receiptStore, receiptId, machine, auditLog, id, verification.details);
       return {mode: experiment ? 'experiment' : 'apply', state: 'REVERTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, receiptId, verification, error: 'Verification failed'};
@@ -125,7 +229,7 @@ async function runCleanup(options: CleanupExecutionOptions, experiment: boolean)
     const commit = await executor.commit(options.commitMessage ?? 'chore: safe cleanup', changedPaths);
     machine.transitionTo('COMMITTED');
     await audit(auditLog, id, 'COMMITTED', 'commit', {commit, receiptId});
-    return {mode: experiment ? 'experiment' : 'apply', state: 'COMMITTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, commit, backupBranchName: worktree.backupBranchName, ...(experiment && reviewBranchName !== undefined ? {reviewBranchName} : {}), receiptId, verification};
+    return {mode: experiment ? 'experiment' : 'apply', state: 'COMMITTED', changedPaths, files: preview.files, lines: preview.lines, bytes: preview.bytes, commit, backupBranchName: worktree.backupBranchName, ...(reviewBranchName !== undefined ? {reviewBranchName} : {}), receiptId, verification};
   } catch (error) {
     if (isolated && executor.worktree !== undefined) {
       try { await rollbackExecution(executor, receiptStore, receiptId, machine, auditLog, id, {error: errorMessage(error)}); }

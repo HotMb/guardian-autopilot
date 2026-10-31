@@ -1,92 +1,50 @@
-# GitHub App permission contract
+# CleanCode GitHub App audits
 
-`integrations/github-app/permissions.json` documents the least-privilege permissions for Guardian's optional GitHub integration. It is a permission contract, not a credential. The hosted integration currently verifies and acknowledges signed webhook deliveries and can return configured repository metadata; it does not scan source code or trigger audits.
+CleanCode can receive a signed GitHub `push` delivery, analyze that exact commit snapshot, and publish the JSON report as a GitHub Check Run. The current hosted path is read-only with respect to repository files: it never runs scripts from the repository, edits files, commits, or merges. It uses the CleanCode core with external tools disabled; results are advisory and deletion readiness stays blocked unless a separate local workflow proves its own requirements.
 
-The proposed audit-only installation requests:
+## Permissions and events
 
-| Scope | Level | Purpose |
+Configure the GitHub App with only:
+
+| Permission | Level | Use |
 | --- | --- | --- |
-| Contents | Read | Inspect repository files and the selected revision. |
-| Metadata | Read | Identify repositories and installation context. |
-| Pull requests | Read | Correlate audits with pull-request changes without commenting or merging. |
-| Checks | Read | Observe existing CI results without creating or modifying checks. |
+| Contents | Read-only | Download the repository snapshot at the pushed commit. |
+| Metadata | Read-only | Confirm repository and installation identity. |
+| Checks | Read and write | Create and complete the `CleanCode audit` Check Run containing the report. |
 
-The subscribed events are installation lifecycle, push, and pull request changes. The contract requests no write permission and does not contain an App private key, webhook secret, client secret, or callback URL. For a self-hosted instance, configure those values only after selecting an endpoint and registering the App.
+Subscribe to `Push` and `Installation`. The webhook secret must be configured in the App and copied to the host as `GITHUB_WEBHOOK_SECRET`. After changing requested permissions, approve the permissions update for the existing installation in GitHub.
 
-## Free beta registration checklist
+The App private key comes from **Developer settings → GitHub Apps → Guardian Autopilot Beta → Credentials → Key pairs → Generate a private key**. A **Client secret** is an OAuth credential and is not the App private key. Keep the downloaded PEM private key only in Render's secret environment variable `GITHUB_APP_PRIVATE_KEY`.
 
-The free beta can use the temporary Render HTTPS URL; no domain or paid cloud
-resource is required. Register the App only in the GitHub account that owns the
-test repository, then use:
+## Hosting configuration
 
-- Homepage URL: `https://guardian-autopilot.onrender.com`
-- Webhook URL: `https://guardian-autopilot.onrender.com/webhooks/github`
-- Repository permissions: Contents, Metadata, Pull requests and Checks — Read-only
-- Events: Installation, Push and Pull request
-- No organization permissions and no write permissions
-- Disable user authorization/OAuth unless a later product decision requires it
+Automatic audits require all four variables below. `DATABASE_URL` is required because GitHub deliveries are acknowledged only after durable queue insertion.
 
-Generate a webhook secret during registration and store the same value in
-Render as `GITHUB_WEBHOOK_SECRET`. Do not commit it or send it through chat.
-The Render Blueprint declares this variable as a non-synchronized secret.
+- `GITHUB_APP_ID`: numeric App ID from the App's General page.
+- `GITHUB_APP_PRIVATE_KEY`: PEM from Key pairs, not a Client secret.
+- `GITHUB_WEBHOOK_SECRET`: the webhook secret created in App settings.
+- `DATABASE_URL`: PostgreSQL connection string.
 
-The current server verifies and acknowledges signed deliveries only. The
-library client in `src/github-installation.ts` can exchange an App JWT for an
-installation token restricted to one repository and read-only permissions,
-then return that repository's metadata. It checks the returned permissions and
-repository scope, rejects redirects and applies a request timeout. Credentials
-and remote error bodies are not returned to callers.
+`DATABASE_MAX_CONNECTIONS` is the service budget. The audit queue reserves one connection; subscription storage uses the remaining configured connections. The Render template defaults this to three. Do not reduce it below two while both PostgreSQL features are enabled.
 
-The client and its HTTP route are covered by local mocked API tests; a real
-authenticated API call still requires the App private key and numerical
-App/repository identifiers. The route is not triggered by webhooks. Repository
-audit scheduling, installation persistence and account authorization remain
-pending. Successful webhook deliveries do not prove these later features work.
+Set the App webhook URL to `https://<service-host>/webhooks/github`. Install or update the App on the repository. For a push, the server verifies the raw-body HMAC signature, validates repository, installation, branch and commit identifiers, and stores only commit metadata in PostgreSQL. It queues every commit SHA in the signed push payload, including the pushed head if GitHub did not include it in the commit list. A single push is limited to 20 commits to bound archive downloads, Check Run API calls, and queue growth; larger pushes are rejected whole with HTTP `422` and no partial jobs, so split them into smaller pushes. A serial worker downloads each commit tarball, verifies GitHub's archive redirect host and path, enforces compressed/expanded/file-count limits, extracts to a temporary directory, calls `planRepository(..., {runExternalTools:false})`, and removes the temporary directory in a `finally` block. Each completed report is published to a Check Run for its exact SHA.
 
-## Read-only repository connection test
+Ignored events (including tags and branch deletion) are acknowledged without a job. Duplicate commits are deduplicated by repository and SHA. Completed queue metadata is retained for up to 30 days; source archives and report contents are not stored in PostgreSQL. A failed queue insertion returns `503` so GitHub can retry; jobs already inserted are safe to deduplicate on retry. Worker failures are retried up to three times, then the queue records a generic error code; provider details and source text are not logged.
 
-The server exposes `POST /github/repository` only when all seven
-`GITHUB_*` variables in `.env.example` are configured. Set them in the hosting
-dashboard, keeping the private key and `GITHUB_API_ACCESS_TOKEN` secret. The
-App ID is on the App's General settings page; the installation ID is the number
-in the installation settings URL; the repository ID is available from the
-repository's API URL. Download a new private key from the App's **Private keys**
-section and paste its PEM contents into the secret field. Render accepts
-multiline environment values; escaped `\n` is also normalized by the server.
+## Analysis boundaries
 
-Use a unique random bearer token for `GITHUB_API_ACCESS_TOKEN`; never reuse the
-Stripe Checkout token. After Render deploys, call the route with
-`Authorization: Bearer <GITHUB_API_ACCESS_TOKEN>`. It returns only the
-configured repository ID, full name, default branch and visibility. It does not
-return the installation token or private key. The route cannot select a
-different repository. Remove these GitHub API variables from Render to disable
-the connection.
+- The hosted scan has hard archive, file-count and byte limits. Unsupported archive entries fail closed and produce a blocked Check Run.
+- Hosted mode does not invoke Knip, Git, package managers, build tools, tests, or any repository-defined command. A report can therefore contain candidates for human review but cannot certify every external/runtime reference.
+- The app has no `Contents: write` permission. It cannot delete files or push a cleanup branch. Use the local CleanCode CLI to run its isolated, verified cleanup workflow after reviewing a report.
+- This beta does not run an independent queue worker service. The web process polls the durable queue; cold starts and free-tier sleep may delay reports. Check GitHub's delivery page and Render logs when a Check Run does not appear.
 
-## Beta analysis boundary
+## Manual verification
 
-The hosted GitHub connection is currently for installation validation and
-repository metadata only. It does not download, cache, or analyze repository
-contents. Keep the private key and API bearer token on the hosting service;
-do not copy them into a user workstation or expose an installation token to a
-browser.
+1. In GitHub App settings, confirm Contents: Read-only, Metadata: Read-only, Checks: Read and write, plus Push and Installation events.
+2. In the App's installation settings, approve the permission update and confirm the intended repository is selected.
+3. In Render, confirm the four required variables above are present. Do not paste their values into chat or commit them.
+4. Wait for the new service version to deploy, then use **GitHub App → Advanced → Recent Deliveries → Redeliver** on a `push` delivery, or push one or more harmless commits to the test repository (no more than 20 per push).
+5. Confirm a successful delivery response (`202` for queued commit reports), then open each pushed commit's **Checks** tab and find `CleanCode audit`.
+6. Confirm the report says hosted analysis did not execute scripts and does not claim deletion readiness. Review Render logs for generic queue errors only.
 
-For the beta, analyze code on the user's computer. The user checks out the
-target repository with their own GitHub CLI credentials. The CleanCode package
-CLI is not yet published; from a Guardian checkout, install GitHub CLI, sign in
-with `gh auth login`, build it once and run:
-
-```powershell
-npm install
-npm run build:cli
-node packages/cli/dist/index.js github analyze OWNER/REPOSITORY --destination C:\path\to\new-local-folder
-```
-
-The command refuses an existing destination, reads the cloned files locally,
-and does not execute project scripts or upload repository source to Guardian's
-hosted service. Hosted source analysis is a separate future feature and must
-remain disabled until explicit consent, retention/deletion behavior, and
-deployment security are designed.
-
-`src/github.ts` contains the corresponding raw-body `X-Hub-Signature-256` verifier, covered by GitHub's published test vector, plus a short-lived RS256 App JWT builder tested against an ephemeral key. The local webhook server exposes `POST /webhooks/github` when `GITHUB_WEBHOOK_SECRET` is configured; it verifies and acknowledges signed deliveries without executing repository changes. Runtime private keys and the registration-time webhook secret are still required through deployment secrets.
-
-GitHub Apps should request the minimum permissions needed for their API and webhook behavior. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-github-apps/choosing-permissions-for-a-github-app) and [App registration parameters](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-using-url-parameters).
+The local mocked API, webhook, queue, worker, archive and report tests cover the application boundary. A successful GitHub delivery and Check Run in the user's account remain required before calling the live integration validated.
