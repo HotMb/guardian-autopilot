@@ -56,7 +56,7 @@ The optional GitHub App can analyze each pushed commit and attach a `CleanCode a
 
 ### Review a cleanup on GitHub Actions
 
-The `Guardian cleanup review` workflow runs a **manually selected** candidate on a GitHub-hosted runner and uploads `cleanup.patch` and `report.json` for review only when build, typecheck and tests succeed. It checks out the exact triggering commit, requires the verification file to be tracked, and validates that the resulting commit contains exactly the requested deletion. It has read-only repository permissions and does not create a pull request or merge changes.
+The `Guardian cleanup review` workflow runs a **manually selected** candidate on a GitHub-hosted runner and uploads `cleanup.patch` and `report.json` when build, typecheck and tests succeed. If `create_pr` is explicitly selected, a separate job checks the same commit and protections again, then opens a draft pull request containing only the selected deletion. Guardian never merges it. The testing job has read-only permissions; only the separate publication job receives write permissions.
 
 For this repository, open **Actions → Guardian cleanup review → Run workflow**, select a branch, and supply a reviewed repository-relative candidate and `guardian-checks.json`. Its preparation step runs `npm ci`, so review it and enable `allow_preparation` for the run. Other projects need their own tracked verification file; for example:
 
@@ -68,7 +68,7 @@ For this repository, open **Actions → Guardian cleanup review → Run workflow
 }
 ```
 
-Other repositories can call `.github/workflows/cleanup-experiment.yml` as a reusable workflow pinned to a full Guardian commit SHA. Its inputs are `candidate`, `checks` and the optional boolean `allow_preparation`; the caller must be manually dispatched and grant `contents: read`. Preparation commands require explicit approval for each run. The result is a review experiment, not proof that a file is unused. Review the patch and check external uses before applying it. Verification commands execute repository code on the GitHub runner; use this workflow only with commands you trust. The artifact may contain source code and is retained for seven days.
+Other repositories can call `.github/workflows/cleanup-experiment.yml` as a reusable workflow pinned to a full Guardian commit SHA. The caller must be manually dispatched. Its inputs include `candidate`, `checks`, and the optional booleans `allow_preparation` and `create_pr`. The caller needs `contents: write` and `pull-requests: write` for draft publication; artifact-only callers need `contents: read`. The repository must allow GitHub Actions to create pull requests in its Actions settings. GitHub may require a human to approve workflows triggered by a pull request created using the Actions token. The pull request is opened by the GitHub Actions bot and the commit is attributed to the user who started the run. Preparation commands require explicit approval for each run. The result is a review experiment, not proof that a file is unused. Review the patch and check external uses before applying it. Verification commands execute repository code on the GitHub runner; use this workflow only with commands you trust. The artifact may contain source code and is retained for seven days.
 
 For example, add a workflow like this to another repository and replace `<GUARDIAN_COMMIT_SHA>` with the full SHA of the reviewed Guardian release:
 
@@ -81,14 +81,20 @@ on:
         description: File to review
         type: string
         required: true
+      create_pr:
+        description: Open a draft pull request after successful checks
+        type: boolean
+        default: false
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 jobs:
   review:
     uses: HotMb/guardian-autopilot/.github/workflows/cleanup-experiment.yml@<GUARDIAN_COMMIT_SHA>
     with:
       candidate: ${{ inputs.candidate }}
       checks: guardian-checks.json
+      create_pr: ${{ inputs.create_pr }}
 ```
 
 Commit `guardian-checks.json` with the project's real verification commands before running this workflow. Add `allow_preparation: true` only after reviewing its preparation commands.
@@ -140,7 +146,7 @@ The separate `guardian cleanup` command accepts explicitly named tracked files a
 
 ## Safety and privacy
 
-- The GitHub App downloads and analyzes an ephemeral repository snapshot. The separate GitHub Actions experiment executes explicitly configured checks on a hosted runner and publishes a review artifact; neither path pushes or merges repository changes.
+- The GitHub App downloads and analyzes an ephemeral repository snapshot. The separate GitHub Actions experiment executes explicitly configured checks on a hosted runner and publishes a review artifact; with explicit per-run approval it can also open a draft pull request. Neither path merges changes.
 - Cleanup paths must be tracked regular files in a clean repository. Built-in and repository-configured protected paths are refused at the execution boundary.
 - Cleanup experiments are bounded, isolated, verified, and rolled back on failure.
 - The MCP adapter is read-only. Destructive operations are not exposed through MCP.

@@ -16,6 +16,11 @@ on:
         required: true
         type: boolean
         default: false
+      create_pr:
+        description: Open a draft pull request after the review checks pass
+        required: true
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       candidate:
@@ -28,6 +33,10 @@ on:
         required: false
         type: boolean
         default: false
+      create_pr:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,6 +45,8 @@ jobs:
   review:
     # Even callers must require a manual dispatch for each unproven candidate.
     if: ${{ github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -85,3 +96,42 @@ jobs:
           path: ${{ runner.temp }}/guardian-review/
           if-no-files-found: error
           retention-days: 7
+
+  publish-draft:
+    needs: review
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && inputs.create_pr && needs.review.result == 'success' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the exact reviewed commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          path: target
+          persist-credentials: false
+      - name: Check out Guardian at the workflow revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: guardian-tool
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Build the trusted Guardian tool
+        working-directory: guardian-tool
+        run: |
+          npm ci --ignore-scripts
+          npm run build:cli
+      - name: Open draft for human review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GUARDIAN_TARGET: ${{ github.workspace }}/target
+          GUARDIAN_CANDIDATE: ${{ inputs.candidate }}
+          GUARDIAN_CHECKS: ${{ inputs.checks }}
+        run: node "$GITHUB_WORKSPACE/guardian-tool/scripts/github-cleanup-publisher.mjs"
