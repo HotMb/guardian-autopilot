@@ -19,6 +19,8 @@ The lease-token upgrade is not safe as a rolling deployment alongside older work
 
 The new service adds a nullable `lease_token` column at startup. Migration attempts take a transaction-scoped advisory lock and fail after five seconds if a required lock cannot be acquired; inspect database load and retry startup if blocked. A first-time index build can still take time on a large queue. Back up and test the upgrade against a copy of the database before production. Verify report delivery after startup. Lease renewal and checks reduce duplicate processing, but they cannot make a GitHub API call atomic with the database; a failure at that boundary may still leave a duplicate or incomplete Check Run.
 
+If the hosting provider necessarily overlaps old and new instances, set `GITHUB_AUDIT_WORKER_PAUSED=true` in the service configuration **before** deploying the new version. The new version still validates and queues GitHub webhooks but does not claim audit jobs. Confirm all old instances have exited, then wait at least ten minutes for their leases to expire. Remove the variable or set it to `false` and redeploy to resume processing; verify queued reports complete. The old version does not understand this variable and can continue processing until it exits. The pause is not a maintenance page and does not stop webhook delivery. Keep the queue database available throughout the operation.
+
 ## Recommended scalable target
 
 For Guardian Autopilot, the recommended first hosted target is Cloud Run plus Cloud SQL for PostgreSQL:

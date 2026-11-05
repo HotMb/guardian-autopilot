@@ -9,7 +9,7 @@ import test from 'node:test';
 import {parseGitHubAuditEvent} from '../dist/github-audit.js';
 import {processGitHubAuditJob} from '../dist/github-audit.js';
 import {PostgresGitHubAuditQueue} from '../dist/github-audit-queue.js';
-import {startGitHubAuditWorker} from '../dist/github-audit-worker.js';
+import {startGitHubAuditWorker, auditWorkerIsPaused} from '../dist/github-audit-worker.js';
 
 const validPush = () => ({
   installation: {id: 901},
@@ -17,6 +17,14 @@ const validPush = () => ({
   ref: 'refs/heads/main',
   after: 'a'.repeat(40),
   deleted: false,
+});
+
+test('maintenance pause must be explicit and invalid values fail closed', () => {
+  assert.equal(auditWorkerIsPaused(undefined), false);
+  assert.equal(auditWorkerIsPaused('false'), false);
+  assert.equal(auditWorkerIsPaused('true'), true);
+  assert.throws(() => auditWorkerIsPaused(''), /GITHUB_AUDIT_WORKER_PAUSED/);
+  assert.throws(() => auditWorkerIsPaused('yes'), /GITHUB_AUDIT_WORKER_PAUSED/);
 });
 
 test('accepts every commit in a signed push as separate metadata-only audit work', () => {

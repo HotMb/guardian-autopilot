@@ -14,6 +14,13 @@ export type GitHubAuditWorkerOptions = {
 
 export type GitHubAuditWorker = {close: () => Promise<void>};
 
+/** Pause processing only; the signed webhook continues to persist incoming jobs. */
+export function auditWorkerIsPaused(value: string | undefined): boolean {
+  if (value === undefined || value === 'false') return false;
+  if (value === 'true') return true;
+  throw new Error('GITHUB_AUDIT_WORKER_PAUSED must be true or false');
+}
+
 /** Polls a durable queue serially so free web instances cannot lose acknowledged deliveries. */
 export function startGitHubAuditWorker(
   queue: PostgresGitHubAuditQueue,

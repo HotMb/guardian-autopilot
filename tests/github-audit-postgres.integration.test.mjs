@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import {execFile} from 'node:child_process';
-import {randomBytes} from 'node:crypto';
+import {execFile, spawn} from 'node:child_process';
+import {createHmac, randomBytes} from 'node:crypto';
 import {access, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {createServer} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join, relative, isAbsolute} from 'node:path';
 import {promisify} from 'node:util';
+import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import pg from 'pg';
 import {PostgresGitHubAuditQueue} from '../dist/github-audit-queue.js';
@@ -22,7 +23,7 @@ async function unusedLocalPort() {
   return port;
 }
 
-test('PostgreSQL migration and lease takeover fence stale attempts', {skip: !bin, timeout: 120_000}, async () => {
+test('PostgreSQL migration, lease fencing and paused webhook ingestion', {skip: !bin, timeout: 180_000}, async () => {
   const root = await mkdtemp(join(tmpdir(), 'guardian-pg-integration-'));
   const rootRelative = relative(tmpdir(), root);
   if (isAbsolute(rootRelative) || !rootRelative.startsWith('guardian-pg-integration-') || rootRelative.includes('..')) throw new Error('Unsafe PostgreSQL test directory');
@@ -69,6 +70,42 @@ test('PostgreSQL migration and lease takeover fence stale attempts', {skip: !bin
     await queue.renewLease(retryJob.deliveryId, retry.leaseToken);
     await assert.rejects(queue.complete(retryJob.deliveryId, failedAttempt.leaseToken), /lease/i);
     await queue.complete(retryJob.deliveryId, retry.leaseToken);
+
+    const httpPort = await unusedLocalPort();
+    const webhookSecret = randomBytes(24).toString('hex');
+    const env = {...process.env};
+    for (const key of Object.keys(env)) if (/^(?:STRIPE|GITHUB|DATABASE)_/.test(key)) delete env[key];
+    Object.assign(env, {HOST: '127.0.0.1', PORT: String(httpPort), DATABASE_URL: `postgresql://guardian_test:${password}@127.0.0.1:${port}/postgres`,
+      GITHUB_APP_ID: '123', GITHUB_APP_PRIVATE_KEY: 'test-key', GITHUB_WEBHOOK_SECRET: webhookSecret, GITHUB_AUDIT_WORKER_PAUSED: 'true'});
+    const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+    const child = spawn(process.execPath, [cli, 'webhook'], {env, windowsHide: true, stdio: 'ignore'});
+    try {
+      let ready = false;
+      const deadline = Date.now() + 15_000;
+      while (!ready && Date.now() < deadline) {
+        if (child.exitCode !== null || child.signalCode !== null) throw new Error('Paused webhook server stopped unexpectedly');
+        try { ready = (await fetch(`http://127.0.0.1:${httpPort}/healthz`)).ok; } catch {}
+        if (!ready) await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.equal(ready, true, 'Paused webhook server should start');
+      const payload = JSON.stringify({installation: {id: 1}, repository: {id: 1, name: 'repo', full_name: 'owner/repo', owner: {login: 'owner'}},
+        ref: 'refs/heads/main', after: 'c'.repeat(40), deleted: false});
+      const signature = `sha256=${createHmac('sha256', webhookSecret).update(payload).digest('hex')}`;
+      const response = await fetch(`http://127.0.0.1:${httpPort}/webhooks/github`, {method: 'POST', body: payload,
+        headers: {'content-type': 'application/json', 'x-github-event': 'push', 'x-github-delivery': 'paused-test', 'x-hub-signature-256': signature}});
+      assert.equal(response.status, 202);
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+      const paused = await pool.query('SELECT status, attempts FROM guardian_github_audit_jobs WHERE commit_sha = $1', ['c'.repeat(40)]);
+      assert.equal(paused.rows[0]?.status, 'queued');
+      assert.equal(paused.rows[0]?.attempts, 0);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        await new Promise((resolve) => {
+          child.once('close', resolve);
+          if (child.exitCode !== null || child.signalCode !== null || !child.kill('SIGTERM')) resolve();
+        });
+      }
+    }
   } finally {
     await pool?.end();
     if (startAttempted) {

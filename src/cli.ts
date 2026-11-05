@@ -10,7 +10,7 @@ import {createGitHubAppJwt} from './github.js';
 import {GitHubInstallationClient} from './github-installation.js';
 import {PostgresGitHubAuditQueue} from './github-audit-queue.js';
 import {processGitHubAuditJob} from './github-audit.js';
-import {startGitHubAuditWorker} from './github-audit-worker.js';
+import {auditWorkerIsPaused, startGitHubAuditWorker} from './github-audit-worker.js';
 import { FileSubscriptionStore, MemorySubscriptionStore } from './subscriptions.js';
 import { PostgresSubscriptionStore } from './postgres-subscriptions.js';
 import { checkoutConfigurationFromEnv, createStripeClient } from './checkout.js';
@@ -74,6 +74,7 @@ try {
     console.log(JSON.stringify(result, null, 2));
     if (result.status === 'blocked') process.exitCode = 1;
   } else if (command === 'webhook') {
+    const auditWorkerPaused = auditWorkerIsPaused(process.env.GITHUB_AUDIT_WORKER_PAUSED);
     const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
     const endpointSecret = stripeWebhookSecret === undefined || stripeWebhookSecret === '' ? undefined : stripeWebhookSecret;
     const port = Number.parseInt(process.env.PORT ?? '8787', 10);
@@ -143,7 +144,8 @@ try {
         resolve();
       });
     });
-    const auditWorker = auditQueue === undefined || githubAppId === undefined || githubPrivateKey === undefined
+    if (auditWorkerPaused && auditQueue !== undefined) console.error('GitHub audit processing is paused; signed events are still queued.');
+    const auditWorker = auditWorkerPaused || auditQueue === undefined || githubAppId === undefined || githubPrivateKey === undefined
       ? undefined
       : startGitHubAuditWorker(auditQueue, (job, saveCheckRunId, ensureLease) => processGitHubAuditJob(job, (item) => new GitHubInstallationClient({
         installationId: item.installationId,
