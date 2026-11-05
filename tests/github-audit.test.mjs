@@ -9,7 +9,7 @@ import test from 'node:test';
 import {parseGitHubAuditEvent} from '../dist/github-audit.js';
 import {processGitHubAuditJob} from '../dist/github-audit.js';
 import {PostgresGitHubAuditQueue} from '../dist/github-audit-queue.js';
-import {startGitHubAuditWorker} from '../dist/github-audit-worker.js';
+import {startGitHubAuditWorker, auditWorkerIsPaused} from '../dist/github-audit-worker.js';
 
 const validPush = () => ({
   installation: {id: 901},
@@ -17,6 +17,14 @@ const validPush = () => ({
   ref: 'refs/heads/main',
   after: 'a'.repeat(40),
   deleted: false,
+});
+
+test('maintenance pause must be explicit and invalid values fail closed', () => {
+  assert.equal(auditWorkerIsPaused(undefined), false);
+  assert.equal(auditWorkerIsPaused('false'), false);
+  assert.equal(auditWorkerIsPaused('true'), true);
+  assert.throws(() => auditWorkerIsPaused(''), /GITHUB_AUDIT_WORKER_PAUSED/);
+  assert.throws(() => auditWorkerIsPaused('yes'), /GITHUB_AUDIT_WORKER_PAUSED/);
 });
 
 test('accepts every commit in a signed push as separate metadata-only audit work', () => {
@@ -88,7 +96,7 @@ test('PostgreSQL audit queue stores metadata idempotently, leases work, and reco
           if (sql.includes('INSERT INTO guardian_github_audit_jobs')) return {rowCount: 1, rows: [{delivery_id: job.deliveryId}]};
           if (sql.includes('RETURNING job.delivery_id')) return {rowCount: 1, rows: [{
             delivery_id: job.deliveryId, installation_id: '901', repository_id: '1701', owner: 'HotMb', repository: 'sample-app',
-            full_name: 'HotMb/sample-app', ref: 'refs/heads/main', commit_sha: 'a'.repeat(40), attempts: 1, check_run_id: null,
+            full_name: 'HotMb/sample-app', ref: 'refs/heads/main', commit_sha: 'a'.repeat(40), attempts: 1, check_run_id: null, lease_token: values[1],
           }]};
           return {rowCount: 1, rows: []};
         },
@@ -104,13 +112,16 @@ test('PostgreSQL audit queue stores metadata idempotently, leases work, and reco
   const job = parsed.jobs[0];
   assert.equal(await queue.enqueue(job), 'queued');
   const beforeClaim = calls.length;
-  assert.deepEqual(await queue.claim(), {
+  const claimed = await queue.claim();
+  assert.match(claimed.leaseToken, /^[a-f0-9-]{36}$/);
+  assert.deepEqual(claimed, {
     ...job,
     attempts: 1,
+    leaseToken: claimed.leaseToken,
   });
   assert.ok(calls.slice(beforeClaim).some(({sql}) => sql.includes("completed_at < NOW() - INTERVAL '30 days'")));
-  await queue.setCheckRunId(job.deliveryId, 8001);
-  await queue.complete(job.deliveryId);
+  await queue.setCheckRunId(job.deliveryId, 8001, claimed.leaseToken);
+  await queue.complete(job.deliveryId, claimed.leaseToken);
   assert.ok(calls.some(({sql}) => sql.includes('FOR UPDATE SKIP LOCKED')));
   assert.ok(calls.some(({sql, values}) => sql.includes('check_run_id = $2') && values[1] === 8001));
   assert.ok(calls.some(({sql}) => sql.includes("status = 'completed'")));
@@ -163,24 +174,51 @@ test('PostgreSQL audit queue retries with bounded delays and eventually marks jo
     async end() {},
   };
   const queue = new PostgresGitHubAuditQueue({pool, maxAttempts: 3});
-  await queue.fail('delivery-013', 'network_failure');
+  await queue.fail('delivery-013', 'network_failure', '11111111-1111-4111-8111-111111111111');
   assert.ok(calls[0].sql.includes("CASE WHEN attempts < $2 THEN 'queued' ELSE 'failed' END"));
   assert.equal(calls[0].values[1], 3);
-  await queue.fail('delivery-013', 'unsafe error with secrets');
+  await queue.fail('delivery-013', 'unsafe error with secrets', '11111111-1111-4111-8111-111111111111');
   assert.equal(calls[1].values[2], 'audit_processing_failed');
+});
+
+test('a worker with an expired or replaced lease cannot update a newer attempt', async () => {
+  const oldToken = '11111111-1111-4111-8111-111111111111';
+  const currentToken = '22222222-2222-4222-8222-222222222222';
+  const state = {token: currentToken, active: true, status: 'processing', checkRunId: null};
+  const pool = {async connect() { return {async query(sql, values) {
+    assert.match(sql, /WHERE[\s\S]*lease_token\s*=\s*\$\d+/i);
+    assert.match(sql, /WHERE[\s\S]*lease_until\s*>\s*NOW\(\)/i);
+    if (!state.active || state.status !== 'processing' || !values.includes(state.token)) return {rowCount: 0, rows: []};
+    if (sql.includes('check_run_id =')) state.checkRunId = values[1];
+    else if (sql.includes("status = 'completed'")) state.status = 'completed';
+    else state.status = 'queued';
+    return {rowCount: 1, rows: []};
+  }, release() {}}; }, async end() {}};
+  const queue = new PostgresGitHubAuditQueue({pool});
+  await assert.rejects(queue.setCheckRunId('job', 1, oldToken), /lease/i);
+  await assert.rejects(queue.complete('job', oldToken), /lease/i);
+  await assert.rejects(queue.fail('job', 'failure', oldToken), /lease/i);
+  assert.deepEqual(state, {token: currentToken, active: true, status: 'processing', checkRunId: null});
+  state.active = false;
+  await assert.rejects(queue.complete('job', currentToken), /lease/i);
+  state.active = true;
+  await queue.setCheckRunId('job', 42, currentToken);
+  await queue.complete('job', currentToken);
+  assert.equal(state.checkRunId, 42);
+  assert.equal(state.status, 'completed');
 });
 
 test('audit worker processes one leased job at a time and persists its Check Run id', async () => {
   const parsed = parseGitHubAuditEvent('push', 'delivery-014', validPush());
-  const job = {...parsed.jobs[0], attempts: 1};
+  const job = {...parsed.jobs[0], attempts: 1, leaseToken: '11111111-1111-4111-8111-111111111111'};
   const events = [];
   let claimed = false;
   let resolveDone;
   const done = new Promise((resolve) => { resolveDone = resolve; });
   const queue = {
     async claim() { if (claimed) return undefined; claimed = true; return job; },
-    async setCheckRunId(deliveryId, checkRunId) { events.push(['check', deliveryId, checkRunId]); },
-    async complete(deliveryId) { events.push(['complete', deliveryId]); resolveDone(); },
+    async setCheckRunId(deliveryId, checkRunId, leaseToken) { events.push(['check', deliveryId, checkRunId, leaseToken]); },
+    async complete(deliveryId, leaseToken) { events.push(['complete', deliveryId, leaseToken]); resolveDone(); },
     async fail() { assert.fail('successful audit must not be retried'); },
   };
   const worker = startGitHubAuditWorker(queue, async (claimedJob, saveCheckRunId) => {
@@ -191,14 +229,14 @@ test('audit worker processes one leased job at a time and persists its Check Run
   await worker.close();
   assert.deepEqual(events.slice(0, 3), [
     ['process', job.deliveryId],
-    ['check', job.deliveryId, 8002],
-    ['complete', job.deliveryId],
+    ['check', job.deliveryId, 8002, job.leaseToken],
+    ['complete', job.deliveryId, job.leaseToken],
   ]);
 });
 
 test('audit worker retries failures without logging exception contents', async () => {
   const parsed = parseGitHubAuditEvent('push', 'delivery-015', validPush());
-  const job = {...parsed.jobs[0], attempts: 1};
+  const job = {...parsed.jobs[0], attempts: 1, leaseToken: '11111111-1111-4111-8111-111111111111'};
   const events = [];
   let resolveDone;
   const done = new Promise((resolve) => { resolveDone = resolve; });
@@ -206,13 +244,37 @@ test('audit worker retries failures without logging exception contents', async (
     async claim() { return job; },
     async setCheckRunId() {},
     async complete() { assert.fail('failed audit must not be completed'); },
-    async fail(deliveryId, code) { events.push(['fail', deliveryId, code]); resolveDone(); },
+    async fail(deliveryId, code, leaseToken) { events.push(['fail', deliveryId, code, leaseToken]); resolveDone(); },
   };
   const worker = startGitHubAuditWorker(queue, async () => { throw new Error('secret source text or token'); }, {pollIntervalMs: 100, log: (message) => events.push(['log', message])});
   await done;
   await worker.close();
   assert.ok(events.some((event) => event[0] === 'fail' && event[2] === 'audit_processing_failed'));
+  assert.ok(events.some((event) => event[0] === 'fail' && event[3] === job.leaseToken));
   assert.equal(JSON.stringify(events).includes('secret source text or token'), false);
+});
+
+test('audit worker renews a long-running lease and stops after renewal failure', async () => {
+  const job = {...parseGitHubAuditEvent('push', 'delivery-renew', validPush()).jobs[0], attempts: 1, leaseToken: '11111111-1111-4111-8111-111111111111'};
+  let resolveRenewal;
+  const renewed = new Promise((resolve) => { resolveRenewal = resolve; });
+  let resolveDone;
+  const done = new Promise((resolve) => { resolveDone = resolve; });
+  let claimed = false;
+  let completed = false;
+  let failed = false;
+  const queue = {
+    async claim() { if (claimed) return undefined; claimed = true; return job; },
+    async renewLease(deliveryId, token) { assert.equal(deliveryId, job.deliveryId); assert.equal(token, job.leaseToken); resolveRenewal(); throw new Error('database secret'); },
+    async setCheckRunId() { assert.fail('lost lease must not save a check'); },
+    async complete() { completed = true; },
+    async fail(_id, _code, token) { assert.equal(token, job.leaseToken); failed = true; resolveDone(); },
+  };
+  const worker = startGitHubAuditWorker(queue, async () => { await renewed; }, {pollIntervalMs: 100, leaseRenewIntervalMs: 100, log: () => {}});
+  await done;
+  await worker.close();
+  assert.equal(completed, false);
+  assert.equal(failed, true);
 });
 
 test('audit worker throttles repeated queue outage logs and never includes database error details', async () => {
@@ -226,6 +288,27 @@ test('audit worker throttles repeated queue outage logs and never includes datab
   await worker.close();
   assert.equal(logs.length, 1);
   assert.doesNotMatch(logs.join('\n'), /database password/);
+});
+
+test('an audit reusing a Check Run verifies its lease before publishing', async () => {
+  const job = {...parseGitHubAuditEvent('push', 'delivery-lease', validPush()).jobs[0], attempts: 2, checkRunId: 99};
+  let completed = false;
+  await assert.rejects(processGitHubAuditJob(job, () => ({
+    async getRepository() { return {id: 9999, fullName: 'Other/repo'}; },
+    async createCheckRun() { assert.fail('must reuse existing Check Run'); },
+    async completeCheckRun() { completed = true; },
+  }), async (id) => { assert.equal(id, 99); throw new Error('lease lost'); }, async () => {}), /lease lost/);
+  assert.equal(completed, false);
+});
+
+test('an audit does not create a Check Run after its lease is lost', async () => {
+  const job = {...parseGitHubAuditEvent('push', 'delivery-expired', validPush()).jobs[0], attempts: 1};
+  let created = false;
+  await assert.rejects(processGitHubAuditJob(job, () => ({
+    async getRepository() { return {id: 9999, fullName: 'Other/repo'}; },
+    async createCheckRun() { created = true; },
+  }), async () => {}, async () => { throw new Error('lease lost'); }), /lease lost/);
+  assert.equal(created, false);
 });
 
 test('hosted audit analyzes an ephemeral commit archive without running repository scripts and completes a Check Run', async () => {
@@ -245,7 +328,7 @@ test('hosted audit analyzes an ephemeral commit archive without running reposito
       async downloadRepositoryArchive() { return new Response(Readable.toWeb(Readable.from([archive]))); },
       async createCheckRun(owner, name, sha, delivery) { calls.push(['create', owner, name, sha, delivery]); return 902; },
       async completeCheckRun(owner, name, id, output) { calls.push(['complete', owner, name, id, output]); },
-    }), async (id) => { persistedCheckRun = id; });
+    }), async (id) => { persistedCheckRun = id; }, async () => {});
     assert.equal(persistedCheckRun, 902);
     assert.deepEqual(calls[0], ['create', 'HotMb', 'sample-app', 'a'.repeat(40), `1701:${'a'.repeat(40)}`]);
     assert.equal(calls[1][0], 'complete');
@@ -283,7 +366,7 @@ test('hosted audit blocks archives that cannot represent one complete repository
         async downloadRepositoryArchive() { return new Response(Readable.toWeb(Readable.from([archive]))); },
         async createCheckRun() { return 904; },
         async completeCheckRun(owner, name, id, result) { output = result; },
-      }), async () => {});
+      }), async () => {}, async () => {});
       assert.equal(output.conclusion, 'action_required', label);
       assert.match(output.summary, /Analysis blocked/, label);
       assert.doesNotMatch(output.summary, /Repository discovery: complete/, label);
@@ -312,7 +395,7 @@ test('oversized hosted reports fail closed instead of publishing a truncated can
       async downloadRepositoryArchive() { return new Response(Readable.toWeb(Readable.from([archive]))); },
       async createCheckRun() { return 903; },
       async completeCheckRun(owner, name, id, result) { output = result; },
-    }), async () => {});
+    }), async () => {}, async () => {});
     assert.equal(output.conclusion, 'neutral');
     assert.match(output.summary, /Report too large for GitHub Checks/);
     assert.match(output.summary, /No candidate is actionable/);

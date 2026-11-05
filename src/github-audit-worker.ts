@@ -3,14 +3,23 @@ import type {ClaimedGitHubAuditJob, PostgresGitHubAuditQueue} from './github-aud
 export type GitHubAuditProcessor = (
   job: ClaimedGitHubAuditJob,
   saveCheckRunId: (checkRunId: number) => Promise<void>,
+  ensureLease: () => Promise<void>,
 ) => Promise<void>;
 
 export type GitHubAuditWorkerOptions = {
   pollIntervalMs?: number;
+  leaseRenewIntervalMs?: number;
   log?: (message: string) => void;
 };
 
 export type GitHubAuditWorker = {close: () => Promise<void>};
+
+/** Pause processing only; the signed webhook continues to persist incoming jobs. */
+export function auditWorkerIsPaused(value: string | undefined): boolean {
+  if (value === undefined || value === 'false') return false;
+  if (value === 'true') return true;
+  throw new Error('GITHUB_AUDIT_WORKER_PAUSED must be true or false');
+}
 
 /** Polls a durable queue serially so free web instances cannot lose acknowledged deliveries. */
 export function startGitHubAuditWorker(
@@ -20,6 +29,8 @@ export function startGitHubAuditWorker(
 ): GitHubAuditWorker {
   const pollIntervalMs = options.pollIntervalMs ?? 2_000;
   if (!Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 100 || pollIntervalMs > 30_000) throw new Error('GitHub audit polling interval must be between 100 and 30000 ms');
+  const leaseRenewIntervalMs = options.leaseRenewIntervalMs ?? 120_000;
+  if (!Number.isSafeInteger(leaseRenewIntervalMs) || leaseRenewIntervalMs < 100 || leaseRenewIntervalMs > 300_000) throw new Error('GitHub audit lease renewal interval must be between 100 and 300000 ms');
   const log = options.log ?? ((message) => console.error(message));
   let stopped = false;
   let timer: NodeJS.Timeout | undefined;
@@ -43,11 +54,32 @@ export function startGitHubAuditWorker(
       }
       queueUnavailableLogged = false;
       if (job === undefined) return;
+      const currentJob = job;
+      let leaseLost = false;
+      let renewal = Promise.resolve();
+      const renewTimer = setInterval(() => {
+        renewal = renewal.then(async () => {
+          if (leaseLost) return;
+          try { await queue.renewLease(currentJob.deliveryId, currentJob.leaseToken); }
+          catch { leaseLost = true; }
+        });
+      }, leaseRenewIntervalMs);
       try {
-        await processor(job, (checkRunId) => queue.setCheckRunId(job!.deliveryId, checkRunId));
-        await queue.complete(job.deliveryId);
+        await processor(currentJob, async (checkRunId) => {
+          if (leaseLost) throw new Error('GitHub audit lease lost');
+          await queue.setCheckRunId(currentJob.deliveryId, checkRunId, currentJob.leaseToken);
+        }, async () => {
+          if (leaseLost) throw new Error('GitHub audit lease lost');
+          await queue.renewLease(currentJob.deliveryId, currentJob.leaseToken);
+        });
+        clearInterval(renewTimer);
+        await renewal;
+        if (leaseLost) throw new Error('GitHub audit lease lost');
+        await queue.complete(currentJob.deliveryId, currentJob.leaseToken);
       } catch {
-        try { await queue.fail(job.deliveryId, 'audit_processing_failed'); }
+        clearInterval(renewTimer);
+        await renewal;
+        try { await queue.fail(currentJob.deliveryId, 'audit_processing_failed', currentJob.leaseToken); }
         catch { log('GitHub audit task could not be recorded for retry.'); }
         log('GitHub audit task failed; source content and provider error details were not logged.');
       }

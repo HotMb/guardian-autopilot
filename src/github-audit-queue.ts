@@ -1,11 +1,12 @@
 import {Pool} from 'pg';
+import {randomUUID} from 'node:crypto';
 import type {GitHubAuditJob} from './github-audit.js';
 
 type QueryResult = {rowCount?: number | null; rows: Array<Record<string, unknown>>};
 type QueryableClient = {query(text: string, values?: readonly unknown[]): Promise<QueryResult>; release(): void};
 type QueryablePool = {connect(): Promise<QueryableClient>; end(): Promise<void>};
 
-export type ClaimedGitHubAuditJob = GitHubAuditJob & {attempts: number; checkRunId?: number};
+export type ClaimedGitHubAuditJob = GitHubAuditJob & {attempts: number; leaseToken: string; checkRunId?: number};
 
 export type GitHubAuditQueueOptions = {
   connectionString?: string;
@@ -35,6 +36,7 @@ const schemaStatements = [
     error_code TEXT,
     UNIQUE (repository_id, commit_sha)
   )`,
+  'ALTER TABLE guardian_github_audit_jobs ADD COLUMN IF NOT EXISTS lease_token UUID',
   'CREATE INDEX IF NOT EXISTS guardian_github_audit_jobs_ready ON guardian_github_audit_jobs (available_at, created_at) WHERE status IN (\'queued\', \'processing\')',
   'CREATE INDEX IF NOT EXISTS guardian_github_audit_jobs_retention ON guardian_github_audit_jobs (completed_at) WHERE status IN (\'completed\', \'failed\')',
 ];
@@ -62,6 +64,7 @@ function jobFromRow(row: Record<string, unknown>): ClaimedGitHubAuditJob {
     ref: text(row.ref, 'branch ref'),
     commitSha: text(row.commit_sha, 'commit SHA'),
     attempts: positiveInteger(row.attempts, 'attempt count'),
+    leaseToken: text(row.lease_token, 'lease token'),
     ...(checkRunId === undefined ? {} : {checkRunId}),
   };
 }
@@ -90,6 +93,8 @@ export class PostgresGitHubAuditQueue {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      await client.query("SET LOCAL lock_timeout = '5s'");
+      await client.query('SELECT pg_advisory_xact_lock(1196572996, 1)');
       for (const statement of schemaStatements) await client.query(statement);
       await client.query("DELETE FROM guardian_github_audit_jobs WHERE status IN ('completed', 'failed') AND completed_at < NOW() - INTERVAL '30 days'");
       await client.query('COMMIT');
@@ -111,7 +116,7 @@ export class PostgresGitHubAuditQueue {
          (delivery_id, installation_id, repository_id, owner, repository, full_name, ref, commit_sha)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (repository_id, commit_sha) DO UPDATE
-         SET status = 'queued', attempts = 0, available_at = NOW(), lease_until = NULL,
+         SET status = 'queued', attempts = 0, available_at = NOW(), lease_until = NULL, lease_token = NULL,
              completed_at = NULL, error_code = NULL, updated_at = NOW()
          WHERE guardian_github_audit_jobs.status = 'failed'
          RETURNING delivery_id`,
@@ -129,7 +134,7 @@ export class PostgresGitHubAuditQueue {
       await client.query("DELETE FROM guardian_github_audit_jobs WHERE status IN ('completed', 'failed') AND completed_at < NOW() - INTERVAL '30 days'");
       await client.query(
         `UPDATE guardian_github_audit_jobs
-         SET status = 'failed', error_code = 'retry_limit_reached', completed_at = NOW(), lease_until = NULL, updated_at = NOW()
+         SET status = 'failed', error_code = 'retry_limit_reached', completed_at = NOW(), lease_until = NULL, lease_token = NULL, updated_at = NOW()
          WHERE attempts >= $1 AND (status = 'queued' OR (status = 'processing' AND lease_until <= NOW()))`,
         [this.maxAttempts],
       );
@@ -145,12 +150,12 @@ export class PostgresGitHubAuditQueue {
          )
          UPDATE guardian_github_audit_jobs AS job
          SET status = 'processing', attempts = job.attempts + 1,
-             lease_until = NOW() + INTERVAL '10 minutes', updated_at = NOW()
+             lease_until = NOW() + INTERVAL '10 minutes', lease_token = $2, updated_at = NOW()
          FROM ready
          WHERE job.delivery_id = ready.delivery_id
          RETURNING job.delivery_id, job.installation_id, job.repository_id, job.owner, job.repository,
-                   job.full_name, job.ref, job.commit_sha, job.attempts, job.check_run_id`,
-        [this.maxAttempts],
+                   job.full_name, job.ref, job.commit_sha, job.attempts, job.check_run_id, job.lease_token`,
+        [this.maxAttempts, randomUUID()],
       );
       return result.rows[0] === undefined ? undefined : jobFromRow(result.rows[0]);
     } finally {
@@ -158,36 +163,38 @@ export class PostgresGitHubAuditQueue {
     }
   }
 
-  async setCheckRunId(deliveryId: string, checkRunId: number): Promise<void> {
+  async setCheckRunId(deliveryId: string, checkRunId: number, leaseToken: string): Promise<void> {
     if (!Number.isSafeInteger(checkRunId) || checkRunId <= 0) throw new Error('GitHub check run id is invalid');
-    await this.update('UPDATE guardian_github_audit_jobs SET check_run_id = $2, updated_at = NOW() WHERE delivery_id = $1 AND status = \'processing\'', [deliveryId, checkRunId]);
+    await this.update('UPDATE guardian_github_audit_jobs SET check_run_id = $2, updated_at = NOW() WHERE delivery_id = $1 AND status = \'processing\' AND lease_token = $3 AND lease_until > NOW()', [deliveryId, checkRunId, leaseToken]);
   }
 
-  async complete(deliveryId: string): Promise<void> {
-    await this.update("UPDATE guardian_github_audit_jobs SET status = 'completed', completed_at = NOW(), lease_until = NULL, error_code = NULL, updated_at = NOW() WHERE delivery_id = $1 AND status = 'processing'", [deliveryId]);
+  async renewLease(deliveryId: string, leaseToken: string): Promise<void> {
+    await this.update("UPDATE guardian_github_audit_jobs SET lease_until = NOW() + INTERVAL '10 minutes', updated_at = NOW() WHERE delivery_id = $1 AND status = 'processing' AND lease_token = $2 AND lease_until > NOW()", [deliveryId, leaseToken]);
   }
 
-  async fail(deliveryId: string, errorCode: string): Promise<void> {
+  async complete(deliveryId: string, leaseToken: string): Promise<void> {
+    await this.update("UPDATE guardian_github_audit_jobs SET status = 'completed', completed_at = NOW(), lease_until = NULL, lease_token = NULL, error_code = NULL, updated_at = NOW() WHERE delivery_id = $1 AND status = 'processing' AND lease_token = $2 AND lease_until > NOW()", [deliveryId, leaseToken]);
+  }
+
+  async fail(deliveryId: string, errorCode: string, leaseToken: string): Promise<void> {
     const safeCode = /^[a-z0-9_-]{1,80}$/.test(errorCode) ? errorCode : 'audit_processing_failed';
-    const client = await this.pool.connect();
-    try {
-      await client.query(
+    await this.update(
         `UPDATE guardian_github_audit_jobs
          SET status = CASE WHEN attempts < $2 THEN 'queued' ELSE 'failed' END,
              available_at = NOW() + make_interval(secs => LEAST(120, GREATEST(5, attempts * 10))),
              completed_at = CASE WHEN attempts < $2 THEN NULL ELSE NOW() END,
-             lease_until = NULL, error_code = $3, updated_at = NOW()
-         WHERE delivery_id = $1 AND status = 'processing'`,
-        [deliveryId, this.maxAttempts, safeCode],
+             lease_until = NULL, lease_token = NULL, error_code = $3, updated_at = NOW()
+         WHERE delivery_id = $1 AND status = 'processing' AND lease_token = $4 AND lease_until > NOW()`,
+        [deliveryId, this.maxAttempts, safeCode, leaseToken],
       );
-    } finally {
-      client.release();
-    }
   }
 
   private async update(query: string, values: readonly unknown[]): Promise<void> {
     const client = await this.pool.connect();
-    try { await client.query(query, values); }
+    try {
+      const result = await client.query(query, values);
+      if (result.rowCount !== 1) throw new Error('GitHub audit lease expired or was replaced');
+    }
     finally { client.release(); }
   }
 

@@ -67,12 +67,16 @@ function createQueue() {
       if (entry === undefined) return undefined;
       entry.status = 'processing';
       entry.attempts += 1;
-      return {...entry.job, attempts: entry.attempts, ...(entry.checkRunId === undefined ? {} : {checkRunId: entry.checkRunId})};
+      return {...entry.job, attempts: entry.attempts, leaseToken: '11111111-1111-4111-8111-111111111111', ...(entry.checkRunId === undefined ? {} : {checkRunId: entry.checkRunId})};
     },
     async setCheckRunId(deliveryId, checkRunId) {
       const entry = jobs.get(deliveryId);
       assert.ok(entry);
       entry.checkRunId = checkRunId;
+    },
+    async renewLease(deliveryId, token) {
+      assert.ok(jobs.has(deliveryId));
+      assert.equal(token, '11111111-1111-4111-8111-111111111111');
     },
     async complete(deliveryId) {
       const entry = jobs.get(deliveryId);
@@ -125,10 +129,11 @@ test('end-to-end GitHub push authenticates, queues every commit, scans archives,
       completedChecks.push({owner, name, id, output});
     },
   };
-  const worker = startGitHubAuditWorker(queue, (job, saveCheckRunId) => processGitHubAuditJob(
+  const worker = startGitHubAuditWorker(queue, (job, saveCheckRunId, ensureLease) => processGitHubAuditJob(
     job,
     () => fakeGitHub,
     saveCheckRunId,
+    ensureLease,
   ), {pollIntervalMs: 100, log: (message) => assert.fail(`unexpected worker log: ${message}`)});
   const server = createBillingWebhookServer({
     githubWebhookSecret: webhookSecret,
