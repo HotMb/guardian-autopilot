@@ -262,6 +262,7 @@ export async function processGitHubAuditJob(
   job: ClaimedGitHubAuditJob,
   createClient: GitHubAuditClientFactory,
   saveCheckRunId: (checkRunId: number) => Promise<void>,
+  ensureLease: () => Promise<void>,
 ): Promise<void> {
   const client = createClient(job);
   let root: string | undefined;
@@ -287,7 +288,10 @@ export async function processGitHubAuditJob(
   }
 
   const output = checkOutput(job, reportMarkdown, blockedCode, archiveEvidence);
+  await ensureLease();
   const checkRunId = job.checkRunId ?? await client.createCheckRun(job.owner, job.repository, job.commitSha, job.deliveryId);
-  if (job.checkRunId === undefined) await saveCheckRunId(checkRunId);
+  // Refresh the lease check even when an earlier attempt already created the Check Run.
+  await saveCheckRunId(checkRunId);
+  await ensureLease();
   await client.completeCheckRun(job.owner, job.repository, checkRunId, output);
 }

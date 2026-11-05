@@ -48,7 +48,7 @@ node packages/cli/dist/index.js plan /path/to/project --format=json
 node packages/cli/dist/index.js report /path/to/project --format=html --output report.html
 ```
 
-Plans are review-only. Guardian does not treat a missing import, a duplicate hash, or a passing test suite as proof that a file is unused. Real CleanCode deletion remains blocked until the engine can produce its own verified positive-use evidence.
+Plans are review-only. Guardian does not treat a missing import, a duplicate hash, or a passing test suite as proof that a file is unused. Local application of a deletion requires an engine-generated proof for a supported, explicitly declared closed-world project, per-run confirmation, and the other execution safeguards. If those conditions cannot be established, the deletion remains blocked.
 
 ### GitHub commit reports (hosted beta)
 
@@ -178,7 +178,7 @@ The test suite covers the root CLI and the shared, license, core, and CLI packag
 
 ## Project status
 
-Guardian is in beta. Hosted source audits, scheduled GitHub scans, automated pull requests, a customer dashboard, and live Stripe billing are not implemented. The free deployment configuration is for testing and does not provide production availability or DDoS protection.
+Guardian is in beta. The optional GitHub App can produce read-only reports for supported push deliveries; the manually dispatched cleanup workflow can propose one selected deletion as a draft pull request after its checks pass. Draft publication still requires repository permissions and end-to-end validation on the installation. Automatic candidate selection and pull requests on every commit, scheduled scans, a customer dashboard, and live Stripe billing are not implemented. The free deployment configuration is for testing and does not provide production availability or DDoS protection.
 
 ## Documentation
 

@@ -13,6 +13,12 @@ The image binds to `0.0.0.0`, exposes port `8787`, and runs as the unprivileged 
 
 For a horizontally scaled service, provide `DATABASE_URL` instead of `STRIPE_SUBSCRIPTION_STORE_PATH`. The subscription store creates its two PostgreSQL tables at startup; enabling GitHub audits also creates the durable audit-queue table. Subscription events use transactions and a unique event constraint so retries remain safe across instances. Set a Cloud Run maximum instance count that matches the database connection budget.
 
+## Upgrading the GitHub audit queue
+
+The lease-token upgrade is not safe as a rolling deployment alongside older workers, which do not check lease ownership. Plan a maintenance window: stop every old webhook/worker instance and wait until its processes have exited before starting the new version. Allow existing ten-minute leases to expire before relying on reclaimed jobs. During the interruption, monitor and redeliver any failed GitHub webhooks; do not assume GitHub automatically retries every failed delivery.
+
+The new service adds a nullable `lease_token` column at startup. Migration attempts take a transaction-scoped advisory lock and fail after five seconds if a required lock cannot be acquired; inspect database load and retry startup if blocked. A first-time index build can still take time on a large queue. Back up and test the upgrade against a copy of the database before production. Verify report delivery after startup. Lease renewal and checks reduce duplicate processing, but they cannot make a GitHub API call atomic with the database; a failure at that boundary may still leave a duplicate or incomplete Check Run.
+
 ## Recommended scalable target
 
 For Guardian Autopilot, the recommended first hosted target is Cloud Run plus Cloud SQL for PostgreSQL:

@@ -145,11 +145,11 @@ try {
     });
     const auditWorker = auditQueue === undefined || githubAppId === undefined || githubPrivateKey === undefined
       ? undefined
-      : startGitHubAuditWorker(auditQueue, (job, saveCheckRunId) => processGitHubAuditJob(job, (item) => new GitHubInstallationClient({
+      : startGitHubAuditWorker(auditQueue, (job, saveCheckRunId, ensureLease) => processGitHubAuditJob(job, (item) => new GitHubInstallationClient({
         installationId: item.installationId,
         repositoryId: item.repositoryId,
         createJwt: () => createGitHubAppJwt(githubAppId, githubPrivateKey),
-      }), saveCheckRunId));
+      }), saveCheckRunId, ensureLease));
     let shuttingDown = false;
     const shutdown = async (): Promise<void> => {
       if (shuttingDown) return;
