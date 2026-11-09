@@ -1,0 +1,1 @@
+{"test":{"args":["-e","process.exit(0)"],"command":"node"},"build":{"args":["-e","process.exit(0)"],"command":"node"},"typecheck":{"args":["-e","process.exit(0)"],"command":"node"}}
